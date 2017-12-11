@@ -1,81 +1,40 @@
-============================================
-ARGUS: A Robotic Vision Evaluation Framework
-============================================
+==============================================
+ARVET: A Robotic Vision Evaluation Tool - SLAM
+==============================================
 
-A framework for testing and training robot vision systems, as part of a robot vision experiment.
-Handles logic around importing datasets, intializing and calling different robot vision systems,
-feeding them images, collecting the output, and then evaluating the system output.
-This is a work in progress, so it will be hard to use without reading the code.
+A set of extras for ARVET for working with SLAM systems.
+Includes importers for common slam datasets:
 
-Handles monocular, stereo and RGB-D systems, only running the systems with datasets that have the appropriate data.
+ - KITTI_
+ - `TUM RGBD evaluation datasets`_
+ - `EuRoC drone dataset`_
 
-Implements a task management system, to manage which tasks have been completed,
-and to interface with external job managers and batch systems (such as exist on High-Performance computing servers).
-Experiment data and state is stored in a MongoDB database.
-Several separate nodes can run the code from the same MongoDB database, to distribute computation.
+Includes bindings for two common robotic vision systems. Acutally using either of these systems requires python
+bindings to link them from the original C++
 
-Usage
-=====
+ - ORB_SLAM2_ (Python bindings at https://github.com/jskinn/ORB_SLAM2-PythonBindings )
+ - LibVisO2_ (Python bindings at https://github.com/jlowenz/pyviso2 )
 
-Creating an experiment
-----------------------
+This module also includes 4 evaluation benchmarks:
 
-To define an experiment, override `argus.batch_analysis.experiment.Experiment`,
-in particular the `do_imports`, `schedule_tasks`, and `plot_results` methods.
-- `do_imports` method should import and store references to whatever image datasets
-- `schedule_tasks` indicates which systems should be run with which image datasets, and how each result should be assessed
-- `plot results` visualizes the performance output
+- The absolute trajectory error and relative pose error implemented bu Jurgen Sturm,
+and distributed as part of the TUM RGBD evaluation tools
+(see https://vision.in.tum.de/data/datasets/rgbd-dataset/tools#evaluation )
 
-See the `experiments` module for examples, particularly `experiments.visual_slam.visual_odometry_experiment`.
+- The trajectory drift evaluation used as part of the KITTI benchmark
+(see http://www.cvlibs.net/datasets/kitti/eval_odometry.php )
 
-Lastly, create and store an instance of the experiment in `add_initial_entities.py`.
+- Tracking statistics for how often the system reports itself as lost (particularly relevant for ORB_SLAM2)
 
-Running experiments
--------------------
+.. _KITTI: http://www.cvlibs.net/datasets/kitti/eval_odometry.php
+.. _TUM RGBD evaluation datasets: https://vision.in.tum.de/data/datasets/rgbd-dataset
+.. _EuRoC drone dataset: http://projects.asl.ethz.ch/datasets/doku.php?id=kmavvisualinertialdatasets
 
-Run `add_initial_entities.py` to create the experiments.
-Then, run `scheduler.py` repeatedly to incrementally schedule systems to be run with image sources
+.. _ORB_SLAM2: https://github.com/raulmur/ORB_SLAM2
+.. _LibVisO2: http://www.cvlibs.net/software/libviso/
 
+License
+=======
 
-Configuration
-=============
-
-Configuration information is stored in config.yml,
-allowing you to specify how to connect and structure data in the MongoDB database,
-which types of tasks to run on this node, what kind of job system should be used to run
-the jobs (see `argus.batch_analysis.job_systems`), and the log output.
-
-Structure
-=========
-
-- The key abstractions are in the core module, with implementations of the base types in the `benchmarks`, `dataset`, `simulation`, `systems`, and `trials` modules.
-- the `argus.batch_analysis` module contains code to perform analysis based on these abstractions, including defining experiments, the task management system, and the different job systems.
-- The `database` module contains util code for connecting to the MongoDB database, and saving and loading objects from it.
-- The `metadata` module contains management structures for image metadata, including camera intrinsics, object labels, camera pose, and many other properties. See `metadata.image_metadata` for the full implementation.
-
-Data and state is stored in a MongoDB database, which can be configured in config.yml.
-
-Python Dependencies
-===================
-
-The code is in python 3, tested with both 3.4 and 3.5. Does not support python 2.
-The core structure depends on the following python libraries, which can be installed with pip:
-- pickle
-- numpy
-- transforms3d
-- pymongo
-- unittest
-
-Image dataset importing and image feature systems (module systems.features) depend on:
-- opencv 3.0
-
-Unreal Engine simulators depend on:
-- unrealcv (use my fork from my github for additional camera features and python3 support)
-
-Deep-learning depends on:
-- keras (requires scikit-learn, pillow, h5py)
-- tensorflow (see [https://www.tensorflow.org/install/install_linux], best with GPU and CUDA)
-
-Libviso can be downloaded from:http://www.cvlibs.net/software/libviso/ .
-Libviso is written in C++, use within the framework requres python bindings,
-which can be downloaded here: https://github.com/jlowenz/pyviso2
+Except where otherwise noted in the relevant file, this code is licensed under the BSD 2-Clause licence, see LICENSE.
+In particular, this module repackages code from Jurgen Strum, also under a BSD license

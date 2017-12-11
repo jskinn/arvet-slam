@@ -12,9 +12,9 @@ with open(path.join(here, 'README.rst'), encoding='utf-8') as f:
     long_description = f.read()
 
 setup(
-    name='argus',
+    name='arvet-slam',
     version='0.1.0',
-    description='Framework and utilities for performing robotic vision experiments',
+    description='ARVET extensions for performing robotic vision experiments on SLAM systems',
     long_description=long_description,
     author='John Skinner',
     author_email='jskinn@protonmail.com',
@@ -43,8 +43,8 @@ setup(
         'Programming Language :: Python :: 3.6',
     ],
 
-    url='https://gitub.com/jskinn/arvet-slam',
-    packages=find_packages(exclude=["*.tests", "*.tests.*", "tests.*", "tests"]),
+    url='https://gitub.com/jskinn/arvet',
+    packages=find_packages(exclude=[]), #find_packages(exclude=["*.tests", "*.tests.*", "tests.*", "tests"]),
     install_requires=['pymongo', 'numpy', 'transforms3d', 'mongomock', 'xxhash', 'PyYAML', 'arvet', 'pykitti'],
     python_requires='>=3'
 )
