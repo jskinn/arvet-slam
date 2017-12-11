@@ -77,48 +77,48 @@ class TestORBSLAM2(arvet.database.tests.test_entity.EntityContract, unittest.Tes
         self.assertEqual(trial_result1._orbslam_settings, trial_result2._orbslam_settings)
         self.assertEqual(trial_result1.get_settings(), trial_result2.get_settings())
 
-    @mock.patch('systems.slam.orbslam2.multiprocessing', autospec=multiprocessing)
+    @mock.patch('arvet_slam.systems.slam.orbslam2.multiprocessing', autospec=multiprocessing)
     def test_start_trial_starts_a_subprocess(self, mock_multiprocessing):
         mock_process = mock.create_autospec(multiprocessing.Process)
         mock_multiprocessing.Process.return_value = mock_process
         subject = self.make_instance()
-        with mock.patch('systems.slam.orbslam2.open', mock.mock_open(), create=True):
+        with mock.patch('arvet_slam.systems.slam.orbslam2.open', mock.mock_open(), create=True):
             subject.start_trial(arvet.core.sequence_type.ImageSequenceType.SEQUENTIAL)
         self.assertTrue(mock_multiprocessing.Process.called)
         self.assertEqual(arvet_slam.systems.slam.orbslam2.run_orbslam,
                          mock_multiprocessing.Process.call_args[1]['target'])
         self.assertTrue(mock_process.start.called)
 
-    @mock.patch('systems.slam.orbslam2.multiprocessing', autospec=multiprocessing)
+    @mock.patch('arvet_slam.systems.slam.orbslam2.multiprocessing', autospec=multiprocessing)
     def test_start_trial_saves_settings_file(self, _):
         mock_open = mock.mock_open()
         temp_folder = 'thisisatempfolder'
         subject = self.make_instance(temp_folder=temp_folder)
-        with mock.patch('systems.slam.orbslam2.open', mock_open, create=True):
+        with mock.patch('arvet_slam.systems.slam.orbslam2.open', mock_open, create=True):
             subject.start_trial(arvet.core.sequence_type.ImageSequenceType.SEQUENTIAL)
         self.assertTrue(mock_open.called)
         self.assertEqual(os.path.join(temp_folder, 'orb-slam2-settings-unregistered'), mock_open.call_args[0][0])
 
-    @mock.patch('systems.slam.orbslam2.multiprocessing', autospec=multiprocessing)
+    @mock.patch('arvet_slam.systems.slam.orbslam2.multiprocessing', autospec=multiprocessing)
     def test_start_trial_uses_id_in_settings_file(self, _):
         mock_open = mock.mock_open()
         sys_id = oid.ObjectId()
         temp_folder = 'thisisatempfolder'
         subject = self.make_instance(temp_folder=temp_folder, id_=sys_id)
-        with mock.patch('systems.slam.orbslam2.open', mock_open, create=True):
+        with mock.patch('arvet_slam.systems.slam.orbslam2.open', mock_open, create=True):
             subject.start_trial(arvet.core.sequence_type.ImageSequenceType.SEQUENTIAL)
         self.assertTrue(mock_open.called)
         self.assertEqual(os.path.join(temp_folder, 'orb-slam2-settings-{0}'.format(sys_id)), mock_open.call_args[0][0])
 
-    @mock.patch('systems.slam.orbslam2.os.path.isfile', autospec=os.path.isfile)
-    @mock.patch('systems.slam.orbslam2.multiprocessing', autospec=multiprocessing)
+    @mock.patch('arvet_slam.systems.slam.orbslam2.os.path.isfile', autospec=os.path.isfile)
+    @mock.patch('arvet_slam.systems.slam.orbslam2.multiprocessing', autospec=multiprocessing)
     def test_start_trial_finds_available_file(self, _, mock_isfile):
         mock_open = mock.mock_open()
         temp_folder = 'thisisatempfolder'
         base_filename = os.path.join(temp_folder, 'orb-slam2-settings-unregistered')
         mock_isfile.side_effect = lambda x: x != base_filename + '-10'
         subject = self.make_instance(temp_folder=temp_folder)
-        with mock.patch('systems.slam.orbslam2.open', mock_open, create=True):
+        with mock.patch('arvet_slam.systems.slam.orbslam2.open', mock_open, create=True):
             subject.start_trial(arvet.core.sequence_type.ImageSequenceType.SEQUENTIAL)
         self.assertTrue(mock_isfile.called)
         self.assertIn(mock.call(base_filename), mock_isfile.call_args_list)
@@ -127,20 +127,20 @@ class TestORBSLAM2(arvet.database.tests.test_entity.EntityContract, unittest.Tes
         self.assertTrue(mock_open.called)
         self.assertEqual(base_filename + '-10', mock_open.call_args[0][0])
 
-    @mock.patch('systems.slam.orbslam2.multiprocessing', autospec=multiprocessing)
+    @mock.patch('arvet_slam.systems.slam.orbslam2.multiprocessing', autospec=multiprocessing)
     def test_start_trial_does_nothing_for_non_sequential_input(self, mock_multiprocessing):
         mock_process = mock.create_autospec(multiprocessing.Process)
         mock_multiprocessing.Process.return_value = mock_process
         mock_open = mock.mock_open()
         subject = self.make_instance()
-        with mock.patch('systems.slam.orbslam2.open', mock_open, create=True):
+        with mock.patch('arvet_slam.systems.slam.orbslam2.open', mock_open, create=True):
             subject.start_trial(arvet.core.sequence_type.ImageSequenceType.NON_SEQUENTIAL)
         self.assertFalse(mock_multiprocessing.Process.called)
         self.assertFalse(mock_process.start.called)
         self.assertFalse(mock_open.called)
 
-    @mock.patch('systems.slam.orbslam2.multiprocessing', autospec=multiprocessing)
-    def test_process_image_sends_image_and_depth_to_subprocess(self, mock_multiprocessing):
+    @mock.patch('arvet_slam.systems.slam.orbslam2.multiprocessing', autospec=multiprocessing)
+    def test_process_image_mono_sends_image_to_subprocess(self, mock_multiprocessing):
         mock_process = mock.create_autospec(multiprocessing.Process)
         mock_queue = mock.create_autospec(multiprocessing.queues.Queue)     # Have to be specific to get the class
         mock_queue.qsize.return_value = 0
@@ -154,23 +154,79 @@ class TestORBSLAM2(arvet.database.tests.test_entity.EntityContract, unittest.Tes
             hash_=b'\x00\x00\x00\x00\x00\x00\x00\x01'
         ))
 
-        subject = self.make_instance()
-        with mock.patch('systems.slam.orbslam2.open', mock.mock_open(), create=True):
+        subject = self.make_instance(mode=arvet_slam.systems.slam.orbslam2.SensorMode.RGBD)
+        with mock.patch('arvet_slam.systems.slam.orbslam2.open', mock.mock_open(), create=True):
             subject.start_trial(arvet.core.sequence_type.ImageSequenceType.SEQUENTIAL)
         self.assertTrue(mock_multiprocessing.Process.called)
         self.assertIn(mock_queue, mock_multiprocessing.Process.call_args[1]['args'])
 
         subject.process_image(image, 12)
         self.assertTrue(mock_queue.put.called)
+        self.assertIn(12, [elem for elem in mock_queue.put.call_args[0][0] if isinstance(elem, int)])
+        self.assertTrue(np.any([np.array_equal(mock_image_data, elem) for elem in mock_queue.put.call_args[0][0]]))
+        self.assertTrue(np.any([np.array_equal(mock_depth_data, elem) for elem in mock_queue.put.call_args[0][0]]))
 
-    @mock.patch('systems.slam.orbslam2.os', autospec=os)
-    @mock.patch('systems.slam.orbslam2.multiprocessing', autospec=multiprocessing)
+    @mock.patch('arvet_slam.systems.slam.orbslam2.multiprocessing', autospec=multiprocessing)
+    def test_process_image_rgbd_sends_image_and_depth_to_subprocess(self, mock_multiprocessing):
+        mock_process = mock.create_autospec(multiprocessing.Process)
+        mock_queue = mock.create_autospec(multiprocessing.queues.Queue)     # Have to be specific to get the class
+        mock_queue.qsize.return_value = 0
+        mock_multiprocessing.Process.return_value = mock_process
+        mock_multiprocessing.Queue.return_value = mock_queue
+
+        mock_image_data = np.random.randint(0, 255, (32, 32, 3), dtype='uint8')
+        image = arvet.core.image.Image(data=mock_image_data, metadata=imeta.ImageMetadata(
+            source_type=imeta.ImageSourceType.SYNTHETIC,
+            hash_=b'\x00\x00\x00\x00\x00\x00\x00\x01'
+        ))
+
+        subject = self.make_instance(mode=arvet_slam.systems.slam.orbslam2.SensorMode.MONOCULAR)
+        with mock.patch('arvet_slam.systems.slam.orbslam2.open', mock.mock_open(), create=True):
+            subject.start_trial(arvet.core.sequence_type.ImageSequenceType.SEQUENTIAL)
+        self.assertTrue(mock_multiprocessing.Process.called)
+        self.assertIn(mock_queue, mock_multiprocessing.Process.call_args[1]['args'])
+
+        subject.process_image(image, 12)
+        self.assertTrue(mock_queue.put.called)
+        self.assertIn(12, [elem for elem in mock_queue.put.call_args[0][0] if isinstance(elem, int)])
+        self.assertTrue(np.any([np.array_equal(mock_image_data, elem) for elem in mock_queue.put.call_args[0][0]]))
+
+    @mock.patch('arvet_slam.systems.slam.orbslam2.multiprocessing', autospec=multiprocessing)
+    def test_process_image_stereo_sends_left_and_right_image_to_subprocess(self, mock_multiprocessing):
+        mock_process = mock.create_autospec(multiprocessing.Process)
+        mock_queue = mock.create_autospec(multiprocessing.queues.Queue)     # Have to be specific to get the class
+        mock_queue.qsize.return_value = 0
+        mock_multiprocessing.Process.return_value = mock_process
+        mock_multiprocessing.Queue.return_value = mock_queue
+
+        mock_left_data = np.random.randint(0, 255, (32, 32, 3), dtype='uint8')
+        mock_right_data = np.random.randint(0, 255, (32, 32, 3), dtype='uint8')
+        image = arvet.core.image.StereoImage(left_data=mock_left_data, right_data=mock_right_data,
+                                             metadata=imeta.ImageMetadata(
+                                                 source_type=imeta.ImageSourceType.SYNTHETIC,
+                                                 hash_=b'\x00\x00\x00\x00\x00\x00\x00\x01'
+                                             ))
+
+        subject = self.make_instance(mode=arvet_slam.systems.slam.orbslam2.SensorMode.STEREO)
+        with mock.patch('arvet_slam.systems.slam.orbslam2.open', mock.mock_open(), create=True):
+            subject.start_trial(arvet.core.sequence_type.ImageSequenceType.SEQUENTIAL)
+        self.assertTrue(mock_multiprocessing.Process.called)
+        self.assertIn(mock_queue, mock_multiprocessing.Process.call_args[1]['args'])
+
+        subject.process_image(image, 12)
+        self.assertTrue(mock_queue.put.called)
+        self.assertIn(12, [elem for elem in mock_queue.put.call_args[0][0] if isinstance(elem, int)])
+        self.assertTrue(np.any([np.array_equal(mock_left_data, elem) for elem in mock_queue.put.call_args[0][0]]))
+        self.assertTrue(np.any([np.array_equal(mock_right_data, elem) for elem in mock_queue.put.call_args[0][0]]))
+
+    @mock.patch('arvet_slam.systems.slam.orbslam2.os', autospec=os)
+    @mock.patch('arvet_slam.systems.slam.orbslam2.multiprocessing', autospec=multiprocessing)
     def test_finish_trial_waits_for_output(self, mock_multiprocessing, mock_os):
         mock_process = mock.create_autospec(multiprocessing.Process)
         mock_multiprocessing.Process.return_value = mock_process
         mock_open = mock.mock_open()
         subject = self.make_instance()
-        with mock.patch('systems.slam.orbslam2.open', mock_open, create=True):
+        with mock.patch('arvet_slam.systems.slam.orbslam2.open', mock_open, create=True):
             subject.start_trial(arvet.core.sequence_type.ImageSequenceType.NON_SEQUENTIAL)
         # TODO: Finish testing finish_trial
 
@@ -192,6 +248,6 @@ class TestRunOrbslam(unittest.TestCase):
         mock_orbslam.System.return_value = mock_system
         with mock.patch.dict('sys.modules', orbslam2=mock_orbslam):
             arvet_slam.systems.slam.orbslam2.run_orbslam(mock_output_queue, mock_input_queue, '', '',
-                                                         arvet_slam.systems.slam.orbslam2.SensorMode.RGBD, (1280, 720))
+                                                         arvet_slam.systems.slam.orbslam2.SensorMode.RGBD)
         self.assertTrue(mock_system.initialize.called)
         self.assertTrue(mock_system.shutdown.called)

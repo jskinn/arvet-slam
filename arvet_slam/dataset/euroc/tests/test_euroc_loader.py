@@ -78,7 +78,7 @@ class TestReadTrajectory(unittest.TestCase):
 
         mock_open = mock.mock_open(read_data=trajectory_text)
         extend_mock_open(mock_open)
-        with mock.patch('dataset.euroc.euroc_loader.open', mock_open, create=True):
+        with mock.patch('arvet_slam.dataset.euroc.euroc_loader.open', mock_open, create=True):
             trajectory = euroc_loader.read_trajectory('test_filepath')
         self.assertEqual(len(trajectory), len(relative_trajectory))
         for time, pose in relative_trajectory.items():
@@ -117,7 +117,7 @@ class TestReadTrajectory(unittest.TestCase):
 
         mock_open = mock.mock_open(read_data=trajectory_text)
         extend_mock_open(mock_open)
-        with mock.patch('dataset.euroc.euroc_loader.open', mock_open, create=True):
+        with mock.patch('arvet_slam.dataset.euroc.euroc_loader.open', mock_open, create=True):
             trajectory = euroc_loader.read_trajectory('test_filepath')
         self.assertEqual(len(trajectory), len(relative_trajectory))
         for time, pose in relative_trajectory.items():

@@ -57,13 +57,13 @@ class TestTUMLoader(unittest.TestCase):
         self.assertEqual(desired_result, tum_loader.associate_data(int_map, float_map, str_map))
 
     def test_associate_data_noisy_keys(self):
-        random = np.random.RandomState()
+        random = np.random.RandomState(1531)
         desired_result = sorted(
-            [random.uniform(0, 100),
+            [time + random.uniform(0, 0.5),
              random.randint(0, 1000),
              random.uniform(-100, 100),
              "test-{0}".format(random.randint(0, 1000))]
-            for _ in range(20))
+            for time in range(20))
         int_map = {stamp: int_val for stamp, int_val, _, _ in desired_result}
         float_map = {stamp + random.uniform(-0.02, 0.02): float_val for stamp, _, float_val, _ in desired_result}
         str_map = {stamp + random.uniform(-0.02, 0.02): str_val for stamp, _, _, str_val in desired_result}
