@@ -1,7 +1,7 @@
 # Copyright (c) 2017, John Skinner
 import os.path
 import xxhash
-import cv2
+import arvet.util.image_utils as image_utils
 import arvet.util.associate as ass
 import arvet.metadata.camera_intrinsics as cam_intr
 import arvet.metadata.image_metadata as imeta
@@ -191,12 +191,12 @@ def import_dataset(root_folder, db_client):
     # Step 3: Load the images from the metadata
     builder = arvet.image_collections.image_collection_builder.ImageCollectionBuilder(db_client)
     for timestamp, image_file, camera_pose, depth_file in all_metadata:
-        rgb_data = cv2.imread(os.path.join(root_folder, image_file), cv2.IMREAD_COLOR)
-        depth_data = cv2.imread(os.path.join(root_folder, depth_file), cv2.IMREAD_UNCHANGED)
+        rgb_data = image_utils.read_colour(os.path.join(root_folder, image_file))
+        depth_data = image_utils.read_depth(os.path.join(root_folder, depth_file))
         depth_data = depth_data / 5000  # Re-scale depth to meters
         camera_intrinsics = get_camera_intrinsics(root_folder)
         builder.add_image(image=arvet.core.image_entity.ImageEntity(
-            data=rgb_data[:, :, ::-1],
+            data=rgb_data,
             depth_data=depth_data,
             metadata=imeta.ImageMetadata(
                 hash_=xxhash.xxh64(rgb_data).digest(),

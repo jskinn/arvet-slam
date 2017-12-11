@@ -2,7 +2,6 @@
 import os.path
 import numpy as np
 import xxhash
-import cv2
 import yaml
 try:
     from yaml import CDumper as YamlDumper, CLoader as YamlLoader
@@ -10,6 +9,7 @@ except ImportError:
     from yaml import Dumper as YamlDumper, Loader as YamlLoader
 
 
+import arvet.util.image_utils as image_utils
 import arvet.util.associate as ass
 import arvet.metadata.camera_intrinsics as cam_intr
 import arvet.metadata.image_metadata as imeta
@@ -179,10 +179,8 @@ def import_dataset(root_folder, db_client):
     # Step 3: Load the images from the metadata
     builder = arvet.image_collections.image_collection_builder.ImageCollectionBuilder(db_client)
     for timestamp, left_image_file, right_image_file, robot_pose in all_metadata:
-        left_data = cv2.imread(os.path.join(root_folder, 'cam0', 'data', left_image_file), cv2.IMREAD_COLOR)
-        right_data = cv2.imread(os.path.join(root_folder, 'cam1', 'data', right_image_file), cv2.IMREAD_COLOR)
-        left_data = np.ascontiguousarray(left_data[:, :, ::-1])
-        right_data = np.ascontiguousarray(right_data[:, :, ::-1])
+        left_data = image_utils.read_colour(os.path.join(root_folder, 'cam0', 'data', left_image_file))
+        right_data = image_utils.read_colour(os.path.join(root_folder, 'cam1', 'data', right_image_file))
 
         left_pose = robot_pose.find_independent(left_extrinsics)
         right_pose = robot_pose.find_independent(right_extrinsics)
