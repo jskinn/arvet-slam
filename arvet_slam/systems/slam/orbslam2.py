@@ -106,6 +106,7 @@ class ORBSLAM2(arvet.core.system.VisionSystem):
         self._temp_folder = temp_folder
 
         self._expected_completion_timeout = 300     # This is how long we wait after the dataset is finished
+        self._actual_vocab_file = None
         self._settings_file = None
         self._child_process = None
         self._input_queue = None
@@ -170,6 +171,9 @@ class ORBSLAM2(arvet.core.system.VisionSystem):
         """
         self._orbslam_settings['Camera']['bf'] = float(baseline) * self._orbslam_settings['Camera']['fx']
 
+    def resolve_paths(self, path_manager):
+        self._actual_vocab_file = path_manager.find_file(self._vocabulary_file)
+
     def start_trial(self, sequence_type):
         """
         Start a trial with this system.
@@ -188,7 +192,7 @@ class ORBSLAM2(arvet.core.system.VisionSystem):
         self._child_process = multiprocessing.Process(target=run_orbslam,
                                                       args=(self._output_queue,
                                                             self._input_queue,
-                                                            self._vocabulary_file,
+                                                            self._actual_vocab_file,
                                                             self._settings_file,
                                                             self._mode))
         self._child_process.start()
