@@ -1,6 +1,7 @@
 # Copyright (c) 2017, John Skinner
 import os
 import time
+import logging
 import numpy as np
 import re
 import signal
@@ -105,7 +106,7 @@ class ORBSLAM2(arvet.core.system.VisionSystem):
         })
         self._temp_folder = temp_folder
 
-        self._expected_completion_timeout = 300     # This is how long we wait after the dataset is finished
+        self._expected_completion_timeout = 600     # This is how long we wait after the dataset is finished
         self._actual_vocab_file = None
         self._settings_file = None
         self._child_process = None
@@ -199,6 +200,8 @@ class ORBSLAM2(arvet.core.system.VisionSystem):
         try:
             started = self._output_queue.get(block=True, timeout=self._expected_completion_timeout)
         except queue.Empty:
+            logging.getLogger(__name__).error("Failed to start ORBSLAM2, timed out after {0} seconds".format(
+                self._expected_completion_timeout))
             started = False
         if not started:
             self._child_process.terminate()
@@ -248,6 +251,7 @@ class ORBSLAM2(arvet.core.system.VisionSystem):
         :rtype TrialResult:
         """
         if self._input_queue is None:
+            logging.getLogger(__name__).warning("Cannot finish ORBSLAM trial, failed to start.")
             return None
         self._input_queue.put(None)     # This will end the main loop, see run_orbslam, below
         try:
@@ -255,6 +259,8 @@ class ORBSLAM2(arvet.core.system.VisionSystem):
                                                                      timeout=self._expected_completion_timeout)
         except queue.Empty:
             # process has failed to complete within expected time, kill it and move on.
+            logging.getLogger(__name__).error("Failed to stop ORBSLAM2, timed out after {0} seconds".format(
+                self._expected_completion_timeout))
             trajectory_list = None
             tracking_stats = {}
 
@@ -277,16 +283,11 @@ class ORBSLAM2(arvet.core.system.VisionSystem):
             )
         else:
             # something went wrong, kill it with fire
+            result = None
             self._child_process.terminate()
             self._child_process.join(timeout=5)
             if self._child_process.is_alive():
                 os.kill(self._child_process.pid, signal.SIGKILL)    # Definitely kill the process.
-            result = arvet.core.trial_result.FailedTrial(
-                system_id=self.identifier,
-                reason="Child process timed out after {0} seconds.".format(self._expected_completion_timeout),
-                sequence_type=arvet.core.sequence_type.ImageSequenceType.SEQUENTIAL,
-                system_settings=self.get_settings()
-            )
 
         if os.path.isfile(self._settings_file):
             os.remove(self._settings_file)  # Delete the settings file
@@ -438,7 +439,6 @@ def run_orbslam(output_queue, input_queue, vocab_file, settings_file, mode):
     :return:
     """
     import orbslam2
-    import logging
     import arvet_slam.trials.slam.tracking_state as tracking_state
 
     logging.getLogger(__name__).info("Starting ORBSLAM2...")
@@ -467,12 +467,12 @@ def run_orbslam(output_queue, input_queue, vocab_file, settings_file, mode):
             elif mode == SensorMode.RGBD:
                 orbslam_system.process_image_rgbd(img1, img2, timestamp)
 
-            tracking_state = orbslam_system.get_tracking_state()
-            if (tracking_state == orbslam2.TrackingState.SYSTEM_NOT_READY or
-                    tracking_state == orbslam2.TrackingState.NO_IMAGES_YET or
-                    tracking_state == orbslam2.TrackingState.NOT_INITIALIZED):
+            current_state = orbslam_system.get_tracking_state()
+            if (current_state == orbslam2.TrackingState.SYSTEM_NOT_READY or
+                    current_state == orbslam2.TrackingState.NO_IMAGES_YET or
+                    current_state == orbslam2.TrackingState.NOT_INITIALIZED):
                 tracking_stats[timestamp] = tracking_state.TrackingState.NOT_INITIALIZED
-            elif tracking_state == orbslam2.TrackingState.OK:
+            elif current_state == orbslam2.TrackingState.OK:
                 tracking_stats[timestamp] = tracking_state.TrackingState.OK
             else:
                 tracking_stats[timestamp] = tracking_state.TrackingState.LOST
