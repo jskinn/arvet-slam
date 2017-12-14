@@ -127,6 +127,6 @@ def prepare_image(image_data):
         if 0.99 < np.max(output_image) <= 1.001:
             output_image = 255 * output_image
         output_image = np.asarray(output_image, dtype=np.uint8)
-    if len(image_data.shape) > 2:
-        output_image = image_utils.convert_to_grey(image_data)
+    if len(output_image.shape) > 2:
+        output_image = image_utils.convert_to_grey(output_image)
     return output_image
