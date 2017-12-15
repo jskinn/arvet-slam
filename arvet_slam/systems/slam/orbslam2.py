@@ -8,6 +8,7 @@ import signal
 import queue
 import multiprocessing
 import enum
+import tempfile
 import transforms3d as tf3d
 import arvet.core.system
 import arvet.core.sequence_type
@@ -303,14 +304,15 @@ class ORBSLAM2(arvet.core.system.VisionSystem):
 
     def save_settings(self):
         if self._settings_file is None:
-            # Choose a new settings file
-            self._settings_file = os.path.join(self._temp_folder, 'orb-slam2-settings-{0}'.format(
-                self.identifier if self.identifier is not None else 'unregistered'))
-            if os.path.isfile(self._settings_file):
-                for idx in range(10000):
-                    if not os.path.isfile(self._settings_file + '-' + str(idx)):
-                        self._settings_file += '-' + str(idx)
-                        break
+            # Choose a new settings file, using mkstemp to avoid collisions
+            fp, self._settings_file = tempfile.mkstemp(
+                prefix='orb-slam2-settings-{0}-'.format(
+                    self.identifier if self.identifier is not None else 'unregistered'),
+                dir=self._temp_folder,
+                text=True
+            )
+            fp.write('%')
+            fp.close()  # close the open file handle, file should now exist
             dump_config(self._settings_file, self._orbslam_settings)
 
     def validate(self):
