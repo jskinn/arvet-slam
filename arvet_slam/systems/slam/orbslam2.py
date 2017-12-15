@@ -441,12 +441,12 @@ def run_orbslam(output_queue, input_queue, vocab_file, settings_file, mode):
     import orbslam2
     import arvet_slam.trials.slam.tracking_state as tracking_state
 
-    logging.getLogger(__name__).info("Starting ORBSLAM2...")
     sensor_mode = orbslam2.Sensor.RGBD
     if mode == SensorMode.MONOCULAR:
         sensor_mode = orbslam2.Sensor.MONOCULAR
     elif mode == SensorMode.STEREO:
         sensor_mode = orbslam2.Sensor.STEREO
+    logging.getLogger(__name__).info("Starting ORBSLAM2 in {0} mode...".format(sensor_mode.name.lower()))
 
     tracking_stats = {}
     orbslam_system = orbslam2.System(vocab_file, settings_file, sensor_mode)
