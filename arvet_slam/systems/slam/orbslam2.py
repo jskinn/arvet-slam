@@ -66,14 +66,15 @@ class ORBSLAM2(arvet.core.system.VisionSystem):
 
                 # Color order of the images (0: BGR, 1: RGB. It is ignored if images are grayscale)
                 # All the images in this system will be RGB order
-                'RGB': 1,
-
-                # Close/Far threshold. Baseline times. I don't know what this does.
-                'ThDepth': 35.0,
-
-                # Depthmap values factor (all my depth is in meters, rescaling is handled elsewhere)
-                'DepthMapFactor': 1.0
+                'RGB': 1
             },
+
+            # Close/Far threshold. Baseline times. I don't know what this does.
+            'ThDepth': 35.0,
+
+            # Depthmap values factor (all my depth is in meters, rescaling is handled elsewhere)
+            'DepthMapFactor': 1.0,
+
             'ORBextractor': {
                 # ORB Extractor: Number of features per image
                 'nFeatures': 2000,
@@ -152,7 +153,7 @@ class ORBSLAM2(arvet.core.system.VisionSystem):
         """
         if self._child_process is None:
             self._orbslam_settings['Camera']['width'] = camera_intrinsics.width
-            self._orbslam_settings['Camera']['height'] = camera_intrinsics.width
+            self._orbslam_settings['Camera']['height'] = camera_intrinsics.height
             self._orbslam_settings['Camera']['bf'] = (camera_intrinsics.fx * self._orbslam_settings['Camera']['bf']
                                                       / self._orbslam_settings['Camera']['fx'])
             self._orbslam_settings['Camera']['fx'] = camera_intrinsics.fx
@@ -305,12 +306,15 @@ class ORBSLAM2(arvet.core.system.VisionSystem):
     def save_settings(self):
         if self._settings_file is None:
             # Choose a new settings file, using mkstemp to avoid collisions
-            fp, self._settings_file = tempfile.mkstemp(
+            fp = tempfile.NamedTemporaryFile(
                 prefix='orb-slam2-settings-{0}-'.format(
                     self.identifier if self.identifier is not None else 'unregistered'),
+                suffix='.yaml',
                 dir=self._temp_folder,
-                text=True
+                mode='w',
+                delete=False
             )
+            self._settings_file = fp.name
             fp.write('%')
             fp.close()  # close the open file handle, file should now exist
             dump_config(self._settings_file, self._orbslam_settings)

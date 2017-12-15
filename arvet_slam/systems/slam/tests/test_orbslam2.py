@@ -2,6 +2,7 @@
 import unittest
 import unittest.mock as mock
 import os.path
+import shutil
 import numpy as np
 import multiprocessing
 import multiprocessing.queues
@@ -9,13 +10,25 @@ import bson.objectid as oid
 import arvet.database.tests.test_entity
 import arvet.util.dict_utils as du
 import arvet.metadata.image_metadata as imeta
+import arvet.metadata.camera_intrinsics as cam_intr
 import arvet.core.sequence_type
 import arvet.core.image
 import arvet_slam.systems.slam.orbslam2
 import orbslam2
 
+_temp_folder = 'temp-test-orbslam2'
+
 
 class TestORBSLAM2(arvet.database.tests.test_entity.EntityContract, unittest.TestCase):
+
+    @classmethod
+    def setUpClass(cls):
+        os.makedirs(_temp_folder, exist_ok=True)
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(_temp_folder)
+
     def get_class(self):
         return arvet_slam.systems.slam.orbslam2.ORBSLAM2
 
@@ -58,7 +71,7 @@ class TestORBSLAM2(arvet.database.tests.test_entity.EntityContract, unittest.Tes
                 }
             },
             'mode': arvet_slam.systems.slam.orbslam2.SensorMode(np.random.randint(0, 3)),
-            'temp_folder': 'imafolder-{0}'.format(np.random.randint(10, 20))
+            'temp_folder': _temp_folder
         })
         return arvet_slam.systems.slam.orbslam2.ORBSLAM2(*args, **kwargs)
 
@@ -91,41 +104,98 @@ class TestORBSLAM2(arvet.database.tests.test_entity.EntityContract, unittest.Tes
 
     @mock.patch('arvet_slam.systems.slam.orbslam2.multiprocessing', autospec=multiprocessing)
     def test_start_trial_saves_settings_file(self, _):
+        width = np.random.randint(300, 800)
+        height = np.random.randint(300, 800)
+        fx = np.random.uniform(0.9, 1.1) * width
+        fy = np.random.uniform(0.9, 1.1) * height
+        cx = np.random.uniform(0, 1) * width
+        cy = np.random.uniform(0, 1) * height
+        k1 = np.random.uniform(0, 1)
+        k2 = np.random.uniform(0, 1)
+        k3 = np.random.uniform(0, 1)
+        p1 = np.random.uniform(0, 1)
+        p2 = np.random.uniform(0, 1)
+        baseline = np.random.uniform(0, 1)
+
+        settings = {
+            'Camera': {
+                'fps': np.random.uniform(10, 100),
+                'RGB': np.random.randint(0, 1)
+            },
+            'ThDepth': np.random.randint(0, 255),
+            'DepthMapFactor': np.random.randint(0, 255),
+            'ORBextractor': {
+                'nFeatures': np.random.randint(0, 8000),
+                'scaleFactor': np.random.uniform(0, 2),
+                'nLevels': np.random.randint(1, 10),
+                'iniThFAST': np.random.randint(0, 100),
+                'minThFAST': np.random.randint(0, 20)
+            }
+        }
+
         mock_open = mock.mock_open()
-        temp_folder = 'thisisatempfolder'
-        subject = self.make_instance(temp_folder=temp_folder)
+        subject = self.make_instance(settings=settings)
+        subject.set_camera_intrinsics(cam_intr.CameraIntrinsics(
+            width=width, height=height, fx=fx, fy=fy, cx=cx, cy=cy, k1=k1, k2=k2, k3=k3, p1=p1, p2=p2
+        ))
+        subject.set_stereo_baseline(baseline)
         with mock.patch('arvet_slam.systems.slam.orbslam2.open', mock_open, create=True):
             subject.start_trial(arvet.core.sequence_type.ImageSequenceType.SEQUENTIAL)
         self.assertTrue(mock_open.called)
-        self.assertEqual(os.path.join(temp_folder, 'orb-slam2-settings-unregistered'), mock_open.call_args[0][0])
+        filename = mock_open.call_args[0][0]
+        self.assertTrue(os.path.isfile(filename))
+
+        mock_file = mock_open()
+        self.assertTrue(mock_file.write.called)
+
+        # Join together all the file contents
+        file_contents = ""
+        for args in mock_file.write.call_args_list:
+            file_contents += args[0][0]
+
+        self.assertTrue(file_contents.startswith('%YAML:1.0\n'))
+        self.assertIn('Camera.fx: {0}'.format(fx), file_contents)
+        self.assertIn('Camera.fy: {0}'.format(fy), file_contents)
+        self.assertIn('Camera.cx: {0}'.format(cx), file_contents)
+        self.assertIn('Camera.cy: {0}'.format(cy), file_contents)
+        self.assertIn('Camera.k1: {0}'.format(k1), file_contents)
+        self.assertIn('Camera.k2: {0}'.format(k2), file_contents)
+        self.assertIn('Camera.k3: {0}'.format(k3), file_contents)
+        self.assertIn('Camera.p1: {0}'.format(p1), file_contents)
+        self.assertIn('Camera.p2: {0}'.format(p2), file_contents)
+        self.assertIn('Camera.width: {0}'.format(width), file_contents)
+        self.assertIn('Camera.height: {0}'.format(height), file_contents)
+        self.assertIn('Camera.fps: {0}'.format(settings['Camera']['fps']), file_contents)
+        self.assertIn('Camera.bf: {0}'.format(baseline * fx), file_contents)
+        self.assertIn('Camera.RGB: {0}'.format(settings['Camera']['RGB']), file_contents)
+        self.assertIn('ThDepth: {0}'.format(settings['ThDepth']), file_contents)
+        self.assertIn('DepthMapFactor: {0}'.format(settings['DepthMapFactor']), file_contents)
+        self.assertIn('ORBextractor.nFeatures: {0}'.format(settings['ORBextractor']['nFeatures']), file_contents)
+        self.assertIn('ORBextractor.scaleFactor: {0}'.format(settings['ORBextractor']['scaleFactor']), file_contents)
+        self.assertIn('ORBextractor.nLevels: {0}'.format(settings['ORBextractor']['nLevels']), file_contents)
+        self.assertIn('ORBextractor.iniThFAST: {0}'.format(settings['ORBextractor']['iniThFAST']), file_contents)
+        self.assertIn('ORBextractor.minThFAST: {0}'.format(settings['ORBextractor']['minThFAST']), file_contents)
 
     @mock.patch('arvet_slam.systems.slam.orbslam2.multiprocessing', autospec=multiprocessing)
     def test_start_trial_uses_id_in_settings_file(self, _):
         mock_open = mock.mock_open()
         sys_id = oid.ObjectId()
-        temp_folder = 'thisisatempfolder'
+        temp_folder = _temp_folder
         subject = self.make_instance(temp_folder=temp_folder, id_=sys_id)
         with mock.patch('arvet_slam.systems.slam.orbslam2.open', mock_open, create=True):
             subject.start_trial(arvet.core.sequence_type.ImageSequenceType.SEQUENTIAL)
         self.assertTrue(mock_open.called)
-        self.assertEqual(os.path.join(temp_folder, 'orb-slam2-settings-{0}'.format(sys_id)), mock_open.call_args[0][0])
+        self.assertIn(str(sys_id), mock_open.call_args[0][0])
 
-    @mock.patch('arvet_slam.systems.slam.orbslam2.os.path.isfile', autospec=os.path.isfile)
     @mock.patch('arvet_slam.systems.slam.orbslam2.multiprocessing', autospec=multiprocessing)
-    def test_start_trial_finds_available_file(self, _, mock_isfile):
+    def test_start_trial_finds_available_file(self, _):
         mock_open = mock.mock_open()
-        temp_folder = 'thisisatempfolder'
-        base_filename = os.path.join(temp_folder, 'orb-slam2-settings-unregistered')
-        mock_isfile.side_effect = lambda x: x != base_filename + '-10'
-        subject = self.make_instance(temp_folder=temp_folder)
+        subject = self.make_instance()
+        self.assertIsNone(subject._settings_file)
         with mock.patch('arvet_slam.systems.slam.orbslam2.open', mock_open, create=True):
             subject.start_trial(arvet.core.sequence_type.ImageSequenceType.SEQUENTIAL)
-        self.assertTrue(mock_isfile.called)
-        self.assertIn(mock.call(base_filename), mock_isfile.call_args_list)
-        for idx in range(10):
-            self.assertIn(mock.call(base_filename + '-{0}'.format(idx)), mock_isfile.call_args_list)
-        self.assertTrue(mock_open.called)
-        self.assertEqual(base_filename + '-10', mock_open.call_args[0][0])
+        self.assertIsNotNone(subject._settings_file)
+        self.assertTrue(os.path.isfile(subject._settings_file))
 
     @mock.patch('arvet_slam.systems.slam.orbslam2.multiprocessing', autospec=multiprocessing)
     def test_start_trial_does_nothing_for_non_sequential_input(self, mock_multiprocessing):
