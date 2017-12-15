@@ -97,7 +97,7 @@ class TUMManager:
         # Create tasks for tall the paths we found
         for dataset_folder, full_path in full_paths:
             import_dataset_task = task_manager.get_import_dataset_task(
-                module_name='dataset.tum.tum_loader',
+                module_name='arvet_slam.dataset.tum.tum_loader',
                 path=full_path,
                 num_cpus=1,
                 num_gpus=0,
