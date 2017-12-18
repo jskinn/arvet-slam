@@ -9,7 +9,6 @@ import queue
 import multiprocessing
 import enum
 import tempfile
-import transforms3d as tf3d
 import arvet.core.system
 import arvet.core.sequence_type
 import arvet.core.trial_result
@@ -108,7 +107,7 @@ class ORBSLAM2(arvet.core.system.VisionSystem):
         })
         self._temp_folder = temp_folder
 
-        self._expected_completion_timeout = 600     # This is how long we wait after the dataset is finished
+        self._expected_completion_timeout = 3600     # This is how long we wait after the dataset is finished
         self._actual_vocab_file = None
         self._settings_file = None
         self._child_process = None
@@ -272,8 +271,17 @@ class ORBSLAM2(arvet.core.system.VisionSystem):
 
             # Build the trajectory from raw data
             trajectory = {}
-            for timestamp, x, y, z, qx, qy, qz, qw in trajectory_list:
-                trajectory[timestamp] = make_relative_pose(x, y, z, qx, qy, qz, qw)
+            for (timestamp, r00, r01, r02, t0,
+                 r10, r11, r12, t1,
+                 r20, r21, r22, t2) in trajectory_list:
+                trajectory[timestamp] = make_relative_pose(
+                    np.array([
+                        [r00, r01, r02, t0],
+                        [r10, r11, r12, t1],
+                        [r20, r21, r22, t2],
+                        [0, 0, 0, 1],
+                    ])
+                )
 
             result = arvet_slam.trials.slam.visual_slam.SLAMTrialResult(
                 system_id=self.identifier,
@@ -403,7 +411,7 @@ def nested_to_dotted(data):
     return result
 
 
-def make_relative_pose(x: float, y: float, z: float, qx: float, qy: float, qz: float, qw: float) -> tf.Transform:
+def make_relative_pose(pose_matrix: np.ndarray) -> tf.Transform:
     """
     ORBSLAM2 is using the common CV coordinate frame Z forward, X right, Y down (I think)
     this function handles the coordinate frame
@@ -411,25 +419,14 @@ def make_relative_pose(x: float, y: float, z: float, qx: float, qy: float, qz: f
     Frame is: z forward, x right, y down
     Not documented, worked out by trial and error
 
-    :param x: The x coordinate
-    :param y: The y coordinate
-    :param z: The z coordinate
-    :param qx: The quaternion x coordinate
-    :param qy: The quaternion y coordinate
-    :param qz: The quaternion z coordinate
-    :param qw: The quaternion w coordinate
+    :param pose_matrix: The homogenous pose matrix, as a 4x4 matrix
     :return: A Transform object representing the pose of the current frame with respect to the previous frame
     """
-    tf_matrix = np.matrix([[1, 0, 0, x],
-                           [0, 1, 0, y],
-                           [0, 0, 1, z],
-                           [0, 0, 0, 1]])
-    tf_matrix[0:3, 0:3] = tf3d.quaternions.quat2mat((qw, qx, qy, qz))
     coordinate_exchange = np.matrix([[0, 0, 1, 0],
                                      [-1, 0, 0, 0],
                                      [0, -1, 0, 0],
                                      [0, 0, 0, 1]])
-    pose = np.dot(np.dot(coordinate_exchange, tf_matrix), coordinate_exchange.T)
+    pose = np.dot(np.dot(coordinate_exchange, pose_matrix), coordinate_exchange.T)
     return tf.Transform(pose)
 
 
