@@ -443,6 +443,7 @@ def run_orbslam(output_queue, input_queue, vocab_file, settings_file, mode):
     """
     import orbslam2
     import arvet_slam.trials.slam.tracking_state as tracking_state
+    import time
 
     sensor_mode = orbslam2.Sensor.RGBD
     if mode == SensorMode.MONOCULAR:
@@ -453,16 +454,25 @@ def run_orbslam(output_queue, input_queue, vocab_file, settings_file, mode):
 
     tracking_stats = {}
     orbslam_system = orbslam2.System(vocab_file, settings_file, sensor_mode)
-    orbslam_system.set_use_viewer(False)
+    orbslam_system.set_use_viewer(True)
     orbslam_system.initialize()
     output_queue.put(True)  # Tell the parent process we've set-up correctly and are ready to go.
     logging.getLogger(__name__).info("ORBSLAM2 Ready.")
 
     running = True
+    prev_timestamp = None
+    prev_actual_time = 0
     while running:
         in_data = input_queue.get(block=True)
         if isinstance(in_data, tuple) and len(in_data) == 3:
             img1, img2, timestamp = in_data
+
+            # Wait for the timestamp after the first frame
+            if prev_timestamp is not None:
+                time.sleep(max(0, timestamp - prev_timestamp - time.time() + prev_actual_time))
+            prev_timestamp = timestamp
+            prev_actual_time = time.time()
+
             if mode == SensorMode.MONOCULAR:
                 orbslam_system.process_image_mono(img1, timestamp)
             elif mode == SensorMode.STEREO:
