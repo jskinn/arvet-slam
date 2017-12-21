@@ -15,6 +15,7 @@ import arvet.core.trial_result
 import arvet_slam.trials.slam.visual_slam
 import arvet.util.transform as tf
 import arvet.util.dict_utils as du
+import arvet.util.image_utils as image_utils
 
 
 # Try and use LibYAML where available, fall back to the python implementation
@@ -238,11 +239,13 @@ class ORBSLAM2(arvet.core.system.VisionSystem):
 
             # Send different input based on the running mode
             if self._mode == SensorMode.MONOCULAR:
-                self._input_queue.put((np.copy(image.data), None, timestamp))
+                self._input_queue.put((image_utils.to_uint_image(image.data), None, timestamp))
             elif self._mode == SensorMode.STEREO:
-                self._input_queue.put((np.copy(image.left_data), np.copy(image.right_data), timestamp))
+                self._input_queue.put((image_utils.to_uint_image(image.left_data),
+                                       image_utils.to_uint_image(image.right_data), timestamp))
             elif self._mode == SensorMode.RGBD:
-                self._input_queue.put((np.copy(image.data), np.copy(image.depth_data), timestamp))
+                self._input_queue.put((image_utils.to_uint_image(image.data),
+                                       image_utils.to_uint_image(image.depth_data), timestamp))
 
     def finish_trial(self):
         """
