@@ -20,18 +20,26 @@ class TestSLAMTrialResult(arvet.database.tests.test_entity.EntityContract, unitt
         kwargs = du.defaults(kwargs, {
             'system_id': np.random.randint(10, 20),
             'trajectory': {
-                np.random.uniform(0, 600): tf.Transform(location=np.random.uniform(-1000, 1000, 3),
-                                                        rotation=np.random.uniform(0, 1, 4))
-                for _ in range(100)
+                t + np.random.uniform(0, 0.99): tf.Transform(location=np.random.uniform(-1000, 1000, 3),
+                                                             rotation=np.random.uniform(0, 1, 4))
+                for t in range(100)
             },
             'ground_truth_trajectory': {
-                np.random.uniform(0, 600): tf.Transform(location=np.random.uniform(-1000, 1000, 3),
-                                                        rotation=np.random.uniform(0, 1, 4))
-                for _ in range(100)
+                t + np.random.uniform(0, 0.99): tf.Transform(location=np.random.uniform(-1000, 1000, 3),
+                                                             rotation=np.random.uniform(0, 1, 4))
+                for t in range(100)
             },
             'tracking_stats': {
-                np.random.uniform(0, 600): states[np.random.randint(0, len(states))]
-                for _ in range(100)
+                t + np.random.uniform(0, 0.99): states[np.random.randint(0, len(states))]
+                for t in range(100)
+            },
+            'num_features': {
+                t + np.random.uniform(0, 0.99): np.random.randint(0, 1000)
+                for t in range(100)
+            },
+            'num_matches': {
+                t + np.random.uniform(0, 0.99): np.random.randint(0, 1000)
+                for t in range(100)
             },
             'sequence_type': arvet.core.sequence_type.ImageSequenceType.SEQUENTIAL,
             'system_settings': {

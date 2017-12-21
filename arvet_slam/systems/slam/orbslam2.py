@@ -259,14 +259,16 @@ class ORBSLAM2(arvet.core.system.VisionSystem):
             return None
         self._input_queue.put(None)     # This will end the main loop, see run_orbslam, below
         try:
-            trajectory_list, tracking_stats = self._output_queue.get(block=True,
-                                                                     timeout=self._expected_completion_timeout)
+            trajectory_list, tracking_stats, num_features, num_matches = self._output_queue.get(
+                block=True, timeout=self._expected_completion_timeout)
         except queue.Empty:
             # process has failed to complete within expected time, kill it and move on.
             logging.getLogger(__name__).error("Failed to stop ORBSLAM2, timed out after {0} seconds".format(
                 self._expected_completion_timeout))
             trajectory_list = None
             tracking_stats = {}
+            num_features = {}
+            num_matches = {}
 
         if isinstance(trajectory_list, list):
             # completed successfully, return the trajectory
@@ -291,6 +293,8 @@ class ORBSLAM2(arvet.core.system.VisionSystem):
                 trajectory=trajectory,
                 ground_truth_trajectory=self._gt_trajectory,
                 tracking_stats=tracking_stats,
+                num_features=num_features,
+                num_matches=num_matches,
                 sequence_type=arvet.core.sequence_type.ImageSequenceType.SEQUENTIAL,
                 system_settings=self.get_settings()
             )
@@ -456,6 +460,8 @@ def run_orbslam(output_queue, input_queue, vocab_file, settings_file, mode):
     logging.getLogger(__name__).info("Starting ORBSLAM2 in {0} mode...".format(sensor_mode.name.lower()))
 
     tracking_stats = {}
+    num_features = {}
+    num_matches = {}
     orbslam_system = orbslam2.System(vocab_file, settings_file, sensor_mode)
     orbslam_system.set_use_viewer(True)
     orbslam_system.initialize()
@@ -483,6 +489,9 @@ def run_orbslam(output_queue, input_queue, vocab_file, settings_file, mode):
             elif mode == SensorMode.RGBD:
                 orbslam_system.process_image_rgbd(img1, img2, timestamp)
 
+            # Record statistics about the current frame.
+            num_features[timestamp] = orbslam_system.get_num_features()
+            num_matches[timestamp] = orbslam_system.get_num_matched_features()
             current_state = orbslam_system.get_tracking_state()
             if (current_state == orbslam2.TrackingState.SYSTEM_NOT_READY or
                     current_state == orbslam2.TrackingState.NO_IMAGES_YET or
@@ -498,7 +507,7 @@ def run_orbslam(output_queue, input_queue, vocab_file, settings_file, mode):
             running = False
 
     # send the final trajectory to the parent
-    output_queue.put((orbslam_system.get_trajectory_points(), tracking_stats))
+    output_queue.put((orbslam_system.get_trajectory_points(), tracking_stats, num_features, num_matches))
 
     # shut down the system. This is going to crash it, but that's ok, because it's a subprocess
     orbslam_system.shutdown()
