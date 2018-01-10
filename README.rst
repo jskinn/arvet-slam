@@ -7,7 +7,7 @@ Includes importers for common slam datasets:
 
  - KITTI_
  - `TUM RGBD evaluation datasets`_
- - `EuRoC drone dataset`_
+ - `EuRoC drone dataset`_ (requires OpenCV)
 
 Includes bindings for two common robotic vision systems. Acutally using either of these systems requires python
 bindings to link them from the original C++
