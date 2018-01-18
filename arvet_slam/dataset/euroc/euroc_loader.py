@@ -41,6 +41,18 @@ def make_camera_pose(tx: float, ty: float, tz: float, qw: float, qx: float, qy: 
     )
 
 
+def fix_coordinates(trans: tf.Transform) -> tf.Transform:
+    """
+    Exchange the coordinates on a transform from camera frame to world frame.
+    Used for the camera extrinsics
+    :param trans:
+    :return:
+    """
+    x, y, z = trans.location
+    qw, qx, qy, qz = trans.rotation_quat(w_first=True)
+    return make_camera_pose(x, y, z, qw, qx, qy, qz)
+
+
 def read_image_filenames(images_file_path: str) -> typing.Mapping[int, str]:
     """
     Read data from a camera sensor, formatted as a csv,
@@ -185,10 +197,25 @@ def rectify(left_extrinsics: tf.Transform, left_intrinsics: cam_intr.CameraIntri
     ])
     relative_transform = left_extrinsics.find_relative(right_extrinsics).transform_matrix
 
-    result = cv2.stereoRectify(left_intrinsics.intrinsic_matrix(), left_distortion,
-                               right_intrinsics.intrinsic_matrix(), right_distortion, shape,
-                               relative_transform[0:3, 0:3], relative_transform[0:3, 3])
-    r_left, r_right, p_left, p_right = result[0:4]
+    r_left = np.zeros((3, 3))
+    r_right = np.zeros((3, 3))
+    p_left = np.zeros((3, 4))
+    p_right = np.zeros((3,4))
+    cv2.stereoRectify(
+        cameraMatrix1=left_intrinsics.intrinsic_matrix(),
+        distCoeffs1=left_distortion,
+        cameraMatrix2=right_intrinsics.intrinsic_matrix(),
+        distCoeffs2=right_distortion,
+        imageSize=shape,
+        R=relative_transform[0:3, 0:3],
+        T=relative_transform[0:3, 3],
+        alpha=0,
+        newImageSize=shape,
+        R1=r_left,
+        R2=r_right,
+        P1=p_left,
+        P2=p_right
+    )
 
     m1l, m2l = cv2.initUndistortRectifyMap(left_intrinsics.intrinsic_matrix(), left_distortion, r_left,
                                            p_left[0:3, 0:3], shape, cv2.CV_32F)
@@ -249,6 +276,10 @@ def import_dataset(root_folder, db_client):
     # Step 2: Create stereo rectification matrices from the intrinsics
     left_x, left_y, right_x, right_y = rectify(left_extrinsics, left_intrinsics, right_extrinsics, right_intrinsics)
 
+    # Change the coordinates correctly on the extrinsics. Has to happen after rectification
+    left_extrinsics = fix_coordinates(left_extrinsics)
+    right_extrinsics = fix_coordinates(right_extrinsics)
+
     # Step 3: Associate the different data types by timestamp. Trajectory last because it's bigger than the stereo.
     all_metadata = associate_data(left_image_files, right_image_files, trajectory)
 
@@ -264,8 +295,8 @@ def import_dataset(root_folder, db_client):
         left_data = image_utils.read_colour(os.path.join(root_folder, 'cam0', 'data', left_image_file))
         right_data = image_utils.read_colour(os.path.join(root_folder, 'cam1', 'data', right_image_file))
 
-        left_data = cv2.remap(left_data, left_x, left_y, cv2.INTER_LINEAR)
-        right_data = cv2.remap(right_data, right_x, right_y, cv2.INTER_LINEAR)
+        #left_data = cv2.remap(left_data, left_x, left_y, cv2.INTER_LINEAR)
+        #right_data = cv2.remap(right_data, right_x, right_y, cv2.INTER_LINEAR)
 
         left_pose = robot_pose.find_independent(left_extrinsics)
         right_pose = robot_pose.find_independent(right_extrinsics)
