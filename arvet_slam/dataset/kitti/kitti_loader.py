@@ -51,8 +51,9 @@ def import_dataset(root_folder, db_client, sequence_number=0):
     for left_image, right_image, timestamp, pose in zip(data.cam2, data.cam3, data.timestamps, data.poses):
         camera_pose = make_camera_pose(pose)
         # camera pose is for cam0, we want cam2, which is 6cm (0.06m) to the left
-        camera_pose = camera_pose.find_independent(tf.Transform(location=(0, 0.06, 0), rotation=(0, 0, 0, 1),
-                                                                w_first=False))
+        # Except that we don't need to control for that, since we want to be relative to the first pose anyway
+        # camera_pose = camera_pose.find_independent(tf.Transform(location=(0, 0.06, 0), rotation=(0, 0, 0, 1),
+        #                                                         w_first=False))
         # Stereo offset is 0.54m (http://www.cvlibs.net/datasets/kitti/setup.php)
         right_camera_pose = camera_pose.find_independent(tf.Transform(location=(0, -0.54, 0), rotation=(0, 0, 0, 1),
                                                                       w_first=False))
@@ -75,7 +76,7 @@ def import_dataset(root_folder, db_client, sequence_number=0):
             right_data=right_image,
             metadata=imeta.ImageMetadata(
                 hash_=xxhash.xxh64(left_image).digest(),
-                camera_pose=make_camera_pose(pose),
+                camera_pose=camera_pose,
                 right_camera_pose=right_camera_pose,
                 intrinsics=camera_intrinsics,
                 right_intrinsics=right_camera_intrinsics,
