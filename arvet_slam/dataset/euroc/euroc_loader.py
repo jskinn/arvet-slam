@@ -173,7 +173,8 @@ def get_camera_calibration(sensor_yaml_path: str) -> typing.Tuple[tf.Transform, 
 
 def rectify(left_extrinsics: tf.Transform, left_intrinsics: cam_intr.CameraIntrinsics,
             right_extrinsics: tf.Transform, right_intrinsics: cam_intr.CameraIntrinsics) -> \
-        typing.Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+        typing.Tuple[np.ndarray, np.ndarray, cam_intr.CameraIntrinsics,
+                     np.ndarray, np.ndarray, cam_intr.CameraIntrinsics]:
     """
     Compute mapping matrices for performing stereo rectification, from the camera properties.
     Applying the returned transformation to the images using cv2.remap gives us undistorted stereo rectified images
@@ -195,7 +196,9 @@ def rectify(left_extrinsics: tf.Transform, left_intrinsics: cam_intr.CameraIntri
         right_intrinsics.p1, right_intrinsics.p2,
         right_intrinsics.k3
     ])
-    relative_transform = left_extrinsics.find_relative(right_extrinsics).transform_matrix
+
+    # We want the transform from the right to the left, which is the position of the left relative to the right
+    relative_transform = right_extrinsics.find_relative(left_extrinsics)
 
     r_left = np.zeros((3, 3))
     r_right = np.zeros((3, 3))
@@ -207,9 +210,10 @@ def rectify(left_extrinsics: tf.Transform, left_intrinsics: cam_intr.CameraIntri
         cameraMatrix2=right_intrinsics.intrinsic_matrix(),
         distCoeffs2=right_distortion,
         imageSize=shape,
-        R=relative_transform[0:3, 0:3],
-        T=relative_transform[0:3, 3],
+        R=relative_transform.rotation_matrix,
+        T=relative_transform.location,
         alpha=0,
+        flags=cv2.CALIB_ZERO_DISPARITY,
         newImageSize=shape,
         R1=r_left,
         R2=r_right,
@@ -221,24 +225,28 @@ def rectify(left_extrinsics: tf.Transform, left_intrinsics: cam_intr.CameraIntri
                                            p_left[0:3, 0:3], shape, cv2.CV_32F)
     m1r, m2r = cv2.initUndistortRectifyMap(right_intrinsics.intrinsic_matrix(), right_distortion, r_right,
                                            p_right[0:3, 0:3], shape, cv2.CV_32F)
-    return m1l, m2l, m1r, m2r
 
-
-def copy_undistored(instrinsics: cam_intr.CameraIntrinsics) -> cam_intr.CameraIntrinsics:
-    """
-    Duplicate a camera intrinsics object, without distortion, since that is eliminated in our rectification
-    :param instrinsics:
-    :return:
-    """
-    return cam_intr.CameraIntrinsics(
-        width=instrinsics.width,
-        height=instrinsics.height,
-        fx=instrinsics.fx,
-        fy=instrinsics.fy,
-        cx=instrinsics.cx,
-        cy=instrinsics.cy,
-        skew=instrinsics.s
+    # Rectification has changed the camera intrinsics, return the new ones
+    rectified_left_intrinsics = cam_intr.CameraIntrinsics(
+        width=shape[0],
+        height=shape[1],
+        fx=p_left[0, 0],
+        fy=p_left[1, 1],
+        cx=p_left[0, 2],
+        cy=p_left[1, 2],
+        skew=p_left[0, 1]
     )
+    rectified_right_intrinsics = cam_intr.CameraIntrinsics(
+        width=shape[0],
+        height=shape[1],
+        fx=p_right[0, 0],
+        fy=p_right[1, 1],
+        cx=p_right[0, 2],
+        cy=p_right[1, 2],
+        skew=p_right[0, 1]
+    )
+
+    return m1l, m2l, rectified_left_intrinsics, m1r, m2r, rectified_right_intrinsics
 
 
 def import_dataset(root_folder, db_client):
@@ -274,7 +282,8 @@ def import_dataset(root_folder, db_client):
     trajectory = read_trajectory(trajectory_path)
 
     # Step 2: Create stereo rectification matrices from the intrinsics
-    left_x, left_y, right_x, right_y = rectify(left_extrinsics, left_intrinsics, right_extrinsics, right_intrinsics)
+    left_x, left_y, left_intrinsics, right_x, right_y, right_intrinsics = rectify(
+        left_extrinsics, left_intrinsics, right_extrinsics, right_intrinsics)
 
     # Change the coordinates correctly on the extrinsics. Has to happen after rectification
     left_extrinsics = fix_coordinates(left_extrinsics)
@@ -295,8 +304,8 @@ def import_dataset(root_folder, db_client):
         left_data = image_utils.read_colour(os.path.join(root_folder, 'cam0', 'data', left_image_file))
         right_data = image_utils.read_colour(os.path.join(root_folder, 'cam1', 'data', right_image_file))
 
-        #left_data = cv2.remap(left_data, left_x, left_y, cv2.INTER_LINEAR)
-        #right_data = cv2.remap(right_data, right_x, right_y, cv2.INTER_LINEAR)
+        left_data = cv2.remap(left_data, left_x, left_y, cv2.INTER_LINEAR)
+        right_data = cv2.remap(right_data, right_x, right_y, cv2.INTER_LINEAR)
 
         left_pose = robot_pose.find_independent(left_extrinsics)
         right_pose = robot_pose.find_independent(right_extrinsics)
@@ -308,8 +317,8 @@ def import_dataset(root_folder, db_client):
                 hash_=xxhash.xxh64(left_data).digest(),
                 camera_pose=left_pose,
                 right_camera_pose=right_pose,
-                intrinsics=copy_undistored(left_intrinsics),
-                right_intrinsics=copy_undistored(right_intrinsics),
+                intrinsics=left_intrinsics,
+                right_intrinsics=right_intrinsics,
                 source_type=imeta.ImageSourceType.REAL_WORLD,
                 environment_type=imeta.EnvironmentType.INDOOR_CLOSE,
                 light_level=imeta.LightingLevel.WELL_LIT,
