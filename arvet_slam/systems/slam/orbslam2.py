@@ -62,7 +62,7 @@ class ORBSLAM2(arvet.core.system.VisionSystem):
                 'fps': 30.0,
 
                 # stereo baseline times fx
-                'bf': 640,
+                'bf': 0,
 
                 # Color order of the images (0: BGR, 1: RGB. It is ignored if images are grayscale)
                 # All the images in this system will be RGB order

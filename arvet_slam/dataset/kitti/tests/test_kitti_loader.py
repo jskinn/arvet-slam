@@ -62,6 +62,7 @@ class TestKITTILoader(unittest.TestCase):
 
     def test_import_dataset_concrete(self):
         # TODO: Mock pykitti
+        self.skipTest('Incomplete')
         mock_db_client = mock.create_autospec(arvet.database.client.DatabaseClient)
         mock_db_client.image_collection = mock.create_autospec(pymongo.collection.Collection)
         mock_db_client.image_collection.find_one.return_value = None

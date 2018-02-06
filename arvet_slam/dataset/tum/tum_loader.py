@@ -190,7 +190,13 @@ def import_dataset(root_folder, db_client):
 
     # Step 3: Load the images from the metadata
     builder = arvet.image_collections.image_collection_builder.ImageCollectionBuilder(db_client)
+    first_timestamp = None
     for timestamp, image_file, camera_pose, depth_file in all_metadata:
+        # Re-zero the timestamps
+        if first_timestamp is None:
+            first_timestamp = timestamp
+        timestamp = (timestamp - first_timestamp)
+
         rgb_data = image_utils.read_colour(os.path.join(root_folder, image_file))
         depth_data = image_utils.read_depth(os.path.join(root_folder, depth_file))
         depth_data = depth_data / 5000  # Re-scale depth to meters
@@ -201,6 +207,9 @@ def import_dataset(root_folder, db_client):
             metadata=imeta.ImageMetadata(
                 hash_=xxhash.xxh64(rgb_data).digest(),
                 camera_pose=camera_pose,
+                # RGB-D images have a stereo baseline, for a kinect its about 7.5cm
+                # see http://wiki.ros.org/kinect_calibration/technical
+                right_camera_pose=camera_pose.find_independent(tf.Transform((0, -0.075, 0))),
                 intrinsics=camera_intrinsics,
                 source_type=imeta.ImageSourceType.REAL_WORLD,
                 environment_type=imeta.EnvironmentType.INDOOR_CLOSE,
