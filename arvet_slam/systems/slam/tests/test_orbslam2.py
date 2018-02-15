@@ -87,8 +87,26 @@ class TestORBSLAM2(arvet.database.tests.test_entity.EntityContract, unittest.Tes
             self.fail('object was not a ORBSLAM2')
         self.assertEqual(trial_result1.identifier, trial_result2.identifier)
         self.assertEqual(trial_result1._vocabulary_file, trial_result2._vocabulary_file)
-        self.assertEqual(trial_result1._orbslam_settings, trial_result2._orbslam_settings)
-        self.assertEqual(trial_result1.get_settings(), trial_result2.get_settings())
+
+        # Special handling for the settings, there are some we don't care about being the same
+        settings1 = trial_result1.get_settings()
+        settings2 = trial_result2.get_settings()
+        self.assertEqual(set(settings1.keys()) - {'Camera', 'Viewer'}, set(settings2.keys()) - {'Camera', 'Viewer'})
+        for key in settings1.keys():
+            if key != 'Camera' and key != 'Viewer':
+                self.assertEqual(settings1[key], settings2[key])
+
+    def assert_serialized_equal(self, s_model1, s_model2):
+        self.assertEqual(set(s_model1.keys()), set(s_model2.keys()))
+        for key in s_model1.keys():
+            if key == 'Settings':
+                self.assertEqual(set(s_model1['Settings'].keys()) - {'Camera', 'Viewer'},
+                                 set(s_model2['Settings'].keys()) - {'Camera', 'Viewer'})
+                for settings_key in s_model1['Settings'].keys():
+                    if settings_key != 'Camera' and settings_key != 'Viewer':
+                        self.assertEqual(s_model1['Settings'][settings_key], s_model2['Settings'][settings_key])
+            else:
+                self.assertEqual(s_model1[key], s_model2[key])
 
     @mock.patch('arvet_slam.systems.slam.orbslam2.multiprocessing', autospec=multiprocessing)
     def test_start_trial_starts_a_subprocess(self, mock_multiprocessing):

@@ -3,6 +3,7 @@ import os
 import time
 import logging
 import numpy as np
+import copy
 import re
 import signal
 import queue
@@ -344,7 +345,12 @@ class ORBSLAM2(arvet.core.system.VisionSystem):
         serialized = super().serialize()
         serialized['vocabulary_file'] = self._vocabulary_file
         serialized['mode'] = self._mode.value
-        serialized['settings'] = self.get_settings()
+
+        # Need to clean and minimize the settings we're saving, specifically omitting camera and viewer settings
+        settings = copy.deepcopy(self.get_settings())
+        del settings['Camera']
+        del settings['Viewer']
+        serialized['settings'] = settings
         return serialized
 
     @classmethod
