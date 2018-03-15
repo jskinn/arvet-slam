@@ -63,6 +63,8 @@ class TestSLAMTrialResult(arvet.database.tests.test_entity.EntityContract, unitt
         self._assertTrajectoryEqual(trial_result1.trajectory, trial_result2.trajectory)
         self._assertTrajectoryEqual(trial_result1.ground_truth_trajectory, trial_result2.ground_truth_trajectory)
         self.assertEqual(trial_result1.tracking_stats, trial_result2.tracking_stats)
+        self.assertEqual(trial_result1.num_features, trial_result2.num_features)
+        self.assertEqual(trial_result1.num_matches, trial_result2.num_matches)
 
     def assert_serialized_equal(self, s_model1, s_model2):
         self.assertEqual(set(s_model1.keys()), set(s_model2.keys()))
@@ -91,5 +93,6 @@ class TestSLAMTrialResult(arvet.database.tests.test_entity.EntityContract, unitt
                             "Locations are not equal")
             self.assertTrue(np.array_equal(traj1[time].rotation_quat(w_first=True),
                                            traj2[time].rotation_quat(w_first=True)),
-                            "Rotations {0} and {1} are not equal".format(tuple(traj1[time].rotation_quat(w_first=True)),
-                                                                         tuple(traj2[time].rotation_quat(w_first=True))))
+                            "Rotations {0} and {1} are not equal".format(
+                                tuple(traj1[time].rotation_quat(w_first=True)),
+                                tuple(traj2[time].rotation_quat(w_first=True))))

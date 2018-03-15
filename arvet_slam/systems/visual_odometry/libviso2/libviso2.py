@@ -6,7 +6,7 @@ import arvet.util.image_utils as image_utils
 import arvet.core.sequence_type
 import arvet.core.system
 import arvet.core.trial_result
-import arvet_slam.trials.visual_odometry.visual_odometry_result as vo_result
+import arvet_slam.trials.slam.visual_slam as vs
 import arvet.util.transform as tf
 
 
@@ -23,8 +23,10 @@ class LibVisOSystem(arvet.core.system.VisionSystem):
         self._cv = float(cv)
         self._base = float(base)
         self._viso = None
-        self._frame_deltas = None
+        self._current_pose = None
+        self._trajectory = None
         self._gt_poses = None
+        self._num_matches = None
 
     def is_image_source_appropriate(self, image_source):
         return (image_source.sequence_type == arvet.core.sequence_type.ImageSequenceType.SEQUENTIAL and
@@ -37,7 +39,6 @@ class LibVisOSystem(arvet.core.system.VisionSystem):
         """
         Set the camera intrinisics for libviso2
         :param camera_intrinsics: The camera intrinsics, relative to the image resolution
-        :param resolution: The image resolution
         :return:
         """
         self._focal_distance = float(camera_intrinsics.fx)
@@ -62,8 +63,10 @@ class LibVisOSystem(arvet.core.system.VisionSystem):
         params.base = self._base
 
         self._viso = libviso2.VisualOdometryStereo(params)
-        self._frame_deltas = {}
+        self._current_pose = tf.Transform()
+        self._trajectory = {}
         self._gt_poses = {}
+        self._num_matches = {}
 
     def process_image(self, image, timestamp):
         left_grey = prepare_image(image.left_data)
@@ -72,13 +75,15 @@ class LibVisOSystem(arvet.core.system.VisionSystem):
         motion = self._viso.getMotion()  # Motion is a 4x4 pose matrix
         np_motion = np.zeros((4, 4))
         motion.toNumpy(np_motion)
+        relative_pose = make_relative_pose(motion)
+        self._current_pose = self._current_pose.find_independent(relative_pose)
 
-        self._frame_deltas[timestamp] = make_relative_pose(np_motion)
+        self._num_matches[timestamp] = self._viso.getNumberOfMatches()
+        self._trajectory[timestamp] = self._current_pose
         self._gt_poses[timestamp] = image.camera_pose
-        # TODO: Aggregate the image metadata
 
     def finish_trial(self):
-        result = vo_result.VisualOdometryResult(
+        result = vs.SLAMTrialResult(
             system_id=self.identifier,
             sequence_type=arvet.core.sequence_type.ImageSequenceType.SEQUENTIAL,
             system_settings={
@@ -87,10 +92,14 @@ class LibVisOSystem(arvet.core.system.VisionSystem):
                 'cv': self._cv,
                 'base': self._base
             },
-            frame_deltas=self._frame_deltas,
-            ground_truth_trajectory=self._gt_poses)
-        self._frame_deltas = None
+            trajectory=self._trajectory,
+            num_matches=self._num_matches,
+            ground_truth_trajectory=self._gt_poses
+        )
+        self._trajectory = None
         self._gt_poses = None
+        self._num_matches = None
+        self._current_pose = None
         self._viso = None
         return result
 

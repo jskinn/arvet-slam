@@ -1,53 +1,72 @@
 # Copyright (c) 2017, John Skinner
+import typing
 import pickle
 import bson
 import arvet.core.trial_result
+import arvet.core.sequence_type
+import arvet.util.transform as tf
+import arvet.util.trajectory_helpers as th
+import arvet_slam.trials.slam.tracking_state as ts
 
 
 class SLAMTrialResult(arvet.core.trial_result.TrialResult):
     """
     The results of running a visual SLAM system.
     Has the ground truth and computed trajectories,
-    and the tracking statistics.
+    the tracking statistics, and the number of features detected
     """
-    def __init__(self, system_id, trajectory, ground_truth_trajectory, tracking_stats, num_features, num_matches,
-                 sequence_type, system_settings, id_=None, **kwargs):
+    def __init__(self, system_id: bson.ObjectId,
+                 trajectory: typing.Mapping[float, tf.Transform],
+                 ground_truth_trajectory: typing.Mapping[float, tf.Transform],
+                 system_settings: dict,
+                 tracking_stats: typing.Mapping[float, ts.TrackingState] = None,
+                 num_features: typing.Mapping[float, int] = None,
+                 num_matches: typing.Mapping[float, int] = None,
+                 sequence_type: arvet.core.sequence_type.ImageSequenceType = None,
+                 id_: bson.ObjectId = None,
+                 **kwargs):
         kwargs['success'] = True
         super().__init__(system_id=system_id, sequence_type=sequence_type,
                          system_settings=system_settings, id_=id_, **kwargs)
         self._trajectory = trajectory
         self._ground_truth_trajectory = ground_truth_trajectory
-        self._tracking_stats = tracking_stats
-        self._num_features = num_features
-        self._num_matches = num_matches
+        self._tracking_stats = tracking_stats if tracking_stats is not None else {}
+        self._num_features = num_features if num_features is not None else {}
+        self._num_matches = num_matches if num_matches is not None else {}
 
     @property
-    def trajectory(self):
+    def trajectory(self) -> typing.Mapping[float, tf.Transform]:
         return self._trajectory
 
     @property
-    def tracking_stats(self):
+    def tracking_stats(self) -> typing.Mapping[float, ts.TrackingState]:
         return self._tracking_stats
 
     @property
-    def num_features(self):
+    def num_features(self) -> typing.Mapping[float, int]:
         return self._num_features
 
     @property
-    def num_matches(self):
+    def num_matches(self) -> typing.Mapping[float, int]:
         return self._num_matches
 
     @property
-    def ground_truth_trajectory(self):
+    def ground_truth_trajectory(self) -> typing.Mapping[float, tf.Transform]:
         return self._ground_truth_trajectory
 
-    def get_ground_truth_camera_poses(self):
-        return self.ground_truth_trajectory
-
-    def get_computed_camera_poses(self):
+    def get_computed_camera_poses(self) -> typing.Mapping[float, tf.Transform]:
         return self.trajectory
 
-    def get_tracking_states(self):
+    def get_computed_camera_motions(self) -> typing.Mapping[float, tf.Transform]:
+        return th.trajectory_to_motion_sequence(self.trajectory)
+
+    def get_ground_truth_camera_poses(self) -> typing.Mapping[float, tf.Transform]:
+        return self.ground_truth_trajectory
+
+    def get_ground_truth_motions(self) -> typing.Mapping[float, tf.Transform]:
+        return th.trajectory_to_motion_sequence(self.ground_truth_trajectory)
+
+    def get_tracking_states(self) -> typing.Mapping[float, ts.TrackingState]:
         return self.tracking_stats
 
     def serialize(self):
