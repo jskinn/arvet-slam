@@ -15,13 +15,76 @@ class LibVisOSystem(arvet.core.system.VisionSystem):
     Class to run LibVisO2 as a vision system.
     """
 
-    def __init__(self, focal_distance=1, cu=640, cv=360, base=0.3, id_=None):
+    def __init__(self,
+                 matcher_nms_n: int = 3,
+                 matcher_nms_tau: int = 50,
+                 matcher_match_binsize: int = 50,
+                 matcher_match_radius: int = 200,
+                 matcher_match_disp_tolerance: int = 2,
+                 matcher_outlier_disp_tolerance: int = 5,
+                 matcher_outlier_flow_tolerance: int = 5,
+                 matcher_multi_stage: bool = True,
+                 matcher_half_resolution: bool = True,
+                 matcher_refinement: int = 1,
+                 bucketing_max_features: int = 2,
+                 bucketing_bucket_width: int = 50,
+                 bucketing_bucket_height: int = 50,
+                 ransac_iters: int = 200,
+                 inlier_threshold: float = 2.0,
+                 reweighting: bool = True,
+                 id_=None):
+        """
+
+        :param matcher_nms_n: non-max-suppression: min. distance between maxima (in pixels)
+        :param matcher_nms_tau: non-max-suppression: interest point peakiness threshold
+        :param matcher_match_binsize: matching bin width/height (affects efficiency only)
+        :param matcher_match_radius: matching radius (du/dv in pixels)
+        :param matcher_match_disp_tolerance: dv tolerance for stereo matches (in pixels)
+        :param matcher_outlier_disp_tolerance: outlier removal: disparity tolerance (in pixels)
+        :param matcher_outlier_flow_tolerance: outlier removal: flow tolerance (in pixels)
+        :param matcher_multi_stage: False=disabled, True=multistage matching (denser and faster)
+        :param matcher_half_resolution: False=disabled, True=match at half resolution, refine at full resolution
+        :param matcher_refinement: refinement (0=none,1=pixel,2=subpixel)
+
+        :param bucketing_max_features: maximal number of features per bucket
+        :param bucketing_bucket_width: width of bucket
+        :param bucketing_bucket_height: height of bucket
+
+        :param ransac_iters: number of RANSAC iterations
+        :param inlier_threshold: fundamental matrix inlier threshold
+        :param reweighting: lower border weights (more robust to calibration errors)
+        :param id_:
+        """
         super().__init__(id_=id_)
-        self._camera_settings = None
-        self._focal_distance = float(focal_distance)
-        self._cu = float(cu)
-        self._cv = float(cv)
-        self._base = float(base)
+
+        # LibVisO Feature Matcher parameters
+        self._matcher_nms_n = int(matcher_nms_n)
+        self._matcher_nms_tau = int(matcher_nms_tau)
+        self._matcher_match_binsize = int(matcher_match_binsize)
+        self._matcher_match_radius = int(matcher_match_radius)
+        self._matcher_match_disp_tolerance = int(matcher_match_disp_tolerance)
+        self._matcher_outlier_disp_tolerance = int(matcher_outlier_disp_tolerance)
+        self._matcher_outlier_flow_tolerance = int(matcher_outlier_flow_tolerance)
+        self._matcher_multi_stage = bool(matcher_multi_stage)
+        self._matcher_half_resolution = bool(matcher_half_resolution)
+        self._matcher_refinement = matcher_refinement if matcher_refinement in (0, 1, 2) else 1
+
+        # Feature bucketing parameters
+        self._bucketing_max_features = int(bucketing_max_features)
+        self._bucketing_bucket_width = int(bucketing_bucket_width)
+        self._bucketing_bucket_height = int(bucketing_bucket_height)
+
+        # Extra stereo parameters
+        self._ransac_iters = int(ransac_iters)
+        self._inlier_threshold = float(inlier_threshold)
+        self._reweighting = bool(reweighting)
+
+        # These will get overridden by set_camera_intrinisics
+        self._focal_distance = 1.0
+        self._cu = 320
+        self._cv = 240
+        self._base = 0.3
+
         self._viso = None
         self._current_pose = None
         self._trajectory = None
@@ -57,6 +120,30 @@ class LibVisOSystem(arvet.core.system.VisionSystem):
         if not sequence_type == arvet.core.sequence_type.ImageSequenceType.SEQUENTIAL:
             return False
         params = libviso2.Stereo_parameters()
+
+        # Matcher parameters
+        params.match.nms_n = self._matcher_nms_n
+        params.match.nms_tau = self._matcher_nms_tau
+        params.match.match_binsize = self._matcher_match_binsize
+        params.match.match_radius = self._matcher_match_radius
+        params.match.match_disp_tolerance = self._matcher_match_disp_tolerance
+        params.match.outlier_disp_tolerance = self._matcher_outlier_disp_tolerance
+        params.match.outlier_flow_tolerance = self._matcher_outlier_flow_tolerance
+        params.match.multi_stage = 1 if self._matcher_multi_stage else 0
+        params.match.half_resolution = 1 if self._matcher_half_resolution else 0
+        params.match.refinement = self._matcher_refinement
+
+        # Feature bucketing
+        params.bucket.max_features = self._bucketing_max_features
+        params.bucket.bucket_width = self._bucketing_bucket_width
+        params.bucket.bucket_height = self._bucketing_bucket_height
+
+        # Stereo-specific parameters
+        params.ransac_iters = self._ransac_iters
+        params.inlier_threshold = self._inlier_threshold
+        params.reweighting = self._reweighting
+
+        # Camera calibration
         params.calib.f = self._focal_distance
         params.calib.cu = self._cu
         params.calib.cv = self._cv
@@ -75,7 +162,7 @@ class LibVisOSystem(arvet.core.system.VisionSystem):
         motion = self._viso.getMotion()  # Motion is a 4x4 pose matrix
         np_motion = np.zeros((4, 4))
         motion.toNumpy(np_motion)
-        relative_pose = make_relative_pose(motion)
+        relative_pose = make_relative_pose(np_motion)
         self._current_pose = self._current_pose.find_independent(relative_pose)
 
         self._num_matches[timestamp] = self._viso.getNumberOfMatches()
@@ -102,6 +189,62 @@ class LibVisOSystem(arvet.core.system.VisionSystem):
         self._current_pose = None
         self._viso = None
         return result
+
+    def serialize(self):
+        serialized = super().serialize()
+        serialized['matcher_nms_n'] = self._matcher_nms_n
+        serialized['matcher_nms_tau'] = self._matcher_nms_tau
+        serialized['matcher_match_binsize'] = self._matcher_match_binsize
+        serialized['matcher_match_radius'] = self._matcher_match_radius
+        serialized['matcher_match_disp_tolerance'] = self._matcher_match_disp_tolerance
+        serialized['matcher_outlier_disp_tolerance'] = self._matcher_outlier_disp_tolerance
+        serialized['matcher_outlier_flow_tolerance'] = self._matcher_outlier_flow_tolerance
+        serialized['matcher_multi_stage'] = self._matcher_multi_stage
+        serialized['matcher_half_resolution'] = self._matcher_half_resolution
+        serialized['matcher_refinement'] = self._matcher_refinement
+        serialized['bucketing_max_features'] = self._bucketing_max_features
+        serialized['bucketing_bucket_width'] = self._bucketing_bucket_width
+        serialized['bucketing_bucket_height'] = self._bucketing_bucket_height
+        serialized['ransac_iters'] = self._ransac_iters
+        serialized['inlier_threshold'] = self._inlier_threshold
+        serialized['reweighting'] = self._reweighting
+        return serialized
+
+    @classmethod
+    def deserialize(cls, serialized_representation, db_client, **kwargs):
+        if 'matcher_nms_n' in serialized_representation:
+            kwargs['matcher_nms_n'] = serialized_representation['matcher_nms_n']
+        if 'matcher_nms_tau' in serialized_representation:
+            kwargs['matcher_nms_tau'] = serialized_representation['matcher_nms_tau']
+        if 'matcher_match_binsize' in serialized_representation:
+            kwargs['matcher_match_binsize'] = serialized_representation['matcher_match_binsize']
+        if 'matcher_match_radius' in serialized_representation:
+            kwargs['matcher_match_radius'] = serialized_representation['matcher_match_radius']
+        if 'matcher_match_disp_tolerance' in serialized_representation:
+            kwargs['matcher_match_disp_tolerance'] = serialized_representation['matcher_match_disp_tolerance']
+        if 'matcher_outlier_disp_tolerance' in serialized_representation:
+            kwargs['matcher_outlier_disp_tolerance'] = serialized_representation['matcher_outlier_disp_tolerance']
+        if 'matcher_outlier_flow_tolerance' in serialized_representation:
+            kwargs['matcher_outlier_flow_tolerance'] = serialized_representation['matcher_outlier_flow_tolerance']
+        if 'matcher_multi_stage' in serialized_representation:
+            kwargs['matcher_multi_stage'] = serialized_representation['matcher_multi_stage']
+        if 'matcher_half_resolution' in serialized_representation:
+            kwargs['matcher_half_resolution'] = serialized_representation['matcher_half_resolution']
+        if 'matcher_refinement' in serialized_representation:
+            kwargs['matcher_refinement'] = serialized_representation['matcher_refinement']
+        if 'bucketing_max_features' in serialized_representation:
+            kwargs['bucketing_max_features'] = serialized_representation['bucketing_max_features']
+        if 'bucketing_bucket_width' in serialized_representation:
+            kwargs['bucketing_bucket_width'] = serialized_representation['bucketing_bucket_width']
+        if 'bucketing_bucket_height' in serialized_representation:
+            kwargs['bucketing_bucket_height'] = serialized_representation['bucketing_bucket_height']
+        if 'ransac_iters' in serialized_representation:
+            kwargs['ransac_iters'] = serialized_representation['ransac_iters']
+        if 'inlier_threshold' in serialized_representation:
+            kwargs['inlier_threshold'] = serialized_representation['inlier_threshold']
+        if 'reweighting' in serialized_representation:
+            kwargs['reweighting'] = serialized_representation['reweighting']
+        return super().deserialize(serialized_representation, db_client, **kwargs)
 
 
 def make_relative_pose(frame_delta):

@@ -4,8 +4,13 @@ import numpy as np
 import transforms3d as tf3d
 import arvet.util.transform as tf
 import arvet.util.dict_utils as du
+import arvet.core.sequence_type
+import arvet.core.image
+import arvet.metadata.image_metadata as imeta
+import arvet.metadata.camera_intrinsics as cam_intr
 import arvet.database.tests.test_entity
 import arvet_slam.systems.visual_odometry.libviso2.libviso2 as viso
+import arvet_slam.trials.slam.visual_slam as slam_trial
 
 
 class TestLibVisO(arvet.database.tests.test_entity.EntityContract, unittest.TestCase):
@@ -15,10 +20,22 @@ class TestLibVisO(arvet.database.tests.test_entity.EntityContract, unittest.Test
 
     def make_instance(self, *args, **kwargs):
         kwargs = du.defaults(kwargs, {
-            'focal_distance': 700,
-            'cu': 400,
-            'cv': 300,
-            'base': 0.6
+            'matcher_nms_n': np.random.randint(0, 5),
+            'matcher_nms_tau': np.random.randint(0, 100),
+            'matcher_match_binsize': np.random.randint(0, 100),
+            'matcher_match_radius': np.random.randint(0, 500),
+            'matcher_match_disp_tolerance': np.random.randint(0, 10),
+            'matcher_outlier_disp_tolerance': np.random.randint(0, 10),
+            'matcher_outlier_flow_tolerance': np.random.randint(0, 10),
+            'matcher_multi_stage': np.random.choice([True, False]),
+            'matcher_half_resolution': np.random.choice([True, False]),
+            'matcher_refinement': np.random.randint(0, 3),
+            'bucketing_max_features': np.random.randint(0, 10),
+            'bucketing_bucket_width': np.random.randint(0, 100),
+            'bucketing_bucket_height': np.random.randint(0, 100),
+            'ransac_iters': np.random.randint(0, 100),
+            'inlier_threshold': np.random.uniform(0.0, 3.0),
+            'reweighting': np.random.choice([True, False])
         })
         return viso.LibVisOSystem(*args, **kwargs)
 
@@ -34,6 +51,32 @@ class TestLibVisO(arvet.database.tests.test_entity.EntityContract, unittest.Test
                 not isinstance(system2, viso.LibVisOSystem)):
             self.fail('object was not a LibVisOSystem')
         self.assertEqual(system1.identifier, system2.identifier)
+
+    def test_can_start_and_stop_trial(self):
+        subject = viso.LibVisOSystem()
+        subject.start_trial(arvet.core.sequence_type.ImageSequenceType.SEQUENTIAL)
+        result = subject.finish_trial()
+        self.assertIsInstance(result, slam_trial.SLAMTrialResult)
+
+    def test_simple_trial_run(self):
+        # Actually run the system using mocked images
+        subject = viso.LibVisOSystem()
+        subject.set_camera_intrinsics(cam_intr.CameraIntrinsics(
+            width=320,
+            height=240,
+            fx=227.22,
+            fy=227.22,
+            cx=160,
+            cy=120
+        ))
+        subject.set_stereo_baseline(0.05)
+        subject.start_trial(arvet.core.sequence_type.ImageSequenceType.SEQUENTIAL)
+        num_frames = 20
+        for time in range(num_frames):
+            image = create_frame(time / num_frames)
+            subject.process_image(image, 4 * time / num_frames)
+        result = subject.finish_trial()
+        self.assertIsInstance(result, slam_trial.SLAMTrialResult)
 
 
 class TestMakeRelativePose(unittest.TestCase):
@@ -92,3 +135,62 @@ class TestMakeRelativePose(unittest.TestCase):
 
     def assertNPClose(self, arr1, arr2):
         self.assertTrue(np.all(np.isclose(arr1, arr2)), "Arrays {0} and {1} are not close".format(str(arr1), str(arr2)))
+
+
+def create_frame(time):
+    frame = np.zeros((320, 240), dtype=np.uint8)
+    right_frame = np.zeros((320, 240), dtype=np.uint8)
+    shapes = [{
+        'pos': (0.1 + time * 0.01, 0.01 + time * 0.01),
+        'width': 0.4 - time * 0.01,
+        'height': 0.2 + time * 0.001,
+        'colour': 127
+    }, {
+        'pos': (0.9 - time * 0.01, 0.04 + time * 0.01),
+        'width': 0.1 + time * 0.001,
+        'height': 0.5 + time * 0.001,
+        'colour': 67
+    }, {
+        'pos': (0.11 + time * 0.01, 0.89 - time * 0.01),
+        'width': 0.3,
+        'height': 0.3,
+        'colour': 240
+    }, {
+        'pos': (0.51 + time * 0.1, 0.49 - time * 0.01),
+        'width': 0.11,
+        'height': 0.09,
+        'colour': 150
+    }]
+    for shape in shapes:
+        left = np.round(frame.shape[1] * (shape['pos'][0] - shape['width'] / 2))
+        right = np.round(frame.shape[1] * (shape['pos'][0] + shape['width'] / 2))
+        top = np.round(frame.shape[0] * (shape['pos'][1] - shape['height'] / 2))
+        bottom = np.round(frame.shape[0] * (shape['pos'][1] + shape['height'] / 2))
+
+        left = max(0, min(frame.shape[1], int(left)))
+        right = max(0, min(frame.shape[1], int(right)))
+        top = max(0, min(frame.shape[0], int(top)))
+        bottom = max(0, min(frame.shape[0], int(bottom)))
+
+        frame[top:bottom, left:right] = shape['colour']
+
+        left = np.round(frame.shape[1] * (shape['pos'][0] - shape['width'] / 2 + 0.05))
+        right = np.round(frame.shape[1] * (shape['pos'][0] + shape['width'] / 2 + 0.05))
+
+        left = max(0, min(frame.shape[1], int(left)))
+        right = max(0, min(frame.shape[1], int(right)))
+
+        right_frame[top:bottom, left:right] = shape['colour']
+
+    return arvet.core.image.StereoImage(
+        left_data=frame,
+        right_data=right_frame,
+        metadata=imeta.ImageMetadata(
+            source_type=imeta.ImageSourceType.SYNTHETIC,
+            hash_=0x0000000,
+            camera_pose=tf.Transform(
+                location=np.array((1, 2, 3)) + time * np.array((4, 5, 6)),
+                rotation=tf3d.quaternions.axangle2quat((1, 2, 34), np.pi / 36 + time * np.pi / 15)
+            )
+        )
+    )
