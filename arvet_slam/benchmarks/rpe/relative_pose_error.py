@@ -40,15 +40,28 @@ and the estimated trajectory.
 """
 
 import random
+import typing
 import numpy
+import arvet.core.trial_result
 import arvet.core.benchmark
+import arvet.util.trajectory_helpers as th
 import arvet_slam.benchmarks.rpe.rpe_result
 
 
 class BenchmarkRPE(arvet.core.benchmark.Benchmark):
 
-    def __init__(self, max_pairs=10000, fixed_delta=False, delta=1.0, delta_unit='s', offset=0, scale_=1, id_=None):
+    def __init__(self, max_pairs: int = 10000, fixed_delta: bool = False, delta: float = 1.0,
+                 delta_unit: str = 's', offset: float = 0.0, scale_: float = 1.0, id_=None):
         """
+        The Relative Pose Error benchmark, which computes the difference between ground truth and estimated motion
+        over some set of intervals of the trajectory.
+        Depending on how it is configured, these intervals may be a fixed distance, angle change, or time appart,
+        or might be every possible frame to frame comparison along the trajectory.
+        Think about what measure you want to use, because this benchmark can produce a lot of different results.
+        In particular, think about the interval size. Larger intervals accumulate error from multiple estimates,
+        so have a greater variation.
+
+        Uses the cartesian distance and angle between estimate and ground truth as the error.
 
         :param max_pairs: maximum number of pose comparisons (default: 10000, set to zero to disable downsampling
         :param fixed_delta: only consider pose pairs that have a distance of delta delta_unit
@@ -60,62 +73,20 @@ class BenchmarkRPE(arvet.core.benchmark.Benchmark):
         :param scale_: scaling factor for the estimated trajectory (default: 1.0)
         """
         super().__init__(id_=id_)
-        self._max_pairs = int(max_pairs)
-        self._fixed_delta = fixed_delta
-        self._delta = delta
-        if delta_unit is 's' or delta_unit is 'm' or delta_unit is 'rad' or delta_unit is 'f':
-            self._delta_unit = delta_unit
-        else:
-            self._delta_unit = 's'
-        self._offset = offset
-        self._scale = scale_
+        self.max_pairs = int(max_pairs)
+        self.fixed_delta = fixed_delta
+        self.delta = delta
+        self._delta_unit = 's'  # Set a default value
+        self.delta_unit = delta_unit
+        self.offset = offset
+        self.scale = scale_
 
     @property
-    def offset(self):
-        return self._offset
-
-    @offset.setter
-    def offset(self, offset):
-        self._offset = offset
-
-    @property
-    def scale(self):
-        return self._scale
-
-    @scale.setter
-    def scale(self, scale_):
-        self._scale = scale_
-
-    @property
-    def max_pairs(self):
-        return self._max_pairs
-
-    @max_pairs.setter
-    def max_pairs(self, max_pairs):
-        self._max_pairs = max_pairs
-
-    @property
-    def fixed_delta(self):
-        return self._fixed_delta
-
-    @fixed_delta.setter
-    def fixed_delta(self, fixed_delta):
-        self._fixed_delta = fixed_delta
-
-    @property
-    def delta(self):
-        return self._delta
-
-    @delta.setter
-    def delta(self, delta):
-        self._delta = delta
-
-    @property
-    def delta_unit(self):
+    def delta_unit(self) -> str:
         return self._delta_unit
 
     @delta_unit.setter
-    def delta_unit(self, delta_unit):
+    def delta_unit(self, delta_unit: str):
         if delta_unit is 's' or delta_unit is 'm' or delta_unit is 'rad' or delta_unit is 'f':
             self._delta_unit = delta_unit
 
@@ -164,44 +135,66 @@ class BenchmarkRPE(arvet.core.benchmark.Benchmark):
                 hasattr(trial_result, 'get_ground_truth_camera_poses') and
                 hasattr(trial_result, 'get_computed_camera_poses'))
 
-    def benchmark_results(self, trial_result):
+    def benchmark_results(self, trial_results: typing.Iterable[arvet.core.trial_result.TrialResult]) \
+            -> arvet.core.benchmark.BenchmarkResult:
         """
-
-        :param trial_result: The results of a particular trial
+        Perform the RPE benchmark.
+        :param trial_results: The results of several trials to aggregate
         :return:
         :rtype BenchmarkResult:
         """
-        ground_truth_traj = trial_result.get_ground_truth_camera_poses()
-        result_traj = trial_result.get_computed_camera_poses()
+        # First, we're going to get all the trajectories
+        trial_result_ids = []
+        ground_truth_trajectory = None
+        computed_trajectories = []
+        for trial_result in trial_results:
+            if ground_truth_trajectory is None:
+                ground_truth_trajectory = trial_result.get_ground_truth_camera_poses()
+            computed_trajectories.append(trial_result.get_computed_camera_poses())
+            trial_result_ids.append(trial_result.identifier)
 
-        ground_truth_traj = {stamp: pose.transform_matrix for stamp, pose in ground_truth_traj.items()}
-        result_traj = {stamp: pose.transform_matrix for stamp, pose in result_traj.items()}
+        # Find the mean computed trajectory, which gives us noise
+        mean_computed_trajectory = th.compute_average_trajectory(computed_trajectories)
 
-        result = evaluate_trajectory(traj_gt=ground_truth_traj,
-                                     traj_est=result_traj,
-                                     param_max_pairs=int(self.max_pairs),
-                                     param_fixed_delta=self.fixed_delta,
-                                     param_delta=float(self.delta),
-                                     param_delta_unit=self.delta_unit,
-                                     param_offset=float(self.offset),
-                                     param_scale=self.scale)
-        if result is None or len(result) < 2:
-            return arvet.core.benchmark.FailedBenchmark(benchmark_id=self.identifier,
-                                                        trial_result_id=trial_result.identifier,
-                                                        reason="Couldn't find matching timestamp pairs between"
-                                                               "groundtruth and estimated trajectory!")
+        # convert to pose matricies for evaluate
+        mean_computed_trajectory = {stamp: pose.transform_matrix for stamp, pose in mean_computed_trajectory.items()}
+        ground_truth_trajectory = {stamp: pose.transform_matrix for stamp, pose in ground_truth_trajectory.items()}
 
-        result = numpy.array(result)
-        gt_post_timestamps = result[:, 3]
-        trans_error = result[:, 4]
-        rot_error = result[:, 5]
-        trans_error = dict(zip(gt_post_timestamps, trans_error))
-        rot_error = dict(zip(gt_post_timestamps, rot_error))
-        return arvet_slam.benchmarks.rpe.rpe_result.BenchmarkRPEResult(self.identifier, trial_result.identifier,
-                                                                       trans_error, rot_error, self.get_settings())
+        # Then, tally all the errors for all the computed trajectoreis
+        all_errors = []
+        for computed_trajectory in computed_trajectories:
+            computed_trajectory = {stamp: pose.transform_matrix for stamp, pose in computed_trajectory.items()}
+            errors = evaluate_trajectory(
+                traj_gt=ground_truth_trajectory,
+                traj_est=computed_trajectory,
+                traj_est_mean=mean_computed_trajectory,
+                param_max_pairs=int(self.max_pairs),
+                param_fixed_delta=self.fixed_delta,
+                param_delta=float(self.delta),
+                param_delta_unit=self.delta_unit,
+                param_offset=float(self.offset),
+                param_scale=self.scale
+            )
+            if errors is not None:
+                all_errors += errors
+
+        if len(all_errors) < 2:
+            return arvet.core.benchmark.FailedBenchmark(
+                benchmark_id=self.identifier,
+                trial_result_ids=trial_result_ids,
+                reason="Couldn't find matching timestamp pairs between groundtruth and estimated trajectory"
+                       "for any of the estimated trajectories"
+            )
+        return arvet_slam.benchmarks.rpe.rpe_result.BenchmarkRPEResult(
+            benchmark_id=self.identifier,
+            trial_result_ids=trial_result_ids,
+            timestamps=sorted(ground_truth_trajectory.keys()),
+            errors=all_errors,
+            rpe_settings=self.get_settings()
+        )
 
 
-def find_closest_index(L, t):
+def find_closest_index(index_list, t):
     """
     Find the index of the closest value in a list.
 
@@ -213,17 +206,17 @@ def find_closest_index(L, t):
     index of the closest element
     """
     beginning = 0
-    difference = abs(L[0] - t)
+    difference = abs(index_list[0] - t)
     best = 0
-    end = len(L)
+    end = len(index_list)
     while beginning < end:
         middle = int((end + beginning) / 2)
-        if abs(L[middle] - t) < difference:
-            difference = abs(L[middle] - t)
+        if abs(index_list[middle] - t) < difference:
+            difference = abs(index_list[middle] - t)
             best = middle
-        if t == L[middle]:
+        if t == index_list[middle]:
             return middle
-        elif L[middle] > t:
+        elif index_list[middle] > t:
             end = middle
         else:
             beginning = middle + 1
@@ -301,14 +294,15 @@ def rotations_along_trajectory(traj, scale_):
     return distances
 
 
-def evaluate_trajectory(traj_gt, traj_est, param_max_pairs=10000, param_fixed_delta=False, param_delta=1.00,
-                        param_delta_unit="s", param_offset=0.00, param_scale=1.00):
+def evaluate_trajectory(traj_gt, traj_est, traj_est_mean=None, param_max_pairs=10000, param_fixed_delta=False,
+                        param_delta=1.00, param_delta_unit="s", param_offset=0.00, param_scale=1.00):
     """
     Compute the relative pose error between two trajectories.
 
     Input:
     traj_gt -- the first trajectory (ground truth)
     traj_est -- the second trajectory (estimated trajectory)
+    traj_est_mean -- The mean estimated trajectory for this benchmark
     param_max_pairs -- number of relative poses to be evaluated
     param_fixed_delta -- false: evaluate over all possible pairs
                          true: only evaluate over pairs with a given distance (delta)
@@ -325,10 +319,9 @@ def evaluate_trajectory(traj_gt, traj_est, param_max_pairs=10000, param_fixed_de
     Output:
     list of compared poses and the resulting translation and rotation error
     """
-    stamps_gt = list(traj_gt.keys())
-    stamps_est = list(traj_est.keys())
-    stamps_gt.sort()
-    stamps_est.sort()
+    stamps_gt = sorted(traj_gt.keys())
+    stamps_est = sorted(traj_est.keys())
+    stamps_est_mean = sorted(traj_est_mean.keys()) if traj_est_mean is not None else []
 
     stamps_est_return = []
     for t_est in stamps_est:
@@ -387,9 +380,22 @@ def evaluate_trajectory(traj_gt, traj_est, param_max_pairs=10000, param_fixed_de
         error44 = ominus(scale(
             ominus(traj_est[stamp_est_1], traj_est[stamp_est_0]), param_scale),
             ominus(traj_gt[stamp_gt_1], traj_gt[stamp_gt_0]))
-
         trans = compute_distance(error44)
         rot = compute_angle(error44)
 
-        result.append([stamp_est_0, stamp_est_1, stamp_gt_0, stamp_gt_1, trans, rot])
+        # Additioanlly, measure variation from the average estimated trajectory over the same window if it is provided
+        trans_noise = numpy.nan
+        rot_noise = numpy.nan
+        if traj_est_mean is not None:
+            stamp_est_mean_0 = stamps_est_mean[find_closest_index(stamps_est_mean, stamp_est_0 + param_offset)]
+            stamp_est_mean_1 = stamps_est_mean[find_closest_index(stamps_est_mean, stamp_est_1 + param_offset)]
+            noise44 = ominus(
+                ominus(traj_est[stamp_est_1], traj_est[stamp_est_0]),
+                ominus(traj_est_mean[stamp_est_mean_1], traj_est_mean[stamp_est_mean_0])
+            )
+            trans_noise = compute_distance(noise44)
+            rot_noise = compute_angle(noise44)
+
+        # Don't add the estimated times, we don't want to care about those
+        result.append([stamp_gt_0, stamp_gt_1, trans, rot, trans_noise, rot_noise])
     return result
