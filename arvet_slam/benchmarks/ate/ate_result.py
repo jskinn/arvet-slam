@@ -1,4 +1,5 @@
 # Copyright (c) 2017, John Skinner
+import typing
 import numpy as np
 import pickle
 import bson
@@ -14,9 +15,11 @@ class BenchmarkATEResult(arvet.core.benchmark.BenchmarkResult):
     Root Mean-Squared Error, in the rmse property.
     """
 
-    def __init__(self, benchmark_id, trial_result_id, translational_error, ate_settings, id_=None, **kwargs):
+    def __init__(self, benchmark_id: bson.ObjectId, trial_result_ids: typing.Iterable[bson.ObjectId],
+                 translational_error: typing.Mapping[float, float], ate_settings: dict,
+                 id_: bson.ObjectId = None, **kwargs):
         kwargs['success'] = True
-        super().__init__(benchmark_id=benchmark_id, trial_result_id=trial_result_id, id_=id_, **kwargs)
+        super().__init__(benchmark_id=benchmark_id, trial_result_ids=trial_result_ids, id_=id_, **kwargs)
         self._translational_error = translational_error
         self._ate_settings = ate_settings
 

@@ -66,57 +66,63 @@ class BenchmarkLoopClosure(arvet.core.benchmark.Benchmark):
                 hasattr(trial_result, 'get_ground_truth_camera_poses') and
                 hasattr(trial_result, 'get_loop_closures'))
 
-    def benchmark_results(self, trial_result):
+    def benchmark_results(self, trial_results):
         """
 
         :param trial_result: The results of a particular trial
         :return:
         :rtype BenchmarkResult:
         """
-        matches = {}
-        threshold_distance_squared = self.threshold_distance * self.threshold_distance
-        trivial_index_distance_squared = self.trivial_closure_index_distance * self.trivial_closure_index_distance
+        return arvet.core.benchmark.FailedBenchmark(
+            benchmark_id=self.identifier,
+            trial_result_ids=[trial_result.identifier for trial_result in trial_results],
+            reason="Loop closure benchmark is out of date and is deprecated. Update before use."
+        )
 
-        poses = trial_result.get_ground_truth_camera_poses()
-        indexes = list(poses.keys())
-        indexes.sort()
-        # First, check all the produced matches to see if they were correct
-        for idx, closure_index in trial_result.get_loop_closures().items():
-            # TODO: Maybe need to resolve differences between closure indexes and pose indexes
-            image_location = poses[idx].location
-            match_location = poses[closure_index].location
-            indexes.remove(idx)
-
-            diff = match_location - image_location
-            square_dist = np.dot(diff, diff)
-
-            index_diff = idx - closure_index
-            index_square_dist = index_diff*index_diff
-
-            if (square_dist < threshold_distance_squared and
-                    index_square_dist > trivial_index_distance_squared):
-                matches[idx] = match_res.MatchType.TRUE_POSITIVE
-            else:
-                # wasn't close enough to current location, or was trivial.
-                matches[idx] = match_res.MatchType.FALSE_POSITIVE
-
-        # Now go through all the remaining indexes to make sure there was not a match there
-        for unmatched_idx in indexes:
-            unmatched_pose = poses[unmatched_idx].location
-            found_closure = False
-            for index, pose in poses.items():
-                if index < unmatched_idx - self.trivial_closure_index_distance:
-                    diff = unmatched_pose - pose.location
-                    square_dist = np.dot(diff, diff)
-
-                    if square_dist < threshold_distance_squared:
-                        matches[unmatched_idx] = match_res.MatchType.FALSE_NEGATIVE
-                        found_closure = True
-                        break
-            if not found_closure:
-                matches[unmatched_idx] = match_res.MatchType.TRUE_NEGATIVE
-
-        return match_res.MatchBenchmarkResult(benchmark_id=self.identifier,
-                                              trial_result_id=trial_result.identifier,
-                                              matches=matches,
-                                              settings=self.get_settings())
+        # matches = {}
+        # threshold_distance_squared = self.threshold_distance * self.threshold_distance
+        # trivial_index_distance_squared = self.trivial_closure_index_distance * self.trivial_closure_index_distance
+        #
+        # poses = trial_result.get_ground_truth_camera_poses()
+        # indexes = list(poses.keys())
+        # indexes.sort()
+        # # First, check all the produced matches to see if they were correct
+        # for idx, closure_index in trial_result.get_loop_closures().items():
+        #     # TODO: Maybe need to resolve differences between closure indexes and pose indexes
+        #     image_location = poses[idx].location
+        #     match_location = poses[closure_index].location
+        #     indexes.remove(idx)
+        #
+        #     diff = match_location - image_location
+        #     square_dist = np.dot(diff, diff)
+        #
+        #     index_diff = idx - closure_index
+        #     index_square_dist = index_diff*index_diff
+        #
+        #     if (square_dist < threshold_distance_squared and
+        #             index_square_dist > trivial_index_distance_squared):
+        #         matches[idx] = match_res.MatchType.TRUE_POSITIVE
+        #     else:
+        #         # wasn't close enough to current location, or was trivial.
+        #         matches[idx] = match_res.MatchType.FALSE_POSITIVE
+        #
+        # # Now go through all the remaining indexes to make sure there was not a match there
+        # for unmatched_idx in indexes:
+        #     unmatched_pose = poses[unmatched_idx].location
+        #     found_closure = False
+        #     for index, pose in poses.items():
+        #         if index < unmatched_idx - self.trivial_closure_index_distance:
+        #             diff = unmatched_pose - pose.location
+        #             square_dist = np.dot(diff, diff)
+        #
+        #             if square_dist < threshold_distance_squared:
+        #                 matches[unmatched_idx] = match_res.MatchType.FALSE_NEGATIVE
+        #                 found_closure = True
+        #                 break
+        #     if not found_closure:
+        #         matches[unmatched_idx] = match_res.MatchType.TRUE_NEGATIVE
+        #
+        # return match_res.MatchBenchmarkResult(benchmark_id=self.identifier,
+        #                                       trial_result_id=trial_result.identifier,
+        #                                       matches=matches,
+        #                                       settings=self.get_settings())

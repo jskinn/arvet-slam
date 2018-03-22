@@ -119,44 +119,50 @@ class BenchmarkATE(arvet.core.benchmark.Benchmark):
                 hasattr(trial_result, 'get_ground_truth_camera_poses') and
                 hasattr(trial_result, 'get_computed_camera_poses'))
 
-    def benchmark_results(self, trial_result):
+    def benchmark_results(self, trial_results):
         """
 
         :param trial_result: The results of a particular trial
         :return:
         :rtype BenchmarkResult:
         """
-        ground_truth_traj = trial_result.get_ground_truth_camera_poses()
-        result_traj = trial_result.get_computed_camera_poses()
-        # TODO: Fix the format of these trajectories to what is expected below
-        matches = ass.associate(ground_truth_traj, result_traj, self.offset, self.max_difference)
-        if len(matches) < 2:
-            return arvet.core.benchmark.FailedBenchmark(self.identifier, trial_result.identifier,
-                                                        "Couldn't find matching timestamp pairs "
-                                                        "between groundtruth and estimated trajectory! "
-                                                        "Did you choose the correct sequence?")
-
-        # Construct matrices of the ground truth and calculated poses
-        ground_truth_xyz = []
-        result_xyz = []
-        gt_timestamps = []
-        for gt_stamp, result_stamp in matches:
-            ground_truth_xyz.append(ground_truth_traj[gt_stamp].location)
-            result_xyz.append(result_traj[result_stamp].location * float(self.scale))
-            gt_timestamps.append(gt_stamp)
-
-        # Align the two trajectories, based on the matching timestamps from both
-        ground_truth_xyz = np.matrix(ground_truth_xyz).transpose()
-        result_xyz = np.matrix(result_xyz).transpose()
-        rot, trans, trans_error = align(result_xyz, ground_truth_xyz)
-
-        # Match the trans error back to its ground-truth timestamps
-        mapped_error = {}
-        for col_num, timestamp in enumerate(gt_timestamps):
-            mapped_error[timestamp] = trans_error[col_num]
-
-        return arvet_slam.benchmarks.ate.ate_result.BenchmarkATEResult(self.identifier, trial_result.identifier,
-                                                                       mapped_error, self.get_settings())
+        return arvet.core.benchmark.FailedBenchmark(
+            benchmark_id=self.identifier,
+            trial_result_ids=[trial_result.identifier for trial_result in trial_results],
+            reason="ATE is out of date and is deprecated. Update before use."
+        )
+        #
+        # ground_truth_traj = trial_result.get_ground_truth_camera_poses()
+        # result_traj = trial_result.get_computed_camera_poses()
+        # # TODO: Fix the format of these trajectories to what is expected below
+        # matches = ass.associate(ground_truth_traj, result_traj, self.offset, self.max_difference)
+        # if len(matches) < 2:
+        #     return arvet.core.benchmark.FailedBenchmark(self.identifier, trial_result.identifier,
+        #                                                 "Couldn't find matching timestamp pairs "
+        #                                                 "between groundtruth and estimated trajectory! "
+        #                                                 "Did you choose the correct sequence?")
+        #
+        # # Construct matrices of the ground truth and calculated poses
+        # ground_truth_xyz = []
+        # result_xyz = []
+        # gt_timestamps = []
+        # for gt_stamp, result_stamp in matches:
+        #     ground_truth_xyz.append(ground_truth_traj[gt_stamp].location)
+        #     result_xyz.append(result_traj[result_stamp].location * float(self.scale))
+        #     gt_timestamps.append(gt_stamp)
+        #
+        # # Align the two trajectories, based on the matching timestamps from both
+        # ground_truth_xyz = np.matrix(ground_truth_xyz).transpose()
+        # result_xyz = np.matrix(result_xyz).transpose()
+        # rot, trans, trans_error = align(result_xyz, ground_truth_xyz)
+        #
+        # # Match the trans error back to its ground-truth timestamps
+        # mapped_error = {}
+        # for col_num, timestamp in enumerate(gt_timestamps):
+        #     mapped_error[timestamp] = trans_error[col_num]
+        #
+        # return arvet_slam.benchmarks.ate.ate_result.BenchmarkATEResult(self.identifier, trial_result.identifier,
+        #                                                                mapped_error, self.get_settings())
 
 
 def align(model, data):
