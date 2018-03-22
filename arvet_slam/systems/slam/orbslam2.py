@@ -199,16 +199,20 @@ class ORBSLAM2(arvet.core.system.VisionSystem):
                                                             self._actual_vocab_file,
                                                             self._settings_file,
                                                             self._mode))
+        self._child_process.daemon = True
         self._child_process.start()
+        self._output_queue.close()  # We're not putting data into that, close our thread.
         try:
             started = self._output_queue.get(block=True, timeout=self._expected_completion_timeout)
         except queue.Empty:
             logging.getLogger(__name__).error("Failed to start ORBSLAM2, timed out after {0} seconds".format(
                 self._expected_completion_timeout))
-            started = False
-        if not started:
+            started = None
+        if started is None:
+            self._input_queue.close()
+            self._output_queue.close()
             self._child_process.terminate()
-            self._child_process.join(timeout=5)
+            self._child_process.join(timeout=10)
             if self._child_process.is_alive():
                 os.kill(self._child_process.pid, signal.SIGKILL)  # Definitely kill the process.
             if os.path.isfile(self._settings_file):
@@ -218,7 +222,7 @@ class ORBSLAM2(arvet.core.system.VisionSystem):
             self._input_queue = None
             self._output_queue = None
             self._gt_trajectory = None
-        return started
+        return started is not None
 
     def process_image(self, image, timestamp):
         """
@@ -231,7 +235,7 @@ class ORBSLAM2(arvet.core.system.VisionSystem):
         if self._input_queue is not None:
             # Wait here, to throttle the input rate to the queue, and prevent it from growing too large
             delay_time = 0
-            while self._input_queue.qsize() > 10 and delay_time < 10:
+            while self._input_queue.qsize() > 30 and delay_time < 10:
                 time.sleep(1)
                 delay_time += 1
 
@@ -258,18 +262,18 @@ class ORBSLAM2(arvet.core.system.VisionSystem):
         if self._input_queue is None:
             logging.getLogger(__name__).warning("Cannot finish ORBSLAM trial, failed to start.")
             return None
-        self._input_queue.put(None)     # This will end the main loop, see run_orbslam, below
-        try:
-            trajectory_list, tracking_stats, num_features, num_matches = self._output_queue.get(
-                block=True, timeout=self._expected_completion_timeout)
-        except queue.Empty:
-            # process has failed to complete within expected time, kill it and move on.
-            logging.getLogger(__name__).error("Failed to stop ORBSLAM2, timed out after {0} seconds".format(
-                self._expected_completion_timeout))
-            trajectory_list = None
-            tracking_stats = {}
-            num_features = {}
-            num_matches = {}
+
+        # This will end the main loop, see run_orbslam, below
+        self._input_queue.put(None)
+        self._input_queue.close()
+
+        # First, get the length of the outputs, this affects how long we will wait for the future output
+        output_size = get_with_default(self._output_queue, self._expected_completion_timeout,
+                                       default=self._expected_completion_timeout / 10)
+        trajectory_list = get_with_default(self._output_queue, output_size * 10, None)
+        tracking_stats = get_with_default(self._output_queue, output_size * 10, {})
+        num_features = get_with_default(self._output_queue, output_size * 10, {})
+        num_matches = get_with_default(self._output_queue, output_size * 10, {})
 
         if isinstance(trajectory_list, list):
             # completed successfully, return the trajectory
@@ -301,6 +305,8 @@ class ORBSLAM2(arvet.core.system.VisionSystem):
             )
         else:
             # something went wrong, kill it with fire
+            logging.getLogger(__name__).error("Failed to stop ORBSLAM2, timed out after {0} seconds".format(
+                self._expected_completion_timeout))
             result = None
             self._child_process.terminate()
             self._child_process.join(timeout=5)
@@ -414,6 +420,12 @@ def dump_config(filename, data, dumper=YamlDumper, default_flow_style=False, **k
 
 
 def nested_to_dotted(data):
+    """
+    Change a nested dictionary to one with dot-separated keys
+    This is for working with the weird YAML1.0 format expected by ORBSLAM config files
+    :param data:
+    :return:
+    """
     result = {}
     for key, value in data.items():
         if isinstance(value, dict):
@@ -421,6 +433,22 @@ def nested_to_dotted(data):
                 result[key + '.' + inner_key] = inner_value
         else:
             result[key] = value
+    return result
+
+
+def get_with_default(queue_: multiprocessing.Queue, timeout: float, default=None):
+    """
+    A tiny helper to retrieve from a multiprocessing queue,
+    returning the given default value if we time out.
+    :param queue_:
+    :param timeout:
+    :param default:
+    :return:
+    """
+    try:
+        result = queue_.get(block=True, timeout=timeout)
+    except queue.Empty:
+        result = default
     return result
 
 
@@ -458,6 +486,11 @@ def run_orbslam(output_queue, input_queue, vocab_file, settings_file, mode):
     import arvet_slam.trials.slam.tracking_state as tracking_state
     import time
 
+    tracking_stats = {}
+    num_features = {}
+    num_matches = {}
+    input_queue.close()  # We're not putting data into that, close our thread to it.
+
     sensor_mode = orbslam2.Sensor.RGBD
     if mode == SensorMode.MONOCULAR:
         sensor_mode = orbslam2.Sensor.MONOCULAR
@@ -465,13 +498,10 @@ def run_orbslam(output_queue, input_queue, vocab_file, settings_file, mode):
         sensor_mode = orbslam2.Sensor.STEREO
     logging.getLogger(__name__).info("Starting ORBSLAM2 in {0} mode...".format(sensor_mode.name.lower()))
 
-    tracking_stats = {}
-    num_features = {}
-    num_matches = {}
     orbslam_system = orbslam2.System(vocab_file, settings_file, sensor_mode)
     orbslam_system.set_use_viewer(True)
     orbslam_system.initialize()
-    output_queue.put(True)  # Tell the parent process we've set-up correctly and are ready to go.
+    output_queue.put('ORBSLAM started!')  # Tell the parent process we've set-up correctly and are ready to go.
     logging.getLogger(__name__).info("ORBSLAM2 Ready.")
 
     running = True
@@ -513,7 +543,12 @@ def run_orbslam(output_queue, input_queue, vocab_file, settings_file, mode):
             running = False
 
     # send the final trajectory to the parent
-    output_queue.put((orbslam_system.get_trajectory_points(), tracking_stats, num_features, num_matches))
+    output_queue.put(len(tracking_stats))
+    output_queue.put(orbslam_system.get_trajectory_points())
+    output_queue.put(tracking_stats)
+    output_queue.put(num_features)
+    output_queue.put(num_matches)
+    output_queue.close()
 
     # shut down the system. This is going to crash it, but that's ok, because it's a subprocess
     orbslam_system.shutdown()
