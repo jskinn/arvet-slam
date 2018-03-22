@@ -132,6 +132,7 @@ class BenchmarkRPE(arvet.core.benchmark.Benchmark):
 
     def is_trial_appropriate(self, trial_result):
         return (hasattr(trial_result, 'identifier') and
+                hasattr(trial_result, 'system_id') and
                 hasattr(trial_result, 'get_ground_truth_camera_poses') and
                 hasattr(trial_result, 'get_computed_camera_poses'))
 
@@ -143,6 +144,15 @@ class BenchmarkRPE(arvet.core.benchmark.Benchmark):
         :return:
         :rtype BenchmarkResult:
         """
+        trial_results = list(trial_results)  # TODO: Need a better solution to iterate over the trials more than once
+        invalid_reason = arvet.core.benchmark.check_trial_collection(trial_results)
+        if invalid_reason is not None:
+            return arvet.core.benchmark.FailedBenchmark(
+                benchmark_id=self.identifier,
+                trial_result_ids=[trial_result.identifier for trial_result in trial_results],
+                reason=invalid_reason
+            )
+
         # First, we're going to get all the trajectories
         trial_result_ids = []
         ground_truth_trajectory = None

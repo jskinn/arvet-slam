@@ -7,6 +7,8 @@ import transforms3d as tf3d
 import arvet.util.transform as tf
 import arvet.util.dict_utils as du
 import arvet.database.tests.test_entity
+import arvet.core.sequence_type
+import arvet.core.trial_result
 import arvet.core.benchmark
 import arvet_slam.benchmarks.rpe.relative_pose_error as rpe
 
@@ -63,16 +65,18 @@ def create_noise(trajectory, random_state, time_offset=0, time_noise=0.01, loc_n
     return changed_trajectory, noise
 
 
-class MockTrialResult:
+class MockTrialResult(arvet.core.trial_result.TrialResult):
 
-    def __init__(self, gt_trajectory, comp_trajectory):
-        self._id = bson.ObjectId()
+    def __init__(self, gt_trajectory, comp_trajectory, system_id):
+        super().__init__(
+            system_id=system_id,
+            success=True,
+            system_settings={},
+            sequence_type=arvet.core.sequence_type.ImageSequenceType.SEQUENTIAL,
+            id_=bson.ObjectId()
+        )
         self._gt_traj = gt_trajectory
         self._comp_traj = comp_trajectory
-
-    @property
-    def identifier(self):
-        return self._id
 
     @property
     def ground_truth_trajectory(self):
@@ -102,11 +106,16 @@ class TestBenchmarkRPE(arvet.database.tests.test_entity.EntityContract, unittest
     def setUp(self):
         self.random = np.random.RandomState(1311)   # Use a random stream to make the results consistent
         trajectory = create_random_trajectory(self.random)
+        self.system_id = bson.ObjectId()
         self.trial_results = []
         self.noise = []
         for _ in range(10):
             noisy_trajectory, noise = create_noise(trajectory, self.random)
-            self.trial_results.append(MockTrialResult(gt_trajectory=trajectory, comp_trajectory=noisy_trajectory))
+            self.trial_results.append(MockTrialResult(
+                gt_trajectory=trajectory,
+                comp_trajectory=noisy_trajectory,
+                system_id=self.system_id
+            ))
             self.noise.append(noise)
 
     def get_class(self):
@@ -148,6 +157,19 @@ class TestBenchmarkRPE(arvet.database.tests.test_entity.EntityContract, unittest
         self.assertNotIsInstance(result, arvet.core.benchmark.FailedBenchmark)
         self.assertEqual(benchmark.identifier, result.benchmark)
         self.assertEqual(set(trial_result.identifier for trial_result in self.trial_results), set(result.trial_results))
+
+    def test_benchmark_results_fails_for_trials_from_different_systems(self):
+        trajectory = create_random_trajectory(self.random)
+        mixed_trial_results = self.trial_results + [MockTrialResult(
+            gt_trajectory=trajectory,
+            comp_trajectory=trajectory,
+            system_id=bson.ObjectId()
+        )]
+
+        # Perform the benchmark
+        benchmark = rpe.BenchmarkRPE(max_pairs=0)
+        result = benchmark.benchmark_results(mixed_trial_results)
+        self.assertIsInstance(result, arvet.core.benchmark.FailedBenchmark)
 
     def test_benchmark_results_fails_for_no_matching_timestaps(self):
         # Adjust the computed timestamps so none of them match
