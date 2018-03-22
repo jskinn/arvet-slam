@@ -56,8 +56,11 @@ class TestBenchmarkRPEResult(entity_test.EntityContract, unittest.TestCase):
         """
         self.assertEqual(set(s_model1.keys()), set(s_model2.keys()))
         for key in s_model1.keys():
-            if key is not 'errors':
+            if key is not 'errors' and key is not 'trial_results':
                 self.assertEqual(s_model1[key], s_model2[key])
+
+        # Special case for sets
+        self.assertEqual(set(s_model1['trial_results']), set(s_model2['trial_results']))
 
         # Special case for BSON
         errors1 = pickle.loads(s_model1['errors'])

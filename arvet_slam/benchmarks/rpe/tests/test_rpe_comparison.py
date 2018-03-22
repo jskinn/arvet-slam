@@ -2,6 +2,7 @@
 import numpy as np
 import unittest
 import pickle
+import bson
 import arvet.util.dict_utils as du
 import arvet.database.tests.test_entity as entity_test
 import arvet.core.benchmark_comparison
@@ -100,18 +101,27 @@ class TestRPEBenchmarkComparison(entity_test.EntityContract, unittest.TestCase):
 
     def test_comparison_returns_comparison_benchmark_result(self):
         random = np.random.RandomState(6188)
-        ref_trans_error = {random.uniform(0, 600): random.uniform(-100, 100) for _ in range(100)}
-        ref_rot_error = {time: random.uniform(-np.pi / 2, np.pi / 2) for time in ref_trans_error}
-        ref_benchmark_result = rpe_res.BenchmarkRPEResult(benchmark_id=random.randint(0, 10),
-                                                          trial_result_id=random.randint(10, 20),
-                                                          translational_error=ref_trans_error,
-                                                          rotational_error=ref_rot_error,
-                                                          rpe_settings={})
-        comp_benchmark_result = rpe_res.BenchmarkRPEResult(benchmark_id=random.randint(20, 30),
-                                                           trial_result_id=random.randint(30, 40),
-                                                           translational_error=ref_trans_error,
-                                                           rotational_error=ref_rot_error,
-                                                           rpe_settings={})
+        errors = [
+            [idx + random.normal(0, 0.1),
+             idx + 1 + random.normal(0, 0.1),
+             random.exponential(100), random.beta(0.8, 0.8),
+             random.exponential(100), random.beta(0.8, 0.8)]
+            for idx in range(100)
+        ]
+        ref_benchmark_result = rpe_res.BenchmarkRPEResult(
+            benchmark_id=bson.ObjectId(),
+            trial_result_ids=[bson.ObjectId() for _ in range(3)],
+            timestamps=set(err[0] for err in errors) | set(err[1] for err in errors),
+            errors=errors,
+            rpe_settings={}
+        )
+        comp_benchmark_result = rpe_res.BenchmarkRPEResult(
+            benchmark_id=bson.ObjectId(),
+            trial_result_ids=[bson.ObjectId() for _ in range(3)],
+            timestamps=set(err[0] for err in errors) | set(err[1] for err in errors),
+            errors=errors,
+            rpe_settings={}
+        )
         comparison_benchmark = rpe_comp.RPEBenchmarkComparison()
         comparison_result = comparison_benchmark.compare_results(comp_benchmark_result, ref_benchmark_result)
         self.assertIsInstance(comparison_result, arvet.core.benchmark_comparison.BenchmarkComparisonResult)

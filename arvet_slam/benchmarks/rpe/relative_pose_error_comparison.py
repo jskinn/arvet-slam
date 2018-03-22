@@ -2,7 +2,8 @@
 import numpy as np
 import pickle
 import bson
-import arvet.util.associate as ass
+# import arvet.util.associate as ass
+import arvet.core.benchmark
 import arvet.core.benchmark_comparison
 
 
@@ -10,6 +11,7 @@ class RPEBenchmarkComparison(arvet.core.benchmark_comparison.BenchmarkComparison
     """
     Comparison of two Relative Pose Error benchmark results.
     Basically just the difference in translational error.
+    DEPRECATED: Does not work.
     """
 
     def __init__(self, offset=0, max_difference=0.02, id_=None):
@@ -86,21 +88,27 @@ class RPEBenchmarkComparison(arvet.core.benchmark_comparison.BenchmarkComparison
         :param reference_benchmark_result: 
         :return: 
         """
-        matches = ass.associate(benchmark_result.translational_error, reference_benchmark_result.translational_error,
-                                offset=self.offset, max_difference=self.max_difference)
-        trans_error_diff = {}
-        rot_error_diff = {}
-        for result_stamp, ref_stamp in matches:
-            trans_error_diff[ref_stamp] = (reference_benchmark_result.translational_error[ref_stamp] -
-                                           benchmark_result.translational_error[result_stamp])
-            rot_error_diff[ref_stamp] = (reference_benchmark_result.rotational_error[ref_stamp] -
-                                         benchmark_result.rotational_error[result_stamp])
-        return RPEBenchmarkComparisonResult(benchmark_comparison_id=self.identifier,
-                                            benchmark_result=benchmark_result.identifier,
-                                            reference_benchmark_result=reference_benchmark_result.identifier,
-                                            difference_in_translational_error=trans_error_diff,
-                                            difference_in_rotational_error=rot_error_diff,
-                                            settings=self.get_settings())
+        return arvet.core.benchmark.FailedBenchmark(
+            benchmark_id=self.identifier,
+            trial_result_ids=[benchmark_result.identifier, reference_benchmark_result.identifier],
+            reason="Relative Pose Error comparison is broken for now"
+        )
+
+        # matches = ass.associate(benchmark_result.translational_error, reference_benchmark_result.translational_error,
+        #                         offset=self.offset, max_difference=self.max_difference)
+        # trans_error_diff = {}
+        # rot_error_diff = {}
+        # for result_stamp, ref_stamp in matches:
+        #     trans_error_diff[ref_stamp] = (reference_benchmark_result.translational_error[ref_stamp] -
+        #                                    benchmark_result.translational_error[result_stamp])
+        #     rot_error_diff[ref_stamp] = (reference_benchmark_result.rotational_error[ref_stamp] -
+        #                                  benchmark_result.rotational_error[result_stamp])
+        # return RPEBenchmarkComparisonResult(benchmark_comparison_id=self.identifier,
+        #                                     benchmark_result=benchmark_result.identifier,
+        #                                     reference_benchmark_result=reference_benchmark_result.identifier,
+        #                                     difference_in_translational_error=trans_error_diff,
+        #                                     difference_in_rotational_error=rot_error_diff,
+        #                                    settings=self.get_settings())
 
 
 class RPEBenchmarkComparisonResult(arvet.core.benchmark_comparison.BenchmarkComparisonResult):
