@@ -201,7 +201,6 @@ class ORBSLAM2(arvet.core.system.VisionSystem):
                                                             self._mode))
         self._child_process.daemon = True
         self._child_process.start()
-        self._output_queue.close()  # We're not putting data into that, close our thread.
         try:
             started = self._output_queue.get(block=True, timeout=self._expected_completion_timeout)
         except queue.Empty:
@@ -209,8 +208,6 @@ class ORBSLAM2(arvet.core.system.VisionSystem):
                 self._expected_completion_timeout))
             started = None
         if started is None:
-            self._input_queue.close()
-            self._output_queue.close()
             self._child_process.terminate()
             self._child_process.join(timeout=10)
             if self._child_process.is_alive():
@@ -265,7 +262,6 @@ class ORBSLAM2(arvet.core.system.VisionSystem):
 
         # This will end the main loop, see run_orbslam, below
         self._input_queue.put(None)
-        self._input_queue.close()
 
         # First, get the length of the outputs, this affects how long we will wait for the future output
         output_size = get_with_default(self._output_queue, self._expected_completion_timeout,
@@ -489,7 +485,6 @@ def run_orbslam(output_queue, input_queue, vocab_file, settings_file, mode):
     tracking_stats = {}
     num_features = {}
     num_matches = {}
-    input_queue.close()  # We're not putting data into that, close our thread to it.
 
     sensor_mode = orbslam2.Sensor.RGBD
     if mode == SensorMode.MONOCULAR:
@@ -542,9 +537,12 @@ def run_orbslam(output_queue, input_queue, vocab_file, settings_file, mode):
             logging.getLogger(__name__).info("Got terminate input, finishing up and sending results.")
             running = False
 
+    # Get the trajectory from orbslam
+    trajectory = orbslam_system.get_trajectory_points()
+
     # send the final trajectory to the parent
     output_queue.put(len(tracking_stats))
-    output_queue.put(orbslam_system.get_trajectory_points())
+    output_queue.put(trajectory)
     output_queue.put(tracking_stats)
     output_queue.put(num_features)
     output_queue.put(num_matches)
