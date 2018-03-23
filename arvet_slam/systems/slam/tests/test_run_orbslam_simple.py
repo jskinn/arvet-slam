@@ -41,17 +41,17 @@ class TestORBSLAM2Execution(unittest.TestCase):
         subject.set_camera_intrinsics(cam_intr.CameraIntrinsics(
             width=320,
             height=240,
-            fx=227.22,
-            fy=227.22,
+            fx=160,
+            fy=160,
             cx=160,
             cy=120
         ))
         subject.set_stereo_baseline(0.05)
         subject.start_trial(arvet.core.sequence_type.ImageSequenceType.SEQUENTIAL)
-        num_frames = 20
+        num_frames = 100
         for time in range(num_frames):
             image = create_frame(time / num_frames)
-            subject.process_image(image, 4 * time / num_frames)
+            subject.process_image(image, 10 * time / num_frames)
         result = subject.finish_trial()
         self.assertIsInstance(result, slam_trial.SLAMTrialResult)
 
@@ -65,47 +65,44 @@ class TestORBSLAM2Execution(unittest.TestCase):
 def create_frame(time):
     frame = np.zeros((320, 240), dtype=np.uint8)
     right_frame = np.zeros((320, 240), dtype=np.uint8)
-    shapes = [{
-        'pos': (0.1 + time * 0.01, 0.01 + time * 0.01),
-        'width': 0.4 - time * 0.01,
-        'height': 0.2 + time * 0.001,
-        'colour': 127
-    }, {
-        'pos': (0.9 - time * 0.01, 0.04 + time * 0.01),
-        'width': 0.1 + time * 0.001,
-        'height': 0.5 + time * 0.001,
-        'colour': 67
-    }, {
-        'pos': (0.11 + time * 0.01, 0.89 - time * 0.01),
-        'width': 0.3,
-        'height': 0.3,
-        'colour': 240
-    }, {
-        'pos': (0.51 + time * 0.1, 0.49 - time * 0.01),
-        'width': 0.11,
-        'height': 0.09,
-        'colour': 150
-    }]
-    for shape in shapes:
-        left = np.round(frame.shape[1] * (shape['pos'][0] - shape['width'] / 2))
-        right = np.round(frame.shape[1] * (shape['pos'][0] + shape['width'] / 2))
-        top = np.round(frame.shape[0] * (shape['pos'][1] - shape['height'] / 2))
-        bottom = np.round(frame.shape[0] * (shape['pos'][1] + shape['height'] / 2))
+    speed = 200
+    f = frame.shape[1] / 2
+    cx = frame.shape[1] / 2
+    cy = frame.shape[0] / 2
+    stars = [{
+        'pos': (
+            (127 * idx + 34 * idx * idx) % 400 - 200,
+            (320 - 17 * idx + 7 * idx * idx) % 400 - 200,
+            (183 * idx - speed * time) % 500 + 0.01),
+        'width': idx % 31 + 1,
+        'height': idx % 27 + 1,
+        'colour': idx * 7 % 256
+    } for idx in range(300)]
+    stars.sort(key=lambda s: s['pos'][2], reverse=True)
 
-        left = max(0, min(frame.shape[1], int(left)))
-        right = max(0, min(frame.shape[1], int(right)))
-        top = max(0, min(frame.shape[0], int(top)))
-        bottom = max(0, min(frame.shape[0], int(bottom)))
+    for star in stars:
+        x, y, z = star['pos']
 
-        frame[top:bottom, left:right] = shape['colour']
+        left = int(np.round(f * ((x - star['width'] / 2) / z) + cx))
+        right = int(np.round(f * ((x + star['width'] / 2) / z) + cx))
 
-        left = np.round(frame.shape[1] * (shape['pos'][0] - shape['width'] / 2 + 0.05))
-        right = np.round(frame.shape[1] * (shape['pos'][0] + shape['width'] / 2 + 0.05))
+        top = int(np.round(f * ((y - star['height'] / 2) / z) + cy))
+        bottom = int(np.round(f * ((y + star['height'] / 2) / z) + cy))
 
-        left = max(0, min(frame.shape[1], int(left)))
-        right = max(0, min(frame.shape[1], int(right)))
+        left = max(0, min(frame.shape[1], left))
+        right = max(0, min(frame.shape[1], right))
+        top = max(0, min(frame.shape[0], top))
+        bottom = max(0, min(frame.shape[0], bottom))
 
-        right_frame[top:bottom, left:right] = shape['colour']
+        frame[top:bottom, left:right] = star['colour']
+
+        left = int(np.round(f * ((x + 50 - star['width'] / 2) / z) + cx))
+        right = int(np.round(f * ((x + 50 + star['width'] / 2) / z) + cx))
+
+        left = max(0, min(frame.shape[1], left))
+        right = max(0, min(frame.shape[1], right))
+
+        right_frame[top:bottom, left:right] = star['colour']
 
     return arvet.core.image.StereoImage(
         left_data=frame,
