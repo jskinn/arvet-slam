@@ -37,7 +37,7 @@ class TestORBSLAM2Execution(unittest.TestCase):
             temp_folder=_temp_folder,
             settings={'fps': 3}
         )
-        subject.resolve_paths(arvet.config.path_manager.PathManager(['..']))
+        subject.resolve_paths(arvet.config.path_manager.PathManager([os.path.join(os.path.dirname(__file__), '..')]))
         subject.set_camera_intrinsics(cam_intr.CameraIntrinsics(
             width=320,
             height=240,
