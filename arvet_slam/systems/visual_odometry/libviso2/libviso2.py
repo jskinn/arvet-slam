@@ -1,5 +1,6 @@
 # Copyright (c) 2017, John Skinner
 import numpy as np
+import logging
 import viso2 as libviso2
 
 import arvet.util.image_utils as image_utils
@@ -104,6 +105,7 @@ class LibVisOSystem(arvet.core.system.VisionSystem):
         :param camera_intrinsics: The camera intrinsics, relative to the image resolution
         :return:
         """
+        logging.getLogger(__name__).error("Setting camera intrinsics")
         self._focal_distance = float(camera_intrinsics.fx)
         self._cu = float(camera_intrinsics.cx)
         self._cv = float(camera_intrinsics.cy)
@@ -114,12 +116,15 @@ class LibVisOSystem(arvet.core.system.VisionSystem):
         :param baseline:
         :return:
         """
+        logging.getLogger(__name__).error("Setting stereo baseline to {0}".format(baseline))
         self._base = float(baseline)
 
     def start_trial(self, sequence_type):
+        logging.getLogger(__name__).error("Starting LibVisO trial...")
         if not sequence_type == arvet.core.sequence_type.ImageSequenceType.SEQUENTIAL:
             return False
         params = libviso2.Stereo_parameters()
+        logging.getLogger(__name__).error("    Created parameters object, populating ...")
 
         # Matcher parameters
         params.match.nms_n = self._matcher_nms_n
@@ -132,44 +137,57 @@ class LibVisOSystem(arvet.core.system.VisionSystem):
         params.match.multi_stage = 1 if self._matcher_multi_stage else 0
         params.match.half_resolution = 1 if self._matcher_half_resolution else 0
         params.match.refinement = self._matcher_refinement
+        logging.getLogger(__name__).error("    Added matcher parameters ...")
 
         # Feature bucketing
         params.bucket.max_features = self._bucketing_max_features
         params.bucket.bucket_width = self._bucketing_bucket_width
         params.bucket.bucket_height = self._bucketing_bucket_height
+        logging.getLogger(__name__).error("    Added bucket parameters ...")
 
         # Stereo-specific parameters
         params.ransac_iters = self._ransac_iters
         params.inlier_threshold = self._inlier_threshold
         params.reweighting = self._reweighting
+        logging.getLogger(__name__).error("Added stereo specific parameters ...")
 
         # Camera calibration
         params.calib.f = self._focal_distance
         params.calib.cu = self._cu
         params.calib.cv = self._cv
         params.base = self._base
+        logging.getLogger(__name__).error("    Parameters built, creating viso object ...")
 
         self._viso = libviso2.VisualOdometryStereo(params)
         self._current_pose = tf.Transform()
         self._trajectory = {}
         self._gt_poses = {}
         self._num_matches = {}
+        logging.getLogger(__name__).error("    Started LibVisO trial.")
 
     def process_image(self, image, timestamp):
+        logging.getLogger(__name__).error("Processing image at time {0} ...".format(timestamp))
         left_grey = prepare_image(image.left_data)
         right_grey = prepare_image(image.right_data)
+        logging.getLogger(__name__).error("    prepared images ...")
         self._viso.process_frame(left_grey, right_grey)
+        logging.getLogger(__name__).error("    processed frame ...")
         motion = self._viso.getMotion()  # Motion is a 4x4 pose matrix
         np_motion = np.zeros((4, 4))
         motion.toNumpy(np_motion)
         relative_pose = make_relative_pose(np_motion)
         self._current_pose = self._current_pose.find_independent(relative_pose)
+        logging.getLogger(__name__).error("    got motion ...")
 
         self._num_matches[timestamp] = self._viso.getNumberOfMatches()
+        logging.getLogger(__name__).error("    got number of matches ...")
+
         self._trajectory[timestamp] = self._current_pose
         self._gt_poses[timestamp] = image.camera_pose
+        logging.getLogger(__name__).error("    Processing done.")
 
     def finish_trial(self):
+        logging.getLogger(__name__).error("Finishing LibVisO trial ...")
         result = vs.SLAMTrialResult(
             system_id=self.identifier,
             sequence_type=arvet.core.sequence_type.ImageSequenceType.SEQUENTIAL,
@@ -188,6 +206,7 @@ class LibVisOSystem(arvet.core.system.VisionSystem):
         self._num_matches = None
         self._current_pose = None
         self._viso = None
+        logging.getLogger(__name__).error("    Created result")
         return result
 
     def serialize(self):
