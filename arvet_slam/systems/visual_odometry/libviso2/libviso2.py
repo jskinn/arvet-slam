@@ -175,6 +175,7 @@ class LibVisOSystem(arvet.core.system.VisionSystem):
         motion = self._viso.getMotion()  # Motion is a 4x4 pose matrix
         np_motion = np.zeros((4, 4))
         motion.toNumpy(np_motion)
+        np_motion = np.linalg.inv(np_motion)    # Invert the motion to make it new frame relative to old
         relative_pose = make_relative_pose(np_motion)
         self._current_pose = self._current_pose.find_independent(relative_pose)
         logging.getLogger(__name__).error("    got motion ...")
