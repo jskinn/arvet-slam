@@ -200,6 +200,7 @@ class LibVisOSystem(arvet.core.system.VisionSystem):
             },
             trajectory=self._trajectory,
             num_matches=self._num_matches,
+            has_scale=True,
             ground_truth_trajectory=self._gt_poses
         )
         self._trajectory = None

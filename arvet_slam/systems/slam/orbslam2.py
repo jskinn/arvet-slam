@@ -296,6 +296,7 @@ class ORBSLAM2(arvet.core.system.VisionSystem):
                 tracking_stats=tracking_stats,
                 num_features=num_features,
                 num_matches=num_matches,
+                has_scale=(self.mode != SensorMode.MONOCULAR),
                 sequence_type=arvet.core.sequence_type.ImageSequenceType.SEQUENTIAL,
                 system_settings=self.get_settings()
             )

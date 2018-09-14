@@ -22,6 +22,7 @@ class SLAMTrialResult(arvet.core.trial_result.TrialResult):
                  tracking_stats: typing.Mapping[float, ts.TrackingState] = None,
                  num_features: typing.Mapping[float, int] = None,
                  num_matches: typing.Mapping[float, int] = None,
+                 has_scale: bool = True,
                  sequence_type: arvet.core.sequence_type.ImageSequenceType = None,
                  id_: bson.ObjectId = None,
                  **kwargs):
@@ -33,6 +34,11 @@ class SLAMTrialResult(arvet.core.trial_result.TrialResult):
         self._tracking_stats = tracking_stats if tracking_stats is not None else {}
         self._num_features = num_features if num_features is not None else {}
         self._num_matches = num_matches if num_matches is not None else {}
+        self._has_scale = bool(has_scale)
+
+    @property
+    def has_scale(self) -> bool:
+        return self._has_scale
 
     @property
     def trajectory(self) -> typing.Mapping[float, tf.Transform]:
@@ -77,6 +83,7 @@ class SLAMTrialResult(arvet.core.trial_result.TrialResult):
         serialized['tracking_stats'] = bson.Binary(pickle.dumps(self.tracking_stats, protocol=pickle.HIGHEST_PROTOCOL))
         serialized['num_features'] = [(stamp, features) for stamp, features in self.num_features.items()]
         serialized['num_matches'] = [(stamp, matches) for stamp, matches in self.num_matches.items()]
+        serialized['has_scale'] = self.has_scale
         return serialized
 
     @classmethod
@@ -91,4 +98,6 @@ class SLAMTrialResult(arvet.core.trial_result.TrialResult):
             kwargs['num_features'] = {stamp: features for stamp, features in serialized_representation['num_features']}
         if 'num_matches' in serialized_representation:
             kwargs['num_matches'] = {stamp: features for stamp, features in serialized_representation['num_matches']}
+        if 'has_scale' in serialized_representation:
+            kwargs['has_scale'] = serialized_representation['has_scale']
         return super().deserialize(serialized_representation, db_client, **kwargs)
