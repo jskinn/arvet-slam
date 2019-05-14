@@ -1,98 +1,76 @@
-# Copyright (c) 2017, John Skinner
-import unittest
+# Copyright (c) 2019, John Skinner
 import numpy as np
-import pickle
-import arvet.database.tests.test_entity
-import arvet.util.dict_utils as du
-import arvet.util.transform as tf
-import arvet.core.sequence_type
-import arvet_slam.trials.slam.visual_slam as vs
-import arvet_slam.trials.slam.tracking_state as ts
+import unittest
+from arvet.util.transform import Transform
+from arvet.core.sequence_type import ImageSequenceType
+import arvet.database.tests.database_connection as dbconn
+import arvet.core.tests.mock_types as mock_types
+from arvet_slam.trials.slam.tracking_state import TrackingState
+from arvet_slam.trials.slam.visual_slam import SLAMTrialResult, FrameResult
 
 
-class TestSLAMTrialResult(arvet.database.tests.test_entity.EntityContract, unittest.TestCase):
+class TestTrialResultDatabase(unittest.TestCase):
+    system = None
+    image_source = None
 
-    def get_class(self):
-        return vs.SLAMTrialResult
+    @classmethod
+    def setUpClass(cls):
+        dbconn.connect_to_test_db()
+        cls.system = mock_types.MockSystem()
+        cls.image_source = mock_types.MockImageSource()
+        cls.system.save()
+        cls.image_source.save()
 
-    def make_instance(self, *args, **kwargs):
-        states = [ts.TrackingState.NOT_INITIALIZED, ts.TrackingState.OK, ts.TrackingState.LOST]
-        kwargs = du.defaults(kwargs, {
-            'system_id': np.random.randint(10, 20),
-            'trajectory': {
-                t + np.random.uniform(0, 0.99): tf.Transform(location=np.random.uniform(-1000, 1000, 3),
-                                                             rotation=np.random.uniform(0, 1, 4))
-                for t in range(100)
-            },
-            'ground_truth_trajectory': {
-                t + np.random.uniform(0, 0.99): tf.Transform(location=np.random.uniform(-1000, 1000, 3),
-                                                             rotation=np.random.uniform(0, 1, 4))
-                for t in range(100)
-            },
-            'tracking_stats': {
-                t + np.random.uniform(0, 0.99): states[np.random.randint(0, len(states))]
-                for t in range(100)
-            },
-            'num_features': {
-                t + np.random.uniform(0, 0.99): np.random.randint(0, 1000)
-                for t in range(100)
-            },
-            'num_matches': {
-                t + np.random.uniform(0, 0.99): np.random.randint(0, 1000)
-                for t in range(100)
-            },
-            'sequence_type': arvet.core.sequence_type.ImageSequenceType.SEQUENTIAL,
-            'system_settings': {
-                'a': np.random.randint(20, 30)
-            }
-        })
-        return vs.SLAMTrialResult(*args, **kwargs)
+    def setUp(self):
+        # Remove the collection as the start of the test, so that we're sure it's empty
+        SLAMTrialResult._mongometa.collection.drop()
 
-    def assert_models_equal(self, trial_result1, trial_result2):
-        """
-        Helper to assert that two SLAM trial results models are equal
-        :param trial_result1: 
-        :param trial_result2: 
-        :return:
-        """
-        if not isinstance(trial_result1, vs.SLAMTrialResult) or not isinstance(trial_result2, vs.SLAMTrialResult):
-            self.fail('object was not a SLAMTrialResult')
-        self.assertEqual(trial_result1.identifier, trial_result2.identifier)
-        self.assertEqual(trial_result1.system_id, trial_result2.system_id)
-        self.assertEqual(trial_result1.success, trial_result2.success)
-        self._assertTrajectoryEqual(trial_result1.trajectory, trial_result2.trajectory)
-        self._assertTrajectoryEqual(trial_result1.ground_truth_trajectory, trial_result2.ground_truth_trajectory)
-        self.assertEqual(trial_result1.tracking_stats, trial_result2.tracking_stats)
-        self.assertEqual(trial_result1.num_features, trial_result2.num_features)
-        self.assertEqual(trial_result1.num_matches, trial_result2.num_matches)
+    @classmethod
+    def tearDownClass(cls):
+        # Clean up after ourselves by dropping the collection for this model
+        SLAMTrialResult._mongometa.collection.drop()
+        mock_types.MockSystem._mongometa.collection.drop()
+        mock_types.MockImageSource._mongometa.collection.drop()
 
-    def assert_serialized_equal(self, s_model1, s_model2):
-        self.assertEqual(set(s_model1.keys()), set(s_model2.keys()))
-        for key in s_model1.keys():
-            if (key is not 'ground_truth_trajectory' and
-                    key is not 'trajectory' and
-                    key is not 'tracking_stats'):
-                self.assertEqual(s_model1[key], s_model2[key])
+    def test_stores_and_loads(self):
+        results = [
+            FrameResult(
+                timestamp=idx + np.random.normal(0, 0.01),
+                pose=Transform(
+                    (idx * 15 + np.random.normal(0, 1), idx + np.random.normal(0, 0.1), np.random.normal(0, 1)),
+                    (1, 0, 0, 0)
+                ),
+                motion=Transform(
+                    (np.random.normal(0, 1), np.random.normal(0, 0.1), np.random.normal(0, 1)),
+                    (1, 0, 0, 0)
+                ),
+                estimated_pose=Transform(
+                    (idx * 15 + np.random.normal(0, 1), idx + np.random.normal(0, 0.1), np.random.normal(0, 1)),
+                    (1, 0, 0, 0)
+                ),
+                estimated_motion=Transform(
+                    (np.random.normal(0, 1), np.random.normal(0, 0.1), np.random.normal(0, 1)),
+                    (1, 0, 0, 0)
+                ),
+                tracking_state=TrackingState.OK,
+                num_features=np.random.randint(10, 1000),
+                num_matches=np.random.randint(10, 1000)
+            )
+            for idx in range(10)
+        ]
+        obj = SLAMTrialResult(
+            system=self.system,
+            image_source=self.image_source,
+            success=True,
+            settings={'key': 'value'},
+            results=results,
+            has_scale=True,
+            sequence_type=ImageSequenceType.INTERACTIVE
+        )
+        obj.save()
 
-        traj1 = pickle.loads(s_model1['trajectory'])
-        traj2 = pickle.loads(s_model2['trajectory'])
-        self._assertTrajectoryEqual(traj1, traj2)
-
-        traj1 = pickle.loads(s_model1['ground_truth_trajectory'])
-        traj2 = pickle.loads(s_model2['ground_truth_trajectory'])
-        self._assertTrajectoryEqual(traj1, traj2)
-
-        stats1 = pickle.loads(s_model1['tracking_stats'])
-        stats2 = pickle.loads(s_model2['tracking_stats'])
-        self.assertEqual(stats1, stats2)
-
-    def _assertTrajectoryEqual(self, traj1, traj2):
-        self.assertEqual(list(traj1.keys()).sort(), list(traj2.keys()).sort())
-        for time in traj1.keys():
-            self.assertTrue(np.array_equal(traj1[time].location, traj2[time].location),
-                            "Locations are not equal")
-            self.assertTrue(np.array_equal(traj1[time].rotation_quat(w_first=True),
-                                           traj2[time].rotation_quat(w_first=True)),
-                            "Rotations {0} and {1} are not equal".format(
-                                tuple(traj1[time].rotation_quat(w_first=True)),
-                                tuple(traj2[time].rotation_quat(w_first=True))))
+        # Load all the entities
+        all_entities = list(SLAMTrialResult.objects.all())
+        self.assertGreaterEqual(len(all_entities), 1)
+        self.assertEqual(all_entities[0], obj)
+        all_entities[0].delete()
