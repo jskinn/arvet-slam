@@ -3,12 +3,11 @@ import typing
 import pymodm
 import pymodm.fields as fields
 from arvet.core.trial_result import TrialResult
-from arvet.core.sequence_type import ImageSequenceType
 import arvet.util.transform as tf
 import arvet.util.trajectory_helpers as th
 from arvet.database.transform_field import TransformField
 from arvet.database.enum_field import EnumField
-from arvet_slam.trials.slam.tracking_state import TrackingState
+from .tracking_state import TrackingState
 
 
 class FrameResult(pymodm.EmbeddedMongoModel):
@@ -30,7 +29,6 @@ class SLAMTrialResult(TrialResult):
     """
     results = fields.EmbeddedDocumentListField(FrameResult, required=True)
     has_scale = fields.BooleanField(default=True)
-    sequence_type = EnumField(ImageSequenceType)
 
     @property
     def trajectory(self) -> typing.Mapping[float, tf.Transform]:

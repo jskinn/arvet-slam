@@ -64,8 +64,7 @@ class TestTrialResultDatabase(unittest.TestCase):
             success=True,
             settings={'key': 'value'},
             results=results,
-            has_scale=True,
-            sequence_type=ImageSequenceType.INTERACTIVE
+            has_scale=True
         )
         obj.save()
 
