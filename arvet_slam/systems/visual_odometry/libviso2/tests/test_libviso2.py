@@ -2,8 +2,10 @@
 import unittest
 import numpy as np
 import transforms3d as tf3d
+import arvet.database.tests.database_connection as dbconn
+import arvet.core.tests.mock_types as mock_types
+from arvet.core.system import VisionSystem
 import arvet.util.transform as tf
-import arvet.util.dict_utils as du
 import arvet.core.sequence_type
 import arvet.core.image
 import arvet.metadata.image_metadata as imeta
@@ -13,13 +15,23 @@ import arvet_slam.systems.visual_odometry.libviso2.libviso2 as viso
 import arvet_slam.trials.slam.visual_slam as slam_trial
 
 
-class TestLibVisO(arvet.database.tests.test_entity.EntityContract, unittest.TestCase):
+class TestLibVisODatabase(unittest.TestCase):
 
-    def get_class(self):
-        return viso.LibVisOSystem
+    @classmethod
+    def setUpClass(cls):
+        dbconn.connect_to_test_db()
 
-    def make_instance(self, *args, **kwargs):
-        kwargs = du.defaults(kwargs, {
+    def setUp(self):
+        # Remove the collection as the start of the test, so that we're sure it's empty
+        VisionSystem._mongometa.collection.drop()
+
+    @classmethod
+    def tearDownClass(cls):
+        # Clean up after ourselves by dropping the collection for this model
+        VisionSystem._mongometa.collection.drop()
+
+    def test_stores_and_loads(self):
+        kwargs = {
             'matcher_nms_n': np.random.randint(0, 5),
             'matcher_nms_tau': np.random.randint(0, 100),
             'matcher_match_binsize': np.random.randint(0, 100),
@@ -36,21 +48,18 @@ class TestLibVisO(arvet.database.tests.test_entity.EntityContract, unittest.Test
             'ransac_iters': np.random.randint(0, 100),
             'inlier_threshold': np.random.uniform(0.0, 3.0),
             'reweighting': np.random.choice([True, False])
-        })
-        return viso.LibVisOSystem(*args, **kwargs)
+        }
+        obj = viso.LibVisOSystem(**kwargs)
+        obj.save()
 
-    def assert_models_equal(self, system1, system2):
-        """
-        Helper to assert that two viso systems are equal
-        Libviso2 systems don't have any persistent configuration, so they're all equal with the same id.
-        :param system1:
-        :param system2:
-        :return:
-        """
-        if (not isinstance(system1, viso.LibVisOSystem) or
-                not isinstance(system2, viso.LibVisOSystem)):
-            self.fail('object was not a LibVisOSystem')
-        self.assertEqual(system1.identifier, system2.identifier)
+        # Load all the entities
+        all_entities = list(VisionSystem.objects.all())
+        self.assertGreaterEqual(len(all_entities), 1)
+        self.assertEqual(all_entities[0], obj)
+        all_entities[0].delete()
+
+
+class TestLibVisO(unittest.TestCase):
 
     def test_can_start_and_stop_trial(self):
         subject = viso.LibVisOSystem()
@@ -64,8 +73,8 @@ class TestLibVisO(arvet.database.tests.test_entity.EntityContract, unittest.Test
         subject.set_camera_intrinsics(cam_intr.CameraIntrinsics(
             width=320,
             height=240,
-            fx=160,
-            fy=160,
+            fx=120,
+            fy=120,
             cx=160,
             cy=120
         ))
@@ -180,11 +189,11 @@ def create_frame(time):
         right_frame[top:bottom, left:right] = star['colour']
 
     return arvet.core.image.StereoImage(
-        left_data=frame,
-        right_data=right_frame,
+        pixels=frame,
+        right_pixels=right_frame,
         metadata=imeta.ImageMetadata(
             source_type=imeta.ImageSourceType.SYNTHETIC,
-            hash_=0x0000000,
+            img_hash=0x0000000,
             camera_pose=tf.Transform(
                 location=np.array((1, 2, 3)) + time * np.array((4, 5, 6)),
                 rotation=tf3d.quaternions.axangle2quat((1, 2, 34), np.pi / 36 + time * np.pi / 15)

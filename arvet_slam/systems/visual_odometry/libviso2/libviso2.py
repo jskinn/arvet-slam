@@ -1,84 +1,44 @@
 # Copyright (c) 2017, John Skinner
 import numpy as np
 import logging
-import viso2 as libviso2
+import pymodm.fields as fields
+
+from .viso2 import Stereo_parameters, VisualOdometryStereo
 
 import arvet.util.image_utils as image_utils
 import arvet.core.sequence_type
 import arvet.core.system
 import arvet.core.trial_result
-import arvet_slam.trials.slam.visual_slam as vs
 import arvet.util.transform as tf
+from arvet_slam.trials.slam.visual_slam import FrameResult, SLAMTrialResult
 
 
 class LibVisOSystem(arvet.core.system.VisionSystem):
     """
     Class to run LibVisO2 as a vision system.
     """
+    matcher_nms_n = fields.IntegerField(default=3)
+    matcher_nms_tau = fields.IntegerField(default=50)
+    matcher_match_binsize = fields.IntegerField(default=50)
+    matcher_match_radius = fields.IntegerField(default=200)
+    matcher_match_disp_tolerance = fields.IntegerField(default=2)
+    matcher_outlier_disp_tolerance = fields.IntegerField(default=5)
+    matcher_outlier_flow_tolerance = fields.IntegerField(default=5)
+    matcher_multi_stage = fields.BooleanField(default=True)
+    matcher_half_resolution = fields.BooleanField(default=True)
+    matcher_refinement = fields.IntegerField(default=50)
+    bucketing_max_features = fields.IntegerField(default=2)
+    bucketing_bucket_width = fields.IntegerField(default=50)
+    bucketing_bucket_height = fields.IntegerField(default=50)
+    ransac_iters = fields.IntegerField(default=200)
+    inlier_threshold = fields.FloatField(default=2.0)
+    reweighting = fields.BooleanField(default=True)
 
-    def __init__(self,
-                 matcher_nms_n: int = 3,
-                 matcher_nms_tau: int = 50,
-                 matcher_match_binsize: int = 50,
-                 matcher_match_radius: int = 200,
-                 matcher_match_disp_tolerance: int = 2,
-                 matcher_outlier_disp_tolerance: int = 5,
-                 matcher_outlier_flow_tolerance: int = 5,
-                 matcher_multi_stage: bool = True,
-                 matcher_half_resolution: bool = True,
-                 matcher_refinement: int = 1,
-                 bucketing_max_features: int = 2,
-                 bucketing_bucket_width: int = 50,
-                 bucketing_bucket_height: int = 50,
-                 ransac_iters: int = 200,
-                 inlier_threshold: float = 2.0,
-                 reweighting: bool = True,
-                 id_=None):
+    def __init__(self, *args, **kwargs):
         """
 
-        :param matcher_nms_n: non-max-suppression: min. distance between maxima (in pixels)
-        :param matcher_nms_tau: non-max-suppression: interest point peakiness threshold
-        :param matcher_match_binsize: matching bin width/height (affects efficiency only)
-        :param matcher_match_radius: matching radius (du/dv in pixels)
-        :param matcher_match_disp_tolerance: dv tolerance for stereo matches (in pixels)
-        :param matcher_outlier_disp_tolerance: outlier removal: disparity tolerance (in pixels)
-        :param matcher_outlier_flow_tolerance: outlier removal: flow tolerance (in pixels)
-        :param matcher_multi_stage: False=disabled, True=multistage matching (denser and faster)
-        :param matcher_half_resolution: False=disabled, True=match at half resolution, refine at full resolution
-        :param matcher_refinement: refinement (0=none,1=pixel,2=subpixel)
-
-        :param bucketing_max_features: maximal number of features per bucket
-        :param bucketing_bucket_width: width of bucket
-        :param bucketing_bucket_height: height of bucket
-
-        :param ransac_iters: number of RANSAC iterations
-        :param inlier_threshold: fundamental matrix inlier threshold
-        :param reweighting: lower border weights (more robust to calibration errors)
-        :param id_:
         """
-        super().__init__(id_=id_)
-
-        # LibVisO Feature Matcher parameters
-        self._matcher_nms_n = int(matcher_nms_n)
-        self._matcher_nms_tau = int(matcher_nms_tau)
-        self._matcher_match_binsize = int(matcher_match_binsize)
-        self._matcher_match_radius = int(matcher_match_radius)
-        self._matcher_match_disp_tolerance = int(matcher_match_disp_tolerance)
-        self._matcher_outlier_disp_tolerance = int(matcher_outlier_disp_tolerance)
-        self._matcher_outlier_flow_tolerance = int(matcher_outlier_flow_tolerance)
-        self._matcher_multi_stage = bool(matcher_multi_stage)
-        self._matcher_half_resolution = bool(matcher_half_resolution)
-        self._matcher_refinement = matcher_refinement if matcher_refinement in (0, 1, 2) else 1
-
-        # Feature bucketing parameters
-        self._bucketing_max_features = int(bucketing_max_features)
-        self._bucketing_bucket_width = int(bucketing_bucket_width)
-        self._bucketing_bucket_height = int(bucketing_bucket_height)
-
-        # Extra stereo parameters
-        self._ransac_iters = int(ransac_iters)
-        self._inlier_threshold = float(inlier_threshold)
-        self._reweighting = bool(reweighting)
+        super().__init__(*args, **kwargs)
 
         # These will get overridden by set_camera_intrinisics
         self._focal_distance = 1.0
@@ -86,11 +46,11 @@ class LibVisOSystem(arvet.core.system.VisionSystem):
         self._cv = 240
         self._base = 0.3
 
+        # Ongoing state during a trial that is initialised in start_trial
         self._viso = None
-        self._current_pose = None
-        self._trajectory = None
-        self._gt_poses = None
-        self._num_matches = None
+        self._previous_pose = None
+        self._estimated_world_pose = None
+        self._frame_results = []
 
     def is_image_source_appropriate(self, image_source):
         return (image_source.sequence_type == arvet.core.sequence_type.ImageSequenceType.SEQUENTIAL and
@@ -123,32 +83,32 @@ class LibVisOSystem(arvet.core.system.VisionSystem):
         logging.getLogger(__name__).error("Starting LibVisO trial...")
         if not sequence_type == arvet.core.sequence_type.ImageSequenceType.SEQUENTIAL:
             return False
-        params = libviso2.Stereo_parameters()
+        params = Stereo_parameters()
         logging.getLogger(__name__).error("    Created parameters object, populating ...")
 
         # Matcher parameters
-        params.match.nms_n = self._matcher_nms_n
-        params.match.nms_tau = self._matcher_nms_tau
-        params.match.match_binsize = self._matcher_match_binsize
-        params.match.match_radius = self._matcher_match_radius
-        params.match.match_disp_tolerance = self._matcher_match_disp_tolerance
-        params.match.outlier_disp_tolerance = self._matcher_outlier_disp_tolerance
-        params.match.outlier_flow_tolerance = self._matcher_outlier_flow_tolerance
-        params.match.multi_stage = 1 if self._matcher_multi_stage else 0
-        params.match.half_resolution = 1 if self._matcher_half_resolution else 0
-        params.match.refinement = self._matcher_refinement
+        params.match.nms_n = self.matcher_nms_n
+        params.match.nms_tau = self.matcher_nms_tau
+        params.match.match_binsize = self.matcher_match_binsize
+        params.match.match_radius = self.matcher_match_radius
+        params.match.match_disp_tolerance = self.matcher_match_disp_tolerance
+        params.match.outlier_disp_tolerance = self.matcher_outlier_disp_tolerance
+        params.match.outlier_flow_tolerance = self.matcher_outlier_flow_tolerance
+        params.match.multi_stage = 1 if self.matcher_multi_stage else 0
+        params.match.half_resolution = 1 if self.matcher_half_resolution else 0
+        params.match.refinement = self.matcher_refinement
         logging.getLogger(__name__).error("    Added matcher parameters ...")
 
         # Feature bucketing
-        params.bucket.max_features = self._bucketing_max_features
-        params.bucket.bucket_width = self._bucketing_bucket_width
-        params.bucket.bucket_height = self._bucketing_bucket_height
+        params.bucket.max_features = self.bucketing_max_features
+        params.bucket.bucket_width = self.bucketing_bucket_width
+        params.bucket.bucket_height = self.bucketing_bucket_height
         logging.getLogger(__name__).error("    Added bucket parameters ...")
 
         # Stereo-specific parameters
-        params.ransac_iters = self._ransac_iters
-        params.inlier_threshold = self._inlier_threshold
-        params.reweighting = self._reweighting
+        params.ransac_iters = self.ransac_iters
+        params.inlier_threshold = self.inlier_threshold
+        params.reweighting = self.reweighting
         logging.getLogger(__name__).error("Added stereo specific parameters ...")
 
         # Camera calibration
@@ -158,114 +118,58 @@ class LibVisOSystem(arvet.core.system.VisionSystem):
         params.base = self._base
         logging.getLogger(__name__).error("    Parameters built, creating viso object ...")
 
-        self._viso = libviso2.VisualOdometryStereo(params)
-        self._current_pose = tf.Transform()
-        self._trajectory = {}
-        self._gt_poses = {}
-        self._num_matches = {}
+        self._viso = VisualOdometryStereo(params)
+        self._previous_pose = None
+        self._estimated_world_pose = tf.Transform()
+        self._frame_results = []
         logging.getLogger(__name__).error("    Started LibVisO trial.")
 
     def process_image(self, image, timestamp):
         logging.getLogger(__name__).error("Processing image at time {0} ...".format(timestamp))
-        left_grey = prepare_image(image.left_data)
-        right_grey = prepare_image(image.right_data)
+        left_grey = prepare_image(image.left_pixels)
+        right_grey = prepare_image(image.right_pixels)
         logging.getLogger(__name__).error("    prepared images ...")
+
         self._viso.process_frame(left_grey, right_grey)
         logging.getLogger(__name__).error("    processed frame ...")
+
         motion = self._viso.getMotion()  # Motion is a 4x4 pose matrix
         np_motion = np.zeros((4, 4))
         motion.toNumpy(np_motion)
         np_motion = np.linalg.inv(np_motion)    # Invert the motion to make it new frame relative to old
-        relative_pose = make_relative_pose(np_motion)
-        self._current_pose = self._current_pose.find_independent(relative_pose)
-        logging.getLogger(__name__).error("    got motion ...")
+        relative_pose = make_relative_pose(np_motion) # This is the pose of the previous pose relative to the next one
+        self._estimated_world_pose = self._estimated_world_pose.find_independent(relative_pose)
+        logging.getLogger(__name__).error("    got estimated motion ...")
 
-        self._num_matches[timestamp] = self._viso.getNumberOfMatches()
-        logging.getLogger(__name__).error("    got number of matches ...")
+        true_motion = self._previous_pose.find_relative(image.camera_pose) \
+            if self._previous_pose is not None else tf.Transform()
+        self._previous_pose = image.camera_pose
 
-        self._trajectory[timestamp] = self._current_pose
-        self._gt_poses[timestamp] = image.camera_pose
+        self._frame_results.append(FrameResult(
+            timestamp=timestamp,
+            pose=image.camera_pose,
+            motion=true_motion,
+            estimated_pose=self._estimated_world_pose,
+            estimated_motion=relative_pose,
+            num_matches=self._viso.getNumberOfMatches()
+        ))
         logging.getLogger(__name__).error("    Processing done.")
 
     def finish_trial(self):
         logging.getLogger(__name__).error("Finishing LibVisO trial ...")
-        result = vs.SLAMTrialResult(
-            system_id=self.identifier,
-            sequence_type=arvet.core.sequence_type.ImageSequenceType.SEQUENTIAL,
-            system_settings={
-                'f': self._focal_distance,
-                'cu': self._cu,
-                'cv': self._cv,
-                'base': self._base
-            },
-            trajectory=self._trajectory,
-            num_matches=self._num_matches,
-            has_scale=True,
-            ground_truth_trajectory=self._gt_poses
+        result = SLAMTrialResult(
+            system=self,
+            success=True,
+            settings={'key': 'value'},
+            results=self._frame_results,
+            has_scale=True
         )
-        self._trajectory = None
-        self._gt_poses = None
-        self._num_matches = None
-        self._current_pose = None
+        self._frame_results = None
+        self._previous_pose = None
+        self._estimated_world_pose = None
         self._viso = None
         logging.getLogger(__name__).error("    Created result")
         return result
-
-    def serialize(self):
-        serialized = super().serialize()
-        serialized['matcher_nms_n'] = self._matcher_nms_n
-        serialized['matcher_nms_tau'] = self._matcher_nms_tau
-        serialized['matcher_match_binsize'] = self._matcher_match_binsize
-        serialized['matcher_match_radius'] = self._matcher_match_radius
-        serialized['matcher_match_disp_tolerance'] = self._matcher_match_disp_tolerance
-        serialized['matcher_outlier_disp_tolerance'] = self._matcher_outlier_disp_tolerance
-        serialized['matcher_outlier_flow_tolerance'] = self._matcher_outlier_flow_tolerance
-        serialized['matcher_multi_stage'] = self._matcher_multi_stage
-        serialized['matcher_half_resolution'] = self._matcher_half_resolution
-        serialized['matcher_refinement'] = self._matcher_refinement
-        serialized['bucketing_max_features'] = self._bucketing_max_features
-        serialized['bucketing_bucket_width'] = self._bucketing_bucket_width
-        serialized['bucketing_bucket_height'] = self._bucketing_bucket_height
-        serialized['ransac_iters'] = self._ransac_iters
-        serialized['inlier_threshold'] = self._inlier_threshold
-        serialized['reweighting'] = self._reweighting
-        return serialized
-
-    @classmethod
-    def deserialize(cls, serialized_representation, db_client, **kwargs):
-        if 'matcher_nms_n' in serialized_representation:
-            kwargs['matcher_nms_n'] = serialized_representation['matcher_nms_n']
-        if 'matcher_nms_tau' in serialized_representation:
-            kwargs['matcher_nms_tau'] = serialized_representation['matcher_nms_tau']
-        if 'matcher_match_binsize' in serialized_representation:
-            kwargs['matcher_match_binsize'] = serialized_representation['matcher_match_binsize']
-        if 'matcher_match_radius' in serialized_representation:
-            kwargs['matcher_match_radius'] = serialized_representation['matcher_match_radius']
-        if 'matcher_match_disp_tolerance' in serialized_representation:
-            kwargs['matcher_match_disp_tolerance'] = serialized_representation['matcher_match_disp_tolerance']
-        if 'matcher_outlier_disp_tolerance' in serialized_representation:
-            kwargs['matcher_outlier_disp_tolerance'] = serialized_representation['matcher_outlier_disp_tolerance']
-        if 'matcher_outlier_flow_tolerance' in serialized_representation:
-            kwargs['matcher_outlier_flow_tolerance'] = serialized_representation['matcher_outlier_flow_tolerance']
-        if 'matcher_multi_stage' in serialized_representation:
-            kwargs['matcher_multi_stage'] = serialized_representation['matcher_multi_stage']
-        if 'matcher_half_resolution' in serialized_representation:
-            kwargs['matcher_half_resolution'] = serialized_representation['matcher_half_resolution']
-        if 'matcher_refinement' in serialized_representation:
-            kwargs['matcher_refinement'] = serialized_representation['matcher_refinement']
-        if 'bucketing_max_features' in serialized_representation:
-            kwargs['bucketing_max_features'] = serialized_representation['bucketing_max_features']
-        if 'bucketing_bucket_width' in serialized_representation:
-            kwargs['bucketing_bucket_width'] = serialized_representation['bucketing_bucket_width']
-        if 'bucketing_bucket_height' in serialized_representation:
-            kwargs['bucketing_bucket_height'] = serialized_representation['bucketing_bucket_height']
-        if 'ransac_iters' in serialized_representation:
-            kwargs['ransac_iters'] = serialized_representation['ransac_iters']
-        if 'inlier_threshold' in serialized_representation:
-            kwargs['inlier_threshold'] = serialized_representation['inlier_threshold']
-        if 'reweighting' in serialized_representation:
-            kwargs['reweighting'] = serialized_representation['reweighting']
-        return super().deserialize(serialized_representation, db_client, **kwargs)
 
 
 def make_relative_pose(frame_delta):
@@ -279,8 +183,8 @@ def make_relative_pose(frame_delta):
     :param frame_delta: A 4x4 matrix (possibly in list form)
     :return: A Transform object representing the pose of the current frame with respect to the previous frame
     """
-    frame_delta = np.asmatrix(frame_delta)
-    coordinate_exchange = np.matrix([[0, 0, 1, 0],
+    frame_delta = np.asarray(frame_delta)
+    coordinate_exchange = np.array([[0, 0, 1, 0],
                                      [-1, 0, 0, 0],
                                      [0, -1, 0, 0],
                                      [0, 0, 0, 1]])

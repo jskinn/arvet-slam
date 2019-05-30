@@ -2,7 +2,6 @@
 import numpy as np
 import unittest
 from arvet.util.transform import Transform
-from arvet.core.sequence_type import ImageSequenceType
 import arvet.database.tests.database_connection as dbconn
 import arvet.core.tests.mock_types as mock_types
 from arvet_slam.trials.slam.tracking_state import TrackingState
