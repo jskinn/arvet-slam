@@ -5,8 +5,8 @@ import arvet.util.dict_utils as du
 import arvet.util.transform as tf
 import arvet.database.tests.test_entity
 import arvet.core.benchmark
-import arvet_slam.benchmarks.loop_closure.matching_result as match_res
-import arvet_slam.benchmarks.loop_closure.loop_closure as lc
+import arvet_slam.metrics.loop_closure.matching_result as match_res
+import arvet_slam.metrics.loop_closure.loop_closure as lc
 
 
 class MockTrialResult:
@@ -55,7 +55,7 @@ class TestBenchmarkLoopClosure(arvet.database.tests.test_entity.EntityContract, 
 
     def assert_models_equal(self, benchmark1, benchmark2):
         """
-        Helper to assert that two benchmarks are equal
+        Helper to assert that two metrics are equal
         :param benchmark1: BenchmarkLoopClosure
         :param benchmark2: BenchmarkLoopClosure
         :return:

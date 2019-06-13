@@ -5,8 +5,8 @@ import pickle
 import arvet.util.dict_utils as du
 import arvet.database.tests.test_entity as entity_test
 import arvet.core.benchmark_comparison
-import arvet_slam.benchmarks.ate.ate_result as ate_res
-import arvet_slam.benchmarks.ate.absolute_trajectory_error_comparison as ate_comp
+import arvet_slam.metrics.ate.ate_result as ate_res
+import arvet_slam.metrics.ate.absolute_trajectory_error_comparison as ate_comp
 
 
 class TestATEBenchmarkComparison(entity_test.EntityContract, unittest.TestCase):
@@ -19,7 +19,7 @@ class TestATEBenchmarkComparison(entity_test.EntityContract, unittest.TestCase):
 
     def assert_models_equal(self, benchmark1, benchmark2):
         """
-        Helper to assert that two benchmarks are equal
+        Helper to assert that two metrics are equal
         :param benchmark1: ATEBenchmarkComparison
         :param benchmark2: ATEBenchmarkComparison
         :return:

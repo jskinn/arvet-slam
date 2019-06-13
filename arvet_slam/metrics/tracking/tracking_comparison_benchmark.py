@@ -2,7 +2,7 @@
 import arvet.util.associate as ass
 import arvet.core.trial_comparison
 import arvet.core.benchmark
-import arvet_slam.benchmarks.tracking.tracking_comparison_result as track_comp_res
+import arvet_slam.metrics.tracking.tracking_comparison_result as track_comp_res
 
 
 class TrackingComparisonBenchmark(arvet.core.trial_comparison.TrialComparison):

@@ -15,7 +15,7 @@ class ATEBenchmarkComparison(arvet.core.benchmark_comparison.BenchmarkComparison
     def __init__(self, offset=0, max_difference=0.02, id_=None):
         """
         Make a Comparison Benchmark for ATE,
-        parameters are for configuring the matches between the two compared benchmarks 
+        parameters are for configuring the matches between the two compared metrics
         :param offset: Offset between
         :param max_difference:
         """

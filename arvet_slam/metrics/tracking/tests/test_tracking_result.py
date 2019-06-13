@@ -4,8 +4,8 @@ import unittest
 import pickle
 import arvet.util.dict_utils as du
 import arvet.database.tests.test_entity as entity_test
-import arvet_slam.benchmarks.tracking.tracking_result as track_res
-import arvet_slam.benchmarks.tracking.tracking_benchmark as track_bench
+import arvet_slam.metrics.tracking.tracking_result as track_res
+import arvet_slam.metrics.tracking.tracking_benchmark as track_bench
 
 
 class TestTrackingBenchmarkResult(entity_test.EntityContract, unittest.TestCase):

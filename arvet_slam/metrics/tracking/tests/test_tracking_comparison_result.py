@@ -4,7 +4,7 @@ import numpy as np
 import pickle
 import arvet.database.tests.test_entity as entity_test
 import arvet.util.dict_utils as du
-import arvet_slam.benchmarks.tracking.tracking_comparison_result as track_comp_res
+import arvet_slam.metrics.tracking.tracking_comparison_result as track_comp_res
 import arvet_slam.trials.slam.tracking_state as ts
 
 

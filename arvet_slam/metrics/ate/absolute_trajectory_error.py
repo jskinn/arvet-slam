@@ -33,8 +33,8 @@
 
 import numpy as np
 import arvet.util.associate as ass
-import arvet.core.benchmark
-import arvet_slam.benchmarks.ate.ate_result
+from arvet.core.metric import Metric
+import arvet_slam.metrics.ate.ate_result
 
 
 class BenchmarkATE(arvet.core.benchmark.Benchmark):
@@ -161,7 +161,7 @@ class BenchmarkATE(arvet.core.benchmark.Benchmark):
         # for col_num, timestamp in enumerate(gt_timestamps):
         #     mapped_error[timestamp] = trans_error[col_num]
         #
-        # return arvet_slam.benchmarks.ate.ate_result.BenchmarkATEResult(self.identifier, trial_result.identifier,
+        # return arvet_slam.metrics.ate.ate_result.BenchmarkATEResult(self.identifier, trial_result.identifier,
         #                                                                mapped_error, self.get_settings())
 
 

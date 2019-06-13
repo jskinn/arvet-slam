@@ -3,10 +3,10 @@ import typing
 import numpy as np
 import pickle
 import bson
-import arvet.core.benchmark
+from arvet.core.metric import MetricResult
 
 
-class BenchmarkATEResult(arvet.core.benchmark.BenchmarkResult):
+class BenchmarkATEResult(MetricResult):
     """
     Absolute Trajectory Error results.
 

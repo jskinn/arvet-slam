@@ -6,7 +6,7 @@ import arvet.util.transform as tf
 import arvet.util.associate as ass
 import arvet.core.benchmark
 import arvet.database.tests.test_entity
-import arvet_slam.benchmarks.ate.absolute_trajectory_error as ate
+import arvet_slam.metrics.ate.absolute_trajectory_error as ate
 
 
 def create_random_trajectory(random_state, duration=600, length=100):
@@ -86,7 +86,7 @@ class TestBenchmarkATE(arvet.database.tests.test_entity.EntityContract, unittest
 
     def assert_models_equal(self, benchmark1, benchmark2):
         """
-        Helper to assert that two benchmarks are equal
+        Helper to assert that two metrics are equal
         :param benchmark1: BenchmarkATE
         :param benchmark2: BenchmarkATE
         :return:

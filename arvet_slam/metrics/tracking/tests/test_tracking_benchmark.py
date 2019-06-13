@@ -4,7 +4,7 @@ import arvet.database.tests.test_entity
 import arvet.core.benchmark
 import arvet.util.transform as tf
 import arvet_slam.trials.slam.tracking_state as tracking_state
-import arvet_slam.benchmarks.tracking.tracking_benchmark as tracking
+import arvet_slam.metrics.tracking.tracking_benchmark as tracking
 
 
 class MockTrialResult:
@@ -79,7 +79,7 @@ class TestTrackingBenchmark(arvet.database.tests.test_entity.EntityContract, uni
 
     def assert_models_equal(self, benchmark1, benchmark2):
         """
-        Helper to assert that two benchmarks are equal
+        Helper to assert that two metrics are equal
         :param benchmark1: TrackingBenchmark
         :param benchmark2: TrackingBenchmark
         :return:

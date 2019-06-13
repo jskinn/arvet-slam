@@ -5,7 +5,7 @@ import bson
 import pickle
 import arvet.util.dict_utils as du
 import arvet.database.tests.test_entity as entity_test
-import arvet_slam.benchmarks.rpe.rpe_result as rpe_res
+import arvet_slam.metrics.rpe.rpe_result as rpe_res
 
 
 class TestBenchmarkRPEResult(entity_test.EntityContract, unittest.TestCase):

@@ -2,7 +2,7 @@
 import numpy as np
 import transforms3d as tf3d
 import arvet.util.transform as tf
-import arvet_slam.benchmarks.rpe.relative_pose_error as rpe
+import arvet_slam.metrics.rpe.relative_pose_error as rpe
 
 try:
     import cProfile as profile

@@ -3,7 +3,7 @@ import unittest
 import arvet.core.benchmark
 import arvet.core.trial_comparison
 import arvet_slam.trials.slam.tracking_state as tracking_state
-import arvet_slam.benchmarks.tracking.tracking_comparison_benchmark as track_comp
+import arvet_slam.metrics.tracking.tracking_comparison_benchmark as track_comp
 
 
 class MockTrialResult:

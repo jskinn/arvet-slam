@@ -10,7 +10,7 @@ import arvet.database.tests.test_entity
 import arvet.core.sequence_type
 import arvet.core.trial_result
 import arvet.core.benchmark
-import arvet_slam.benchmarks.rpe.relative_pose_error as rpe
+import arvet_slam.metrics.rpe.relative_pose_error as rpe
 
 
 def create_random_trajectory(random_state, duration=600, length=10):
@@ -134,7 +134,7 @@ class TestBenchmarkRPE(arvet.database.tests.test_entity.EntityContract, unittest
 
     def assert_models_equal(self, benchmark1, benchmark2):
         """
-        Helper to assert that two benchmarks are equal
+        Helper to assert that two metrics are equal
         :param benchmark1: BenchmarkRPE
         :param benchmark2: BenchmarkRPE
         :return:

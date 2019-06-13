@@ -6,8 +6,8 @@ import bson
 import arvet.util.dict_utils as du
 import arvet.database.tests.test_entity as entity_test
 import arvet.core.benchmark_comparison
-import arvet_slam.benchmarks.rpe.rpe_result as rpe_res
-import arvet_slam.benchmarks.rpe.relative_pose_error_comparison as rpe_comp
+import arvet_slam.metrics.rpe.rpe_result as rpe_res
+import arvet_slam.metrics.rpe.relative_pose_error_comparison as rpe_comp
 
 
 class TestRPEBenchmarkComparisonResult(entity_test.EntityContract, unittest.TestCase):
@@ -87,7 +87,7 @@ class TestRPEBenchmarkComparison(entity_test.EntityContract, unittest.TestCase):
 
     def assert_models_equal(self, benchmark1, benchmark2):
         """
-        Helper to assert that two benchmarks are equal
+        Helper to assert that two metrics are equal
         :param benchmark1: RPEBenchmarkComparison
         :param benchmark2: RPEBenchmarkComparison
         :return:

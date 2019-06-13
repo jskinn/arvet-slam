@@ -45,7 +45,7 @@ import numpy
 import arvet.core.trial_result
 import arvet.core.benchmark
 import arvet.util.trajectory_helpers as th
-import arvet_slam.benchmarks.rpe.rpe_result
+import arvet_slam.metrics.rpe.rpe_result
 
 
 class BenchmarkRPE(arvet.core.benchmark.Benchmark):
@@ -195,7 +195,7 @@ class BenchmarkRPE(arvet.core.benchmark.Benchmark):
                 reason="Couldn't find matching timestamp pairs between groundtruth and estimated trajectory"
                        "for any of the estimated trajectories"
             )
-        return arvet_slam.benchmarks.rpe.rpe_result.BenchmarkRPEResult(
+        return arvet_slam.metrics.rpe.rpe_result.BenchmarkRPEResult(
             benchmark_id=self.identifier,
             trial_result_ids=trial_result_ids,
             timestamps=sorted(ground_truth_trajectory.keys()),

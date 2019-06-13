@@ -1,7 +1,7 @@
 import numpy as np
 import arvet.core.benchmark
 import arvet.util.associate as ass
-import arvet_slam.benchmarks.trajectory_drift.trajectory_drift_result as drif_result
+import arvet_slam.metrics.trajectory_drift.trajectory_drift_result as drif_result
 
 
 class BenchmarkTrajectoryDrift(arvet.core.benchmark.Benchmark):

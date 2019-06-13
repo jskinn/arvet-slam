@@ -2,7 +2,7 @@
 import numpy as np
 import arvet.core.benchmark
 import arvet_slam.trials.slam.tracking_state as tracking_state
-import arvet_slam.benchmarks.tracking.tracking_result
+import arvet_slam.metrics.tracking.tracking_result
 
 
 class LostInterval:
@@ -143,7 +143,7 @@ class TrackingBenchmark(arvet.core.benchmark.Benchmark):
                                                distance=lost_distance,
                                                num_frames=num_frames))
 
-        return arvet_slam.benchmarks.tracking.tracking_result.TrackingBenchmarkResult(
+        return arvet_slam.metrics.tracking.tracking_result.TrackingBenchmarkResult(
             benchmark_id=self.identifier,
             trial_result_id=trial_result.identifier,
             lost_intervals=lost_intervals,

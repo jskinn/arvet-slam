@@ -1,7 +1,7 @@
 # Copyright (c) 2017, John Skinner
 import numpy as np
 import arvet.core.benchmark
-import arvet_slam.benchmarks.loop_closure.matching_result as match_res
+import arvet_slam.metrics.loop_closure.matching_result as match_res
 
 
 class BenchmarkLoopClosure(arvet.core.benchmark.Benchmark):
