@@ -2,7 +2,6 @@
 import os.path
 import typing
 import numpy as np
-import xxhash
 import cv2
 import yaml
 try:
@@ -13,11 +12,12 @@ except ImportError:
 
 import arvet.util.image_utils as image_utils
 import arvet.util.associate as ass
-import arvet.metadata.camera_intrinsics as cam_intr
 import arvet.metadata.image_metadata as imeta
 import arvet.util.transform as tf
-import arvet.core.image_entity
-import arvet.image_collections.image_collection_builder
+from arvet.metadata.camera_intrinsics import CameraIntrinsics
+from arvet.core.sequence_type import ImageSequenceType
+from arvet.core.image import StereoImage
+from arvet.core.image_collection import ImageCollection
 
 
 def make_camera_pose(tx: float, ty: float, tz: float, qw: float, qx: float, qy: float, qz: float) -> tf.Transform:
@@ -144,7 +144,7 @@ def associate_data(root_map: typing.Mapping, *args: typing.Mapping) -> typing.Li
                       for key in root_keys)
 
 
-def get_camera_calibration(sensor_yaml_path: str) -> typing.Tuple[tf.Transform, cam_intr.CameraIntrinsics]:
+def get_camera_calibration(sensor_yaml_path: str) -> typing.Tuple[tf.Transform, CameraIntrinsics]:
     with open(sensor_yaml_path, 'r') as sensor_file:
         sensor_data = yaml.load(sensor_file, YamlLoader)
 
@@ -156,7 +156,7 @@ def get_camera_calibration(sensor_yaml_path: str) -> typing.Tuple[tf.Transform, 
         [d[12], d[13], d[14], d[15]],
     ]))
     resolution = sensor_data['resolution']
-    intrinsics = cam_intr.CameraIntrinsics(
+    intrinsics = CameraIntrinsics(
         width=resolution[0],
         height=resolution[1],
         fx=sensor_data['intrinsics'][0],
@@ -171,10 +171,10 @@ def get_camera_calibration(sensor_yaml_path: str) -> typing.Tuple[tf.Transform, 
     return extrinsics, intrinsics
 
 
-def rectify(left_extrinsics: tf.Transform, left_intrinsics: cam_intr.CameraIntrinsics,
-            right_extrinsics: tf.Transform, right_intrinsics: cam_intr.CameraIntrinsics) -> \
-        typing.Tuple[np.ndarray, np.ndarray, cam_intr.CameraIntrinsics,
-                     np.ndarray, np.ndarray, cam_intr.CameraIntrinsics]:
+def rectify(left_extrinsics: tf.Transform, left_intrinsics: CameraIntrinsics,
+            right_extrinsics: tf.Transform, right_intrinsics: CameraIntrinsics) -> \
+        typing.Tuple[np.ndarray, np.ndarray, CameraIntrinsics,
+                     np.ndarray, np.ndarray, CameraIntrinsics]:
     """
     Compute mapping matrices for performing stereo rectification, from the camera properties.
     Applying the returned transformation to the images using cv2.remap gives us undistorted stereo rectified images
@@ -227,61 +227,96 @@ def rectify(left_extrinsics: tf.Transform, left_intrinsics: cam_intr.CameraIntri
                                            p_right[0:3, 0:3], shape, cv2.CV_32F)
 
     # Rectification has changed the camera intrinsics, return the new ones
-    rectified_left_intrinsics = cam_intr.CameraIntrinsics(
+    rectified_left_intrinsics = CameraIntrinsics(
         width=shape[0],
         height=shape[1],
         fx=p_left[0, 0],
         fy=p_left[1, 1],
         cx=p_left[0, 2],
         cy=p_left[1, 2],
-        skew=p_left[0, 1]
+        s=p_left[0, 1]
     )
-    rectified_right_intrinsics = cam_intr.CameraIntrinsics(
+    rectified_right_intrinsics = CameraIntrinsics(
         width=shape[0],
         height=shape[1],
         fx=p_right[0, 0],
         fy=p_right[1, 1],
         cx=p_right[0, 2],
         cy=p_right[1, 2],
-        skew=p_right[0, 1]
+        s=p_right[0, 1]
     )
 
     return m1l, m2l, rectified_left_intrinsics, m1r, m2r, rectified_right_intrinsics
 
 
-def import_dataset(root_folder, db_client):
+def find_files(base_root):
+    """
+    Search the given base directory for the actual dataset root.
+    This makes it a little easier for the dataset manager
+    :param base_root:
+    :return:
+    """
+    # These are folders we expect within the dataset folder structure. If we hit them, we've gone too far
+    excluded_folders = {
+        'cam0', 'cam1', 'imu0', 'imu1', 'leica0', 'vicon0', 'pointcloud0', 'state_groudtruth_estimate0',
+        'data', '__MACOSX',
+    }
+    to_search = {base_root}
+    while len(to_search) > 0:
+        candidate_root = to_search.pop()
+
+        # Make the derivative paths we're looking for. All of these must exist.
+        left_rgb_path = os.path.join(candidate_root, 'cam0', 'data.csv')
+        left_camera_intrinsics_path = os.path.join(candidate_root, 'cam0', 'sensor.yaml')
+        right_rgb_path = os.path.join(candidate_root, 'cam1', 'data.csv')
+        right_camera_intrinsics_path = os.path.join(candidate_root, 'cam1', 'sensor.yaml')
+        trajectory_path = os.path.join(candidate_root, 'state_groundtruth_estimate0', 'data.csv')
+
+        # If all the required files are present, return that root and the file paths.
+        if (os.path.isfile(left_rgb_path) and os.path.isfile(left_camera_intrinsics_path) and
+                os.path.isfile(right_rgb_path) and os.path.isfile(right_camera_intrinsics_path) and
+                os.path.isfile(trajectory_path)):
+            return (candidate_root, left_rgb_path, left_camera_intrinsics_path,
+                    right_rgb_path, right_camera_intrinsics_path, trajectory_path)
+
+        # This was not the directory we were looking for, search the subdirectories
+        with os.scandir(candidate_root) as dir_iter:
+            for dir_entry in dir_iter:
+                if dir_entry.is_file() and dir_entry.name not in excluded_folders:
+                    to_search.add(dir_entry.path)
+
+    # Could not find the necessary files to import, raise an exception.
+    raise FileNotFoundError("Could not find a valid root directory within '{0}'".format(base_root))
+
+
+def import_dataset(root_folder, **_):
     """
     Load an Autonomous Systems Lab dataset into the database.
     See http://projects.asl.ethz.ch/datasets/doku.php?id=kmavvisualinertialdatasets#downloads
 
     Some information drawn from the ethz_asl dataset tools, see: https://github.com/ethz-asl/dataset_tools
     :param root_folder: The body folder, containing body.yaml (i.e. the extracted mav0 folder)
-    :param db_client: The database client.
     :return:
     """
     if not os.path.isdir(root_folder):
-        return None
+        raise NotADirectoryError("'{0}' is not a directory".format(root_folder))
 
-    # Step 1: Read the meta-information from the files
-    left_rgb_path = os.path.join(root_folder, 'cam0', 'data.csv')
-    left_camera_intrinsics_path = os.path.join(root_folder, 'cam0', 'sensor.yaml')
-    right_rgb_path = os.path.join(root_folder, 'cam1', 'data.csv')
-    right_camera_intrinsics_path = os.path.join(root_folder, 'cam1', 'sensor.yaml')
-    trajectory_path = os.path.join(root_folder, 'state_groundtruth_estimate0', 'data.csv')
+    # Step 1: Find the various files containing the data (that's a 6-element tuple unpack for the return value)
+    (
+        root_folder,
+        left_rgb_path, left_camera_intrinsics_path,
+        right_rgb_path, right_camera_intrinsics_path,
+        trajectory_path
+    ) = find_files(root_folder)
 
-    if (not os.path.isfile(left_rgb_path) or not os.path.isfile(left_camera_intrinsics_path) or
-            not os.path.isfile(right_rgb_path) or not os.path.isfile(right_camera_intrinsics_path) or
-            not os.path.isfile(trajectory_path)):
-        # Stop if we can't find the metadata files within the directory
-        return None
-
+    # Step 2: Read the meta-information from the files (that's a 6-element tuple unpack for the return value)
     left_image_files = read_image_filenames(left_rgb_path)
     left_extrinsics, left_intrinsics = get_camera_calibration(left_camera_intrinsics_path)
     right_image_files = read_image_filenames(left_rgb_path)
     right_extrinsics, right_intrinsics = get_camera_calibration(right_camera_intrinsics_path)
     trajectory = read_trajectory(trajectory_path)
 
-    # Step 2: Create stereo rectification matrices from the intrinsics
+    # Step 3: Create stereo rectification matrices from the intrinsics
     left_x, left_y, left_intrinsics, right_x, right_y, right_intrinsics = rectify(
         left_extrinsics, left_intrinsics, right_extrinsics, right_intrinsics)
 
@@ -289,12 +324,13 @@ def import_dataset(root_folder, db_client):
     left_extrinsics = fix_coordinates(left_extrinsics)
     right_extrinsics = fix_coordinates(right_extrinsics)
 
-    # Step 3: Associate the different data types by timestamp. Trajectory last because it's bigger than the stereo.
+    # Step 4: Associate the different data types by timestamp. Trajectory last because it's bigger than the stereo.
     all_metadata = associate_data(left_image_files, right_image_files, trajectory)
 
-    # Step 4: Load the images from the metadata
-    builder = arvet.image_collections.image_collection_builder.ImageCollectionBuilder(db_client)
+    # Step 5: Load the images from the metadata
     first_timestamp = None
+    images = []
+    timestamps = []
     for timestamp, left_image_file, right_image_file, robot_pose in all_metadata:
         # Timestamps are in POSIX nanoseconds, re-zero them to the start of the dataset, and scale to seconds
         if first_timestamp is None:
@@ -310,19 +346,36 @@ def import_dataset(root_folder, db_client):
         left_pose = robot_pose.find_independent(left_extrinsics)
         right_pose = robot_pose.find_independent(right_extrinsics)
 
-        builder.add_image(image=arvet.core.image_entity.StereoImageEntity(
-            left_data=left_data,
-            right_data=right_data,
-            metadata=imeta.ImageMetadata(
-                hash_=xxhash.xxh64(left_data).digest(),
-                camera_pose=left_pose,
-                right_camera_pose=right_pose,
-                intrinsics=left_intrinsics,
-                right_intrinsics=right_intrinsics,
-                source_type=imeta.ImageSourceType.REAL_WORLD,
-                environment_type=imeta.EnvironmentType.INDOOR_CLOSE,
-                light_level=imeta.LightingLevel.WELL_LIT,
-                time_of_day=imeta.TimeOfDay.DAY,
-            )
-        ), timestamp=timestamp)
-    return builder.save()
+        left_metadata = imeta.make_metadata(
+            pixels=left_data,
+            camera_pose=left_pose,
+            intrinsics=left_intrinsics,
+            source_type=imeta.ImageSourceType.REAL_WORLD,
+            environment_type=imeta.EnvironmentType.INDOOR_CLOSE,
+            light_level=imeta.LightingLevel.WELL_LIT,
+            time_of_day=imeta.TimeOfDay.DAY,
+        )
+        right_metadata = imeta.make_right_metadata(
+            pixels=right_data,
+            left_metadata=left_metadata,
+            camera_pose=right_pose,
+            intrinsics=right_intrinsics
+        )
+        image = StereoImage(
+            pixels=left_data,
+            right_pixels=right_data,
+            metadata=left_metadata,
+            right_metadata=right_metadata
+        )
+        image.save()
+        images.append(image)
+        timestamps.append(timestamp)
+
+    # Create and save the image collection
+    collection = ImageCollection(
+        images=images,
+        timestamps=timestamps,
+        sequence_type=ImageSequenceType.SEQUENTIAL
+    )
+    collection.save()
+    return collection
