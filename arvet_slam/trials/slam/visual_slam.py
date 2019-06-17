@@ -2,6 +2,7 @@
 import typing
 import pymodm
 import pymodm.fields as fields
+from arvet.core.image import Image
 from arvet.core.trial_result import TrialResult
 import arvet.util.transform as tf
 import arvet.util.trajectory_helpers as th
@@ -11,7 +12,13 @@ from .tracking_state import TrackingState
 
 
 class FrameResult(pymodm.EmbeddedMongoModel):
+    """
+    SLAM results for a single frame.
+    Each frame, make one of these. At the end of the trial, list them up and store in the SLAM trial result.
+    We expect these to be in ascending order of timestamp
+    """
     timestamp = fields.FloatField(required=True)
+    image = fields.ReferenceField(Image, required=True, on_delete=fields.ReferenceField.PULL)
     pose = TransformField(required=True)
     motion = TransformField(required=True)
     estimated_pose = TransformField()

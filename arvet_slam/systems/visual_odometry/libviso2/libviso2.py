@@ -150,6 +150,7 @@ class LibVisOSystem(VisionSystem):
 
         self._frame_results.append(FrameResult(
             timestamp=timestamp,
+            image=image,
             pose=image.camera_pose,
             motion=true_motion,
             estimated_pose=self._estimated_world_pose,
