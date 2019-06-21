@@ -282,7 +282,7 @@ def find_files(base_root):
         # This was not the directory we were looking for, search the subdirectories
         with os.scandir(candidate_root) as dir_iter:
             for dir_entry in dir_iter:
-                if dir_entry.is_file() and dir_entry.name not in excluded_folders:
+                if dir_entry.is_dir() and dir_entry.name not in excluded_folders:
                     to_search.add(dir_entry.path)
 
     # Could not find the necessary files to import, raise an exception.
