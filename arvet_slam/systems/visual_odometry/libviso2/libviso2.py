@@ -3,7 +3,7 @@ import numpy as np
 import logging
 import pymodm.fields as fields
 
-from .viso2 import Mono_parameters, Stereo_parameters, VisualOdometryStereo, VisualOdometryMono
+from viso2 import Mono_parameters, Stereo_parameters, VisualOdometryStereo, VisualOdometryMono
 
 import arvet.util.image_utils as image_utils
 from arvet.metadata.camera_intrinsics import CameraIntrinsics
