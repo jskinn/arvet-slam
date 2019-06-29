@@ -19,6 +19,7 @@ class FrameResult(pymodm.EmbeddedMongoModel):
     """
     timestamp = fields.FloatField(required=True)
     image = fields.ReferenceField(Image, required=True, on_delete=fields.ReferenceField.PULL)
+    processing_time = fields.FloatField(required=True)
     pose = TransformField(required=True)
     motion = TransformField(required=True)
     estimated_pose = TransformField()

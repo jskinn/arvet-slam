@@ -48,6 +48,7 @@ class TestTrialResultDatabase(unittest.TestCase):
             FrameResult(
                 timestamp=idx + np.random.normal(0, 0.01),
                 image=self.image,
+                processing_time=np.random.uniform(0.01, 1),
                 pose=Transform(
                     (idx * 15 + np.random.normal(0, 1), idx + np.random.normal(0, 0.1), np.random.normal(0, 1)),
                     (1, 0, 0, 0)
