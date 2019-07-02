@@ -13,7 +13,7 @@ from arvet.core.sequence_type import ImageSequenceType
 from arvet.core.image import Image
 from arvet.core.image_collection import ImageCollection
 
-import arvet_slam.systems.visual_odometry.libviso2.libviso2 as viso
+from arvet_slam.systems.visual_odometry.libviso2.libviso2 import LibVisOMonoSystem
 from arvet_slam.trials.slam.visual_slam import SLAMTrialResult
 
 
@@ -55,7 +55,7 @@ class TestLibVisOMonoDatabase(unittest.TestCase):
             'inlier_threshold': np.random.uniform(0.0, 3.0),
             'motion_threshold': np.random.uniform(0.0, 100.0)
         }
-        obj = viso.LibVisOMonoSystem(**kwargs)
+        obj = LibVisOMonoSystem(**kwargs)
         obj.save()
 
         # Load all the entities
@@ -82,7 +82,7 @@ class TestLibVisOMonoDatabase(unittest.TestCase):
         )
         image_collection.save()
 
-        subject = viso.LibVisOMonoSystem()
+        subject = LibVisOMonoSystem()
         subject.save()
 
         # Actually run the system using mocked images
@@ -116,14 +116,154 @@ class TestLibVisOMonoDatabase(unittest.TestCase):
 class TestLibVisOMono(unittest.TestCase):
 
     def test_can_start_and_stop_trial(self):
-        subject = viso.LibVisOStereoSystem()
+        subject = LibVisOMonoSystem()
         subject.start_trial(ImageSequenceType.SEQUENTIAL)
         result = subject.finish_trial()
         self.assertIsInstance(result, SLAMTrialResult)
 
+    def test_get_columns_returns_column_list(self):
+        subject = LibVisOMonoSystem()
+        self.assertEqual({
+            'matcher_nms_n',
+            'matcher_nms_tau',
+            'matcher_match_binsize',
+            'matcher_match_radius',
+            'matcher_match_disp_tolerance',
+            'matcher_outlier_disp_tolerance',
+            'matcher_outlier_flow_tolerance',
+            'matcher_multi_stage',
+            'matcher_half_resolution',
+            'matcher_refinement',
+            'bucketing_max_features',
+            'bucketing_bucket_width',
+            'bucketing_bucket_height',
+            'height',
+            'pitch',
+            'ransac_iters',
+            'inlier_threshold',
+            'motion_threshold',
+        }, subject.get_columns())
+
+    def test_get_properties_returns_the_value_of_all_columns(self):
+        matcher_nms_n = 10
+        matcher_nms_tau = 35
+        matcher_match_binsize = 16
+        matcher_match_radius = 155
+        matcher_match_disp_tolerance = 4
+        matcher_outlier_disp_tolerance = 3
+        matcher_outlier_flow_tolerance = 6
+        matcher_multi_stage = False
+        matcher_half_resolution = False
+        matcher_refinement = 36
+        bucketing_max_features = 6
+        bucketing_bucket_width = 45
+        bucketing_bucket_height = 66
+        height = 0.8
+        pitch = 0.22
+        ransac_iters = 1444
+        inlier_threshold = 0.0006
+        motion_threshold = 78.4
+
+        subject = LibVisOMonoSystem(
+            matcher_nms_n=matcher_nms_n,
+            matcher_nms_tau=matcher_nms_tau,
+            matcher_match_binsize=matcher_match_binsize,
+            matcher_match_radius=matcher_match_radius,
+            matcher_match_disp_tolerance=matcher_match_disp_tolerance,
+            matcher_outlier_disp_tolerance=matcher_outlier_disp_tolerance,
+            matcher_outlier_flow_tolerance=matcher_outlier_flow_tolerance,
+            matcher_multi_stage=matcher_multi_stage,
+            matcher_half_resolution=matcher_half_resolution,
+            matcher_refinement=matcher_refinement,
+            bucketing_max_features=bucketing_max_features,
+            bucketing_bucket_width=bucketing_bucket_width,
+            bucketing_bucket_height=bucketing_bucket_height,
+            height=height,
+            pitch=pitch,
+            ransac_iters=ransac_iters,
+            inlier_threshold=inlier_threshold,
+            motion_threshold=motion_threshold
+        )
+        self.assertEqual({
+            'matcher_nms_n': matcher_nms_n,
+            'matcher_nms_tau': matcher_nms_tau,
+            'matcher_match_binsize': matcher_match_binsize,
+            'matcher_match_radius': matcher_match_radius,
+            'matcher_match_disp_tolerance': matcher_match_disp_tolerance,
+            'matcher_outlier_disp_tolerance': matcher_outlier_disp_tolerance,
+            'matcher_outlier_flow_tolerance': matcher_outlier_flow_tolerance,
+            'matcher_multi_stage': matcher_multi_stage,
+            'matcher_half_resolution': matcher_half_resolution,
+            'matcher_refinement': matcher_refinement,
+            'bucketing_max_features': bucketing_max_features,
+            'bucketing_bucket_width': bucketing_bucket_width,
+            'bucketing_bucket_height': bucketing_bucket_height,
+            'height': height,
+            'pitch': pitch,
+            'ransac_iters': ransac_iters,
+            'inlier_threshold': inlier_threshold,
+            'motion_threshold': motion_threshold
+        }, subject.get_properties())
+
+    def test_get_properties_returns_only_requested_columns_that_exist(self):
+        matcher_nms_n = 10
+        matcher_nms_tau = 35
+        matcher_match_binsize = 16
+        matcher_match_radius = 155
+        matcher_match_disp_tolerance = 4
+        matcher_outlier_disp_tolerance = 3
+        matcher_outlier_flow_tolerance = 6
+        matcher_multi_stage = False
+        matcher_half_resolution = False
+        matcher_refinement = 36
+        bucketing_max_features = 6
+        bucketing_bucket_width = 45
+        bucketing_bucket_height = 66
+        height = 0.8
+        pitch = 0.22
+        ransac_iters = 1444
+        inlier_threshold = 0.0006
+        motion_threshold = 78.4
+
+        subject = LibVisOMonoSystem(
+            matcher_nms_n=matcher_nms_n,
+            matcher_nms_tau=matcher_nms_tau,
+            matcher_match_binsize=matcher_match_binsize,
+            matcher_match_radius=matcher_match_radius,
+            matcher_match_disp_tolerance=matcher_match_disp_tolerance,
+            matcher_outlier_disp_tolerance=matcher_outlier_disp_tolerance,
+            matcher_outlier_flow_tolerance=matcher_outlier_flow_tolerance,
+            matcher_multi_stage=matcher_multi_stage,
+            matcher_half_resolution=matcher_half_resolution,
+            matcher_refinement=matcher_refinement,
+            bucketing_max_features=bucketing_max_features,
+            bucketing_bucket_width=bucketing_bucket_width,
+            bucketing_bucket_height=bucketing_bucket_height,
+            height=height,
+            pitch=pitch,
+            ransac_iters=ransac_iters,
+            inlier_threshold=inlier_threshold,
+            motion_threshold=motion_threshold
+        )
+        self.assertEqual({
+            'matcher_match_binsize': matcher_match_binsize,
+            'matcher_match_disp_tolerance': matcher_match_disp_tolerance,
+            'matcher_outlier_disp_tolerance': matcher_outlier_disp_tolerance,
+            'matcher_refinement': matcher_refinement,
+            'pitch': pitch,
+        }, subject.get_properties({
+            'matcher_match_binsize', 'matcher_match_disp_tolerance', 'matcher_outlier_disp_tolerance',
+            'not_a_column',
+            'matcher_refinement', 'pitch',
+            'also_not_a_column', 'sir_not_appearing_in_these_columns'
+        }))
+
+
+class TestLibVisOMonoExecution(unittest.TestCase):
+
     def test_simple_trial_run(self):
         # Actually run the system using mocked images
-        subject = viso.LibVisOMonoSystem()
+        subject = LibVisOMonoSystem()
         subject.set_camera_intrinsics(CameraIntrinsics(
             width=320,
             height=240,

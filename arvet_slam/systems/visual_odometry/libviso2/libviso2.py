@@ -1,10 +1,14 @@
 # Copyright (c) 2017, John Skinner
 import numpy as np
+import typing
 import logging
+import time
+from operator import attrgetter
 import pymodm.fields as fields
 
 from viso2 import Mono_parameters, Stereo_parameters, VisualOdometryStereo, VisualOdometryMono
 
+from arvet.util.column_list import ColumnList
 import arvet.util.image_utils as image_utils
 from arvet.metadata.camera_intrinsics import CameraIntrinsics
 from arvet.core.image import Image
@@ -35,6 +39,26 @@ class LibVisOStereoSystem(VisionSystem):
     ransac_iters = fields.IntegerField(default=200)
     inlier_threshold = fields.FloatField(default=2.0)
     reweighting = fields.BooleanField(default=True)
+
+    # List of available metadata columns, and getters for each
+    columns = ColumnList(
+        matcher_nms_n=attrgetter('matcher_nms_n'),
+        matcher_nms_tau=attrgetter('matcher_nms_tau'),
+        matcher_match_binsize=attrgetter('matcher_match_binsize'),
+        matcher_match_radius=attrgetter('matcher_match_radius'),
+        matcher_match_disp_tolerance=attrgetter('matcher_match_disp_tolerance'),
+        matcher_outlier_disp_tolerance=attrgetter('matcher_outlier_disp_tolerance'),
+        matcher_outlier_flow_tolerance=attrgetter('matcher_outlier_flow_tolerance'),
+        matcher_multi_stage=attrgetter('matcher_multi_stage'),
+        matcher_half_resolution=attrgetter('matcher_half_resolution'),
+        matcher_refinement=attrgetter('matcher_refinement'),
+        bucketing_max_features=attrgetter('bucketing_max_features'),
+        bucketing_bucket_width=attrgetter('bucketing_bucket_width'),
+        bucketing_bucket_height=attrgetter('bucketing_bucket_height'),
+        ransac_iters=attrgetter('ransac_iters'),
+        inlier_threshold=attrgetter('inlier_threshold'),
+        reweighting=attrgetter('reweighting')
+    )
 
     def __init__(self, *args, **kwargs):
         """
@@ -128,6 +152,7 @@ class LibVisOStereoSystem(VisionSystem):
         logging.getLogger(__name__).error("    Started LibVisO trial.")
 
     def process_image(self, image: Image, timestamp: float) -> None:
+        start_time = time.time()
         logging.getLogger(__name__).error("Processing image at time {0} ...".format(timestamp))
         left_grey = prepare_image(image.left_pixels)
         right_grey = prepare_image(image.right_pixels)
@@ -147,10 +172,12 @@ class LibVisOStereoSystem(VisionSystem):
         true_motion = self._previous_pose.find_relative(image.camera_pose) \
             if self._previous_pose is not None else tf.Transform()
         self._previous_pose = image.camera_pose
+        end_time = time.time()
 
         self._frame_results.append(FrameResult(
             timestamp=timestamp,
             image=image,
+            processing_time=end_time - start_time,
             pose=image.camera_pose,
             motion=true_motion,
             estimated_pose=self._estimated_world_pose,
@@ -179,6 +206,27 @@ class LibVisOStereoSystem(VisionSystem):
         self._viso = None
         logging.getLogger(__name__).error("    Created result")
         return result
+
+    def get_columns(self) -> typing.Set[str]:
+        """
+        Get the set of available properties for this system. Pass these to "get_properties", below.
+        :return:
+        """
+        return set(self.columns.keys())
+
+    def get_properties(self, columns: typing.Iterable[str] = None) -> typing.Mapping[str, typing.Any]:
+        """
+        Get the values of the requested properties
+        :param columns:
+        :return:
+        """
+        if columns is None:
+            columns = self.columns.keys()
+        return {
+            col_name: self.columns.get_value(self, col_name)
+            for col_name in columns
+            if col_name in self.columns
+        }
 
     @classmethod
     def preload_image_data(cls, image: Image) -> None:
@@ -286,6 +334,28 @@ class LibVisOMonoSystem(VisionSystem):
     inlier_threshold = fields.FloatField(default=0.00001)
     motion_threshold = fields.FloatField(default=100.0)
 
+    # List of available metadata columns, and getters for each
+    columns = ColumnList(
+        matcher_nms_n=attrgetter('matcher_nms_n'),
+        matcher_nms_tau=attrgetter('matcher_nms_tau'),
+        matcher_match_binsize=attrgetter('matcher_match_binsize'),
+        matcher_match_radius=attrgetter('matcher_match_radius'),
+        matcher_match_disp_tolerance=attrgetter('matcher_match_disp_tolerance'),
+        matcher_outlier_disp_tolerance=attrgetter('matcher_outlier_disp_tolerance'),
+        matcher_outlier_flow_tolerance=attrgetter('matcher_outlier_flow_tolerance'),
+        matcher_multi_stage=attrgetter('matcher_multi_stage'),
+        matcher_half_resolution=attrgetter('matcher_half_resolution'),
+        matcher_refinement=attrgetter('matcher_refinement'),
+        bucketing_max_features=attrgetter('bucketing_max_features'),
+        bucketing_bucket_width=attrgetter('bucketing_bucket_width'),
+        bucketing_bucket_height=attrgetter('bucketing_bucket_height'),
+        height=attrgetter('height'),
+        pitch=attrgetter('pitch'),
+        ransac_iters=attrgetter('ransac_iters'),
+        inlier_threshold=attrgetter('inlier_threshold'),
+        motion_threshold=attrgetter('motion_threshold')
+    )
+
     def __init__(self, *args, **kwargs):
         """
 
@@ -368,6 +438,7 @@ class LibVisOMonoSystem(VisionSystem):
 
     def process_image(self, image: Image, timestamp: float) -> None:
         logging.getLogger(__name__).error("Processing image at time {0} ...".format(timestamp))
+        start_time = time.time()
         image_greyscale = prepare_image(image.pixels)
         logging.getLogger(__name__).error("    prepared images ...")
 
@@ -385,10 +456,12 @@ class LibVisOMonoSystem(VisionSystem):
         true_motion = self._previous_pose.find_relative(image.camera_pose) \
             if self._previous_pose is not None else tf.Transform()
         self._previous_pose = image.camera_pose
+        end_time = time.time()
 
         self._frame_results.append(FrameResult(
             timestamp=timestamp,
             image=image,
+            processing_time=end_time - start_time,
             pose=image.camera_pose,
             motion=true_motion,
             estimated_pose=self._estimated_world_pose,
@@ -416,6 +489,27 @@ class LibVisOMonoSystem(VisionSystem):
         self._viso = None
         logging.getLogger(__name__).error("    Created result")
         return result
+
+    def get_columns(self) -> typing.Set[str]:
+        """
+        Get the set of available properties for this system. Pass these to "get_properties", below.
+        :return:
+        """
+        return set(self.columns.keys())
+
+    def get_properties(self, columns: typing.Iterable[str] = None) -> typing.Mapping[str, typing.Any]:
+        """
+        Get the values of the requested properties
+        :param columns:
+        :return:
+        """
+        if columns is None:
+            columns = self.columns.keys()
+        return {
+            col_name: self.columns.get_value(self, col_name)
+            for col_name in columns
+            if col_name in self.columns
+        }
 
     @classmethod
     def get_instance(
