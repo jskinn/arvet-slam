@@ -1,17 +1,368 @@
 # Copyright (c) 2019, John Skinner
 import unittest
+import unittest.mock as mock
 import os
 import numpy as np
+import transforms3d as tf3d
+import pymodm
+from pymodm.errors import ValidationError
+
 from arvet.util.transform import Transform
+from arvet.util.test_helpers import ExtendedTestCase
 import arvet.database.tests.database_connection as dbconn
 import arvet.database.image_manager as im_manager
-import arvet.core.tests.mock_types as mock_types
+from arvet.metadata.image_metadata import make_metadata, ImageSourceType
 from arvet.core.image import Image
+import arvet.core.tests.mock_types as mock_types
 from arvet_slam.trials.slam.tracking_state import TrackingState
 from arvet_slam.trials.slam.visual_slam import SLAMTrialResult, FrameResult
 
 
-class TestTrialResultDatabase(unittest.TestCase):
+# ------------------------- FRAME RESULT -------------------------
+
+
+class TestFrameResultMongoModel(pymodm.MongoModel):
+    frame_result = pymodm.fields.EmbeddedDocumentField(FrameResult)
+
+
+class TestPoseErrorDatabase(unittest.TestCase):
+    image = None
+
+    @classmethod
+    def setUpClass(cls):
+        dbconn.connect_to_test_db()
+        image_manager = im_manager.DefaultImageManager(dbconn.image_file)
+        im_manager.set_image_manager(image_manager)
+
+        pixels = np.array([[1, 2, 3], [4, 5, 6], [7, 8, 9]])
+        cls.image = Image(
+            pixels=pixels,
+            metadata=make_metadata(pixels, source_type=ImageSourceType.SYNTHETIC)
+        )
+        cls.image.save()
+
+    @classmethod
+    def tearDownClass(cls):
+        # Clean up after ourselves by dropping the collection for this model
+        TestFrameResultMongoModel._mongometa.collection.drop()
+        Image._mongometa.collection.drop()
+        if os.path.isfile(dbconn.image_file):
+            os.remove(dbconn.image_file)
+
+    def test_stores_and_loads(self):
+        frame_result = FrameResult(
+            timestamp=10.3,
+            image=self.image,
+            processing_time=12.44,
+            pose=Transform((1, 2, 3), (4, 5, 6, 7)),
+            motion=Transform((-2, 1, -3), (-3, 5, 6, -6)),
+            estimated_pose=Transform((-1, -2, -3), (-4, -5, -6, 7)),
+            estimated_motion=Transform((2, -1, 3), (8, -5, -6, -6)),
+            tracking_state=TrackingState.NOT_INITIALIZED,
+            num_features=53,
+            num_matches=6
+        )
+
+        # Save the model
+        model = TestFrameResultMongoModel()
+        model.frame_result = frame_result
+        model.save()
+
+        # Load all the entities
+        all_entities = list(TestFrameResultMongoModel.objects.all())
+        self.assertGreaterEqual(len(all_entities), 1)
+
+        # Something about these fields mean they need to be manually compared first
+        self.assertEqual(all_entities[0].frame_result.image, frame_result.image)
+        self.assertEqual(all_entities[0].frame_result.tracking_state, frame_result.tracking_state)
+        self.assertEqual(all_entities[0].frame_result.pose, frame_result.pose)
+        self.assertEqual(all_entities[0].frame_result.motion, frame_result.motion)
+        self.assertEqual(all_entities[0].frame_result.estimated_pose, frame_result.estimated_pose)
+        self.assertEqual(all_entities[0].frame_result.estimated_motion, frame_result.estimated_motion)
+        self.assertEqual(all_entities[0].frame_result, frame_result)
+        all_entities[0].delete()
+
+    def test_stores_and_loads_minimal(self):
+        frame_result = FrameResult(
+            timestamp=10.3,
+            image=self.image,
+            processing_time=12.44,
+            pose=Transform((1, 2, 3), (4, 5, 6, 7)),
+            motion=Transform((-2, 1, -3), (-3, 5, 6, -6))
+        )
+
+        # Save the model
+        model = TestFrameResultMongoModel()
+        model.frame_result = frame_result
+        model.save()
+
+        # Load all the entities
+        all_entities = list(TestFrameResultMongoModel.objects.all())
+        self.assertGreaterEqual(len(all_entities), 1)
+
+        self.assertEqual(all_entities[0].frame_result.image, frame_result.image)
+        self.assertEqual(all_entities[0].frame_result.tracking_state, frame_result.tracking_state)
+        self.assertEqual(all_entities[0].frame_result.pose, frame_result.pose)
+        self.assertEqual(all_entities[0].frame_result.motion, frame_result.motion)
+        self.assertEqual(all_entities[0].frame_result.estimated_pose, frame_result.estimated_pose)
+        self.assertEqual(all_entities[0].frame_result.estimated_motion, frame_result.estimated_motion)
+        self.assertEqual(all_entities[0].frame_result, frame_result)
+        all_entities[0].delete()
+
+    def test_required_fields_are_required(self):
+        model = TestFrameResultMongoModel()
+
+        # no timestamp
+        model.frame_result = FrameResult(
+            image=self.image,
+            processing_time=12.44,
+            pose=Transform((1, 2, 3), (4, 5, 6, 7)),
+            motion=Transform((-2, 1, -3), (-3, 5, 6, -6))
+        )
+        with self.assertRaises(ValidationError):
+            model.save()
+
+        # no image
+        model.frame_result = FrameResult(
+            timestamp=10.3,
+            processing_time=12.44,
+            pose=Transform((1, 2, 3), (4, 5, 6, 7)),
+            motion=Transform((-2, 1, -3), (-3, 5, 6, -6))
+        )
+        with self.assertRaises(ValidationError):
+            model.save()
+
+        # no processing time
+        model.frame_result = FrameResult(
+            timestamp=10.3,
+            image=self.image,
+            pose=Transform((1, 2, 3), (4, 5, 6, 7)),
+            motion=Transform((-2, 1, -3), (-3, 5, 6, -6))
+        )
+        with self.assertRaises(ValidationError):
+            model.save()
+
+        # no pose
+        model.frame_result = FrameResult(
+            timestamp=10.3,
+            image=self.image,
+            processing_time=12.44,
+            motion=Transform((-2, 1, -3), (-3, 5, 6, -6))
+        )
+        with self.assertRaises(ValidationError):
+            model.save()
+
+        # no motion
+        model.frame_result = FrameResult(
+            timestamp=10.3,
+            image=self.image,
+            processing_time=12.44,
+            pose=Transform((1, 2, 3), (4, 5, 6, 7))
+        )
+        with self.assertRaises(ValidationError):
+            model.save()
+
+
+# ------------------------- SLAM TRIAL RESULT -------------------------
+
+
+class TestSLAMTrialResult(ExtendedTestCase):
+
+    def test_sorts_results_by_timestamp(self):
+        system = mock_types.MockSystem()
+        image_source = mock_types.MockImageSource()
+        mock_image = mock.create_autospec(Image)
+
+        results = [
+            FrameResult(
+                timestamp=(-1 ** idx) * idx + np.random.normal(0, 0.01),
+                image=mock_image,
+                processing_time=np.random.uniform(0.01, 1),
+                pose=Transform(
+                    (idx * 15 + np.random.normal(0, 1), idx + np.random.normal(0, 0.1), np.random.normal(0, 1)),
+                    tf3d.quaternions.axangle2quat((1, 2, 3), idx * np.pi / 6), w_first=True
+                ),
+                motion=Transform(
+                    (np.random.normal(0, 1), np.random.normal(0, 0.1), np.random.normal(0, 1)),
+                    tf3d.quaternions.axangle2quat((1, 2, 3), np.pi / 6), w_first=True
+                ),
+                estimated_pose=Transform(
+                    (idx * 15 + np.random.normal(0, 1), idx + np.random.normal(0, 0.1), np.random.normal(0, 1)),
+                    tf3d.quaternions.axangle2quat((1, 2, 3), 9 * idx * np.pi / 36), w_first=True
+                ),
+                estimated_motion=Transform(
+                    (np.random.normal(0, 1), np.random.normal(0, 0.1), np.random.normal(0, 1)),
+                    tf3d.quaternions.axangle2quat((1, 2, 3), idx * np.pi / 36), w_first=True
+                ),
+                tracking_state=TrackingState.OK,
+                num_features=np.random.randint(10, 1000),
+                num_matches=np.random.randint(10, 1000)
+            )
+            for idx in range(10)
+        ]
+        obj = SLAMTrialResult(
+            system=system,
+            image_source=image_source,
+            success=True,
+            settings={'key': 'value'},
+            results=results,
+            has_scale=True
+        )
+        for idx in range(1, len(results)):
+            self.assertGreater(obj.results[idx].timestamp, obj.results[idx - 1].timestamp)
+
+    def test_infers_motion_from_pose(self):
+        system = mock_types.MockSystem()
+        image_source = mock_types.MockImageSource()
+        mock_image = mock.create_autospec(Image)
+
+        results = [
+            FrameResult(
+                timestamp=idx + np.random.normal(0, 0.01),
+                image=mock_image,
+                processing_time=np.random.uniform(0.01, 1),
+                pose=Transform(
+                    (idx * 15 + np.random.normal(0, 1), idx + np.random.normal(0, 0.1), np.random.normal(0, 1)),
+                    tf3d.quaternions.axangle2quat((1, 2, 3), idx * np.pi / 36), w_first=True
+                ),
+                tracking_state=TrackingState.OK,
+                num_features=np.random.randint(10, 1000),
+                num_matches=np.random.randint(10, 1000)
+            )
+            for idx in range(10)
+        ]
+        obj = SLAMTrialResult(
+            system=system,
+            image_source=image_source,
+            success=True,
+            results=results,
+            has_scale=True
+        )
+        self.assertEqual(Transform(), obj.results[0].motion)
+        for idx in range(1, len(results)):
+            # The motion should always be the relative pose of the current image relative to the previous one
+            self.assertEqual(
+                obj.results[idx - 1].pose.find_relative(obj.results[idx].pose), obj.results[idx].motion,
+                msg="Did not match at index {0}".format(idx)
+            )
+
+    def test_infers_pose_from_motion(self):
+        system = mock_types.MockSystem()
+        image_source = mock_types.MockImageSource()
+        mock_image = mock.create_autospec(Image)
+
+        results = [
+            FrameResult(
+                timestamp=idx + np.random.normal(0, 0.01),
+                image=mock_image,
+                processing_time=np.random.uniform(0.01, 1),
+                motion=Transform(
+                    (idx * 15 + np.random.normal(0, 1), idx + np.random.normal(0, 0.1), np.random.normal(0, 1)),
+                    tf3d.quaternions.axangle2quat((1, 2, 3), idx * np.pi / 36), w_first=True
+                ),
+                tracking_state=TrackingState.OK,
+                num_features=np.random.randint(10, 1000),
+                num_matches=np.random.randint(10, 1000)
+            )
+            for idx in range(10)
+        ]
+        obj = SLAMTrialResult(
+            system=system,
+            image_source=image_source,
+            success=True,
+            results=results,
+            has_scale=True
+        )
+        self.assertEqual(Transform(), obj.results[0].pose)
+        for idx in range(1, len(results)):
+            # The motion should always be the relative pose of the current image relative to the previous one
+            pose_based_motion = obj.results[idx - 1].pose.find_relative(obj.results[idx].pose)
+            stored_motion = obj.results[idx].motion
+            self.assertNPClose(pose_based_motion.location, stored_motion.location)
+            self.assertNPClose(pose_based_motion.rotation_quat(), stored_motion.rotation_quat())
+
+    def test_infers_estimated_motions_from_estimated_poses(self):
+        system = mock_types.MockSystem()
+        image_source = mock_types.MockImageSource()
+        mock_image = mock.create_autospec(Image)
+
+        results = [
+            FrameResult(
+                timestamp=idx + np.random.normal(0, 0.01),
+                image=mock_image,
+                processing_time=np.random.uniform(0.01, 1),
+                pose=Transform(
+                    (idx * 15 + np.random.normal(0, 1), idx + np.random.normal(0, 0.1), np.random.normal(0, 1)),
+                    tf3d.quaternions.axangle2quat((1, 2, 3), idx * np.pi / 36), w_first=True
+                ),
+                estimated_pose=Transform(
+                    (idx * 15.1 + np.random.normal(0, 1), idx + np.random.normal(0, 0.1), np.random.normal(0, 1)),
+                    tf3d.quaternions.axangle2quat((1, 2, 3), 9 * idx * np.pi / 288), w_first=True
+                ),
+                tracking_state=TrackingState.OK,
+                num_features=np.random.randint(10, 1000),
+                num_matches=np.random.randint(10, 1000)
+            )
+            for idx in range(10)
+        ]
+        obj = SLAMTrialResult(
+            system=system,
+            image_source=image_source,
+            success=True,
+            results=results,
+            has_scale=True
+        )
+        self.assertIsNone(obj.results[0].estimated_motion)
+        for idx in range(1, len(results)):
+            # The motion should always be the relative pose of the current image relative to the previous one
+            self.assertEqual(
+                obj.results[idx - 1].estimated_pose.find_relative(obj.results[idx].estimated_pose),
+                obj.results[idx].estimated_motion,
+                msg="Different at index {0}".format(idx)
+            )
+
+    def test_infers_estimated_poses_from_estimated_motions(self):
+        system = mock_types.MockSystem()
+        image_source = mock_types.MockImageSource()
+        mock_image = mock.create_autospec(Image)
+
+        results = [
+            FrameResult(
+                timestamp=idx + np.random.normal(0, 0.01),
+                image=mock_image,
+                processing_time=np.random.uniform(0.01, 1),
+                pose=Transform(
+                    (idx * 15 + np.random.normal(0, 1), idx + np.random.normal(0, 0.1), np.random.normal(0, 1)),
+                    tf3d.quaternions.axangle2quat((1, 2, 3), idx * np.pi / 36), w_first=True
+                ),
+                estimated_motion=Transform(
+                    (np.random.normal(0, 1), np.random.normal(0, 0.1), np.random.normal(0, 1)),
+                    tf3d.quaternions.axangle2quat((1, 2, 3), idx * np.pi / 36), w_first=True
+                ),
+                tracking_state=TrackingState.OK,
+                num_features=np.random.randint(10, 1000),
+                num_matches=np.random.randint(10, 1000)
+            )
+            for idx in range(10)
+        ]
+        results[0].estimated_pose = Transform()  # We need an initial estimated pose to work from
+        obj = SLAMTrialResult(
+            system=system,
+            image_source=image_source,
+            success=True,
+            results=results,
+            has_scale=True
+        )
+        self.assertEqual(Transform(), obj.results[0].estimated_pose)
+        for idx in range(1, len(results)):
+            # The motion should always be the relative pose of the current image relative to the previous one
+            pose_based_motion = obj.results[idx - 1].estimated_pose.find_relative(obj.results[idx].estimated_pose)
+            stored_motion = obj.results[idx].estimated_motion
+            self.assertNPClose(pose_based_motion.location, stored_motion.location)
+            self.assertNPClose(pose_based_motion.rotation_quat(), stored_motion.rotation_quat())
+
+
+class TestSLAMTrialResultDatabase(unittest.TestCase):
     system = None
     image_source = None
     image = None
@@ -43,7 +394,80 @@ class TestTrialResultDatabase(unittest.TestCase):
         if os.path.isfile(dbconn.image_file):
             os.remove(dbconn.image_file)
 
-    def test_stores_and_loads(self):
+    def test_stores_and_loads_motion_only(self):
+        results = [
+            FrameResult(
+                timestamp=idx + np.random.normal(0, 0.01),
+                image=self.image,
+                processing_time=np.random.uniform(0.01, 1),
+                motion=Transform(
+                    (np.random.normal(0, 1), np.random.normal(0, 0.1), np.random.normal(0, 1)),
+                    (1, 0, 0, 0)
+                ),
+                estimated_motion=Transform(
+                    (np.random.normal(0, 1), np.random.normal(0, 0.1), np.random.normal(0, 1)),
+                    (1, 0, 0, 0)
+                ),
+                tracking_state=TrackingState.OK,
+                num_features=np.random.randint(10, 1000),
+                num_matches=np.random.randint(10, 1000)
+            )
+            for idx in range(10)
+        ]
+        results[0].estimated_pose = Transform()
+        obj = SLAMTrialResult(
+            system=self.system,
+            image_source=self.image_source,
+            success=True,
+            settings={'key': 'value'},
+            results=results,
+            run_time=10.4,
+            has_scale=True
+        )
+        obj.save()
+
+        # Load all the entities
+        all_entities = list(SLAMTrialResult.objects.all())
+        self.assertGreaterEqual(len(all_entities), 1)
+        self.assertEqual(all_entities[0], obj)
+        all_entities[0].delete()
+
+    def test_stores_and_loads_motion_only_minimal(self):
+        results = [
+            FrameResult(
+                timestamp=idx + np.random.normal(0, 0.01),
+                image=self.image,
+                processing_time=np.random.uniform(0.01, 1),
+                motion=Transform(
+                    (np.random.normal(0, 1), np.random.normal(0, 0.1), np.random.normal(0, 1)),
+                    (1, 0, 0, 0)
+                ),
+                estimated_motion=Transform(
+                    (np.random.normal(0, 1), np.random.normal(0, 0.1), np.random.normal(0, 1)),
+                    (1, 0, 0, 0)
+                ),
+                tracking_state=TrackingState.OK,
+                num_features=np.random.randint(10, 1000),
+                num_matches=np.random.randint(10, 1000)
+            )
+            for idx in range(10)
+        ]
+        results[0].estimated_pose = Transform()
+        obj = SLAMTrialResult(
+            system=self.system,
+            image_source=self.image_source,
+            success=True,
+            results=results,
+        )
+        obj.save()
+
+        # Load all the entities
+        all_entities = list(SLAMTrialResult.objects.all())
+        self.assertGreaterEqual(len(all_entities), 1)
+        self.assertEqual(all_entities[0], obj)
+        all_entities[0].delete()
+
+    def test_stores_and_loads_pose_only(self):
         results = [
             FrameResult(
                 timestamp=idx + np.random.normal(0, 0.01),
@@ -53,16 +477,8 @@ class TestTrialResultDatabase(unittest.TestCase):
                     (idx * 15 + np.random.normal(0, 1), idx + np.random.normal(0, 0.1), np.random.normal(0, 1)),
                     (1, 0, 0, 0)
                 ),
-                motion=Transform(
-                    (np.random.normal(0, 1), np.random.normal(0, 0.1), np.random.normal(0, 1)),
-                    (1, 0, 0, 0)
-                ),
                 estimated_pose=Transform(
                     (idx * 15 + np.random.normal(0, 1), idx + np.random.normal(0, 0.1), np.random.normal(0, 1)),
-                    (1, 0, 0, 0)
-                ),
-                estimated_motion=Transform(
-                    (np.random.normal(0, 1), np.random.normal(0, 0.1), np.random.normal(0, 1)),
                     (1, 0, 0, 0)
                 ),
                 tracking_state=TrackingState.OK,
@@ -76,6 +492,7 @@ class TestTrialResultDatabase(unittest.TestCase):
             image_source=self.image_source,
             success=True,
             settings={'key': 'value'},
+            run_time=10.4,
             results=results,
             has_scale=True
         )
@@ -86,3 +503,160 @@ class TestTrialResultDatabase(unittest.TestCase):
         self.assertGreaterEqual(len(all_entities), 1)
         self.assertEqual(all_entities[0], obj)
         all_entities[0].delete()
+
+    def test_stores_and_loads_pose_only_minimal(self):
+        results = [
+            FrameResult(
+                timestamp=idx + np.random.normal(0, 0.01),
+                image=self.image,
+                processing_time=np.random.uniform(0.01, 1),
+                pose=Transform(
+                    (idx * 15 + np.random.normal(0, 1), idx + np.random.normal(0, 0.1), np.random.normal(0, 1)),
+                    (1, 0, 0, 0)
+                ),
+                estimated_pose=Transform(
+                    (idx * 15 + np.random.normal(0, 1), idx + np.random.normal(0, 0.1), np.random.normal(0, 1)),
+                    (1, 0, 0, 0)
+                ),
+                tracking_state=TrackingState.OK,
+                num_features=np.random.randint(10, 1000),
+                num_matches=np.random.randint(10, 1000)
+            )
+            for idx in range(10)
+        ]
+        obj = SLAMTrialResult(
+            system=self.system,
+            image_source=self.image_source,
+            success=True,
+            results=results
+        )
+        obj.save()
+
+        # Load all the entities
+        all_entities = list(SLAMTrialResult.objects.all())
+        self.assertGreaterEqual(len(all_entities), 1)
+        self.assertEqual(all_entities[0], obj)
+        all_entities[0].delete()
+
+    def test_required_fields_are_required(self):
+        results = [
+            FrameResult(
+                timestamp=idx + np.random.normal(0, 0.01),
+                image=self.image,
+                processing_time=np.random.uniform(0.01, 1),
+                pose=Transform(
+                    (idx * 15 + np.random.normal(0, 1), idx + np.random.normal(0, 0.1), np.random.normal(0, 1)),
+                    (1, 0, 0, 0)
+                ),
+                estimated_pose=Transform(
+                    (idx * 15 + np.random.normal(0, 1), idx + np.random.normal(0, 0.1), np.random.normal(0, 1)),
+                    (1, 0, 0, 0)
+                ),
+                tracking_state=TrackingState.OK,
+                num_features=np.random.randint(10, 1000),
+                num_matches=np.random.randint(10, 1000)
+            )
+            for idx in range(10)
+        ]
+
+        # No system
+        obj = SLAMTrialResult(
+            image_source=self.image_source,
+            success=True,
+            results=results
+        )
+        with self.assertRaises(ValidationError):
+            obj.save()
+
+        # No image_source
+        obj = SLAMTrialResult(
+            system=self.system,
+            success=True,
+            results=results
+        )
+        with self.assertRaises(ValidationError):
+            obj.save()
+
+        # No success
+        obj = SLAMTrialResult(
+            system=self.system,
+            image_source=self.image_source,
+            results=results
+        )
+        with self.assertRaises(ValidationError):
+            obj.save()
+
+        # No results
+        obj = SLAMTrialResult(
+            system=self.system,
+            image_source=self.image_source,
+            success=True
+        )
+        with self.assertRaises(ValidationError):
+            obj.save()
+
+    def test_is_invalid_when_pose_and_motion_dont_match(self):
+        results = [
+            FrameResult(
+                timestamp=idx + np.random.normal(0, 0.01),
+                image=self.image,
+                processing_time=np.random.uniform(0.01, 1),
+                pose=Transform(
+                    (idx * 15 + np.random.normal(0, 1), idx + np.random.normal(0, 0.1), np.random.normal(0, 1)),
+                    (1, 0, 0, 0)
+                ),
+                motion=Transform(   # This is definitely not the correct motion
+                    (idx * 15 + np.random.normal(0, 1), idx + np.random.normal(0, 0.1), np.random.normal(0, 1)),
+                    (1, 0, 0, 0)
+                ),
+                estimated_pose=Transform(
+                    (idx * 15 + np.random.normal(0, 1), idx + np.random.normal(0, 0.1), np.random.normal(0, 1)),
+                    (1, 0, 0, 0)
+                ),
+                tracking_state=TrackingState.OK,
+                num_features=np.random.randint(10, 1000),
+                num_matches=np.random.randint(10, 1000)
+            )
+            for idx in range(10)
+        ]
+        obj = SLAMTrialResult(
+            system=self.system,
+            image_source=self.image_source,
+            success=True,
+            results=results
+        )
+        with self.assertRaises(ValidationError):
+            obj.save()
+
+    def test_is_invalid_when_estimated_pose_and_estimated_motion_dont_match(self):
+        results = [
+            FrameResult(
+                timestamp=idx + np.random.normal(0, 0.01),
+                image=self.image,
+                processing_time=np.random.uniform(0.01, 1),
+                pose=Transform(
+                    (idx * 15 + np.random.normal(0, 1), idx + np.random.normal(0, 0.1), np.random.normal(0, 1)),
+                    (1, 0, 0, 0)
+                ),
+                estimated_pose=Transform(
+                    (idx * 15 + np.random.normal(0, 1), idx + np.random.normal(0, 0.1), np.random.normal(0, 1)),
+                    (1, 0, 0, 0)
+                ),
+                estimated_motion=Transform(   # This is definitely not the correct motion
+                    (idx * 15 + np.random.normal(0, 1), idx + np.random.normal(0, 0.1), np.random.normal(0, 1)),
+                    (1, 0, 0, 0)
+                ),
+                tracking_state=TrackingState.OK,
+                num_features=np.random.randint(10, 1000),
+                num_matches=np.random.randint(10, 1000)
+            )
+            for idx in range(10)
+        ]
+        obj = SLAMTrialResult(
+            system=self.system,
+            image_source=self.image_source,
+            success=True,
+            results=results
+        )
+        with self.assertRaises(ValidationError):
+            obj.save()
