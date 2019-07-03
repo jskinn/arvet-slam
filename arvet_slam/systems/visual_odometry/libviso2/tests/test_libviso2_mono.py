@@ -282,12 +282,20 @@ class TestLibVisOMonoExecution(unittest.TestCase):
         self.assertEqual(subject, result.system)
         self.assertTrue(result.success)
         self.assertFalse(result.has_scale)
-        self.assertEqual(num_frames, len(result.results))
+        self.assertIsNotNone(result.run_time)
         self.assertEqual({
             'focal_distance': 120,
             'cu': 160,
             'cv': 120
         }, result.settings)
+        self.assertEqual(num_frames, len(result.results))
+
+        for time, frame_result in enumerate(result.results):
+            self.assertEqual(4 * time / num_frames, frame_result.timestamp)
+            self.assertIsNotNone(frame_result.pose)
+            self.assertIsNotNone(frame_result.motion)
+            self.assertIsNotNone(frame_result.estimated_pose)
+            self.assertIsNotNone(frame_result.estimated_motion)
 
 
 def create_frame(time):

@@ -1,4 +1,5 @@
 # Copyright (c) 2017, John Skinner
+import abc
 import numpy as np
 import typing
 import logging
@@ -11,6 +12,7 @@ from viso2 import Mono_parameters, Stereo_parameters, VisualOdometryStereo, Visu
 from arvet.util.column_list import ColumnList
 import arvet.util.image_utils as image_utils
 from arvet.metadata.camera_intrinsics import CameraIntrinsics
+from arvet.database.pymodm_abc import ABCModelMeta
 from arvet.core.image import Image
 from arvet.core.image_source import ImageSource
 from arvet.core.sequence_type import ImageSequenceType
@@ -19,9 +21,10 @@ import arvet.util.transform as tf
 from arvet_slam.trials.slam.visual_slam import FrameResult, SLAMTrialResult
 
 
-class LibVisOStereoSystem(VisionSystem):
+class LibVisOSystem(VisionSystem, metaclass=ABCModelMeta):
     """
     Class to run LibVisO2 as a vision system.
+    A generic base class, the specific types are below (LibVisOStereoSystem, LibVisOMonoSystem)
     """
     matcher_nms_n = fields.IntegerField(default=3)
     matcher_nms_tau = fields.IntegerField(default=50)
@@ -36,9 +39,6 @@ class LibVisOStereoSystem(VisionSystem):
     bucketing_max_features = fields.IntegerField(default=2)
     bucketing_bucket_width = fields.IntegerField(default=50)
     bucketing_bucket_height = fields.IntegerField(default=50)
-    ransac_iters = fields.IntegerField(default=200)
-    inlier_threshold = fields.FloatField(default=2.0)
-    reweighting = fields.BooleanField(default=True)
 
     # List of available metadata columns, and getters for each
     columns = ColumnList(
@@ -54,36 +54,30 @@ class LibVisOStereoSystem(VisionSystem):
         matcher_refinement=attrgetter('matcher_refinement'),
         bucketing_max_features=attrgetter('bucketing_max_features'),
         bucketing_bucket_width=attrgetter('bucketing_bucket_width'),
-        bucketing_bucket_height=attrgetter('bucketing_bucket_height'),
-        ransac_iters=attrgetter('ransac_iters'),
-        inlier_threshold=attrgetter('inlier_threshold'),
-        reweighting=attrgetter('reweighting')
+        bucketing_bucket_height=attrgetter('bucketing_bucket_height')
     )
 
     def __init__(self, *args, **kwargs):
         """
 
         """
-        super(LibVisOStereoSystem, self).__init__(*args, **kwargs)
+        super(LibVisOSystem, self).__init__(*args, **kwargs)
 
         # These will get overridden by set_camera_intrinisics
         self._focal_distance = 1.0
         self._cu = 320
         self._cv = 240
-        self._base = 0.3
 
         # Ongoing state during a trial that is initialised in start_trial
         self._viso = None
-        self._previous_pose = None
-        self._estimated_world_pose = None
+        self._start_time = None
         self._frame_results = []
 
     def is_deterministic(self) -> bool:
         return True
 
     def is_image_source_appropriate(self, image_source: ImageSource) -> bool:
-        return (image_source.sequence_type == ImageSequenceType.SEQUENTIAL and
-                image_source.is_stereo_available)
+        return image_source.sequence_type == ImageSequenceType.SEQUENTIAL
 
     def set_camera_intrinsics(self, camera_intrinsics: CameraIntrinsics) -> None:
         """
@@ -96,6 +90,139 @@ class LibVisOStereoSystem(VisionSystem):
         self._cu = float(camera_intrinsics.cx)
         self._cv = float(camera_intrinsics.cy)
 
+    def start_trial(self, sequence_type: ImageSequenceType) -> None:
+        logging.getLogger(__name__).error("Starting LibVisO trial...")
+        self._start_time = time.time()
+        if not sequence_type == ImageSequenceType.SEQUENTIAL:
+            return
+
+        self._viso = self.make_viso_instance()
+        self._frame_results = []
+        logging.getLogger(__name__).error("    Started LibVisO trial.")
+
+    def process_image(self, image: Image, timestamp: float) -> None:
+        start_time = time.time()
+        logging.getLogger(__name__).error("Processing image at time {0} ...".format(timestamp))
+
+        # This is the pose of the previous pose relative to the next one
+        estimated_motion = self.handle_process_image(self._viso, image, timestamp)
+        logging.getLogger(__name__).error("    got estimated motion ...")
+        end_time = time.time()
+
+        self._frame_results.append(FrameResult(
+            timestamp=timestamp,
+            image=image,
+            processing_time=end_time - start_time,
+            pose=image.camera_pose,
+            estimated_motion=estimated_motion,
+            num_matches=self._viso.getNumberOfMatches()
+        ))
+        logging.getLogger(__name__).error("    Processing done.")
+
+    def finish_trial(self) -> SLAMTrialResult:
+        logging.getLogger(__name__).error("Finishing LibVisO trial ...")
+        if len(self._frame_results) > 0:
+            # set the intial pose estimate to 0, so we can infer the later ones from the motions
+            self._frame_results[0].estimated_pose = tf.Transform()
+        result = SLAMTrialResult(
+            system=self,
+            success=True,
+            settings=self.get_settings(),
+            results=self._frame_results,
+            has_scale=self.has_scale
+        )
+        self._frame_results = None
+        self._viso = None
+        result.run_time = time.time() - self._start_time
+        self._start_time = None
+        logging.getLogger(__name__).error("    Created result")
+        return result
+
+    def get_columns(self) -> typing.Set[str]:
+        """
+        Get the set of available properties for this system. Pass these to "get_properties", below.
+        :return:
+        """
+        return set(self.columns.keys())
+
+    def get_properties(self, columns: typing.Iterable[str] = None) -> typing.Mapping[str, typing.Any]:
+        """
+        Get the values of the requested properties
+        :param columns:
+        :return:
+        """
+        if columns is None:
+            columns = self.columns.keys()
+        return {
+            col_name: self.columns.get_value(self, col_name)
+            for col_name in columns
+            if col_name in self.columns
+        }
+
+    @abc.abstractmethod
+    def make_viso_instance(self):
+        """
+        Make the viso object. Stereo mode will make a stereo object, monocular a monocular object
+        :return:
+        """
+        pass
+
+    @abc.abstractmethod
+    def handle_process_image(self, viso, image: Image, timestamp: float) -> tf.Transform:
+        """
+        Send the image to the viso object.
+        In stereo mode, we need to send left and right frames, in monocular only one frame.
+        :param viso: The viso object, created by 'make_viso_instance'
+        :param image: The image object
+        :param timestamp: The timestamp for this frame
+        :return:
+        """
+        pass
+
+    @property
+    @abc.abstractmethod
+    def has_scale(self):
+        pass
+
+    def get_settings(self):
+        return {
+            'focal_distance': self._focal_distance,
+            'cu': self._cu,
+            'cv': self._cv
+        }
+
+
+class LibVisOStereoSystem(LibVisOSystem):
+    """
+
+    """
+
+    ransac_iters = fields.IntegerField(default=200)
+    inlier_threshold = fields.FloatField(default=2.0)
+    reweighting = fields.BooleanField(default=True)
+
+    # List of available metadata columns, and getters for each
+    columns = ColumnList(
+        LibVisOSystem.columns,
+        ransac_iters=attrgetter('ransac_iters'),
+        inlier_threshold=attrgetter('inlier_threshold'),
+        reweighting=attrgetter('reweighting')
+    )
+
+    def __init__(self, *args, **kwargs):
+        super(LibVisOStereoSystem, self).__init__(*args, **kwargs)
+
+        # These will get overridden by set_stereo_offset
+        self._base = 0.3
+
+    @property
+    def has_scale(self):
+        return True
+
+    def is_image_source_appropriate(self, image_source: ImageSource) -> bool:
+        return (super(LibVisOStereoSystem, self).is_image_source_appropriate(image_source) and
+                image_source.is_stereo_available)
+
     def set_stereo_offset(self, offset: tf.Transform) -> None:
         """
         Set the stereo baseline
@@ -106,10 +233,11 @@ class LibVisOStereoSystem(VisionSystem):
         logging.getLogger(__name__).error("Setting stereo baseline to {0}".format(baseline))
         self._base = float(baseline)
 
-    def start_trial(self, sequence_type: ImageSequenceType) -> None:
-        logging.getLogger(__name__).error("Starting LibVisO trial...")
-        if not sequence_type == ImageSequenceType.SEQUENTIAL:
-            return
+    def make_viso_instance(self):
+        """
+        Construct a stereo libviso system
+        :return:
+        """
         params = Stereo_parameters()
         logging.getLogger(__name__).error("    Created parameters object, populating ...")
 
@@ -145,88 +273,34 @@ class LibVisOStereoSystem(VisionSystem):
         params.base = self._base
         logging.getLogger(__name__).error("    Parameters built, creating viso object ...")
 
-        self._viso = VisualOdometryStereo(params)
-        self._previous_pose = None
-        self._estimated_world_pose = tf.Transform()
-        self._frame_results = []
-        logging.getLogger(__name__).error("    Started LibVisO trial.")
+        return VisualOdometryStereo(params)
 
-    def process_image(self, image: Image, timestamp: float) -> None:
-        start_time = time.time()
-        logging.getLogger(__name__).error("Processing image at time {0} ...".format(timestamp))
+    def handle_process_image(self, viso, image: Image, timestamp: float) -> tf.Transform:
+        """
+        Send a frame to LibViso2, and get back the estimated motion
+        :param viso: The visual odometry object. Will be a stereo object.
+        :param image: The image object. Will be a stereo image
+        :param timestamp: The timestamp
+        :return:
+        """
         left_grey = prepare_image(image.left_pixels)
         right_grey = prepare_image(image.right_pixels)
         logging.getLogger(__name__).error("    prepared images ...")
 
-        self._viso.process_frame(left_grey, right_grey)
+        viso.process_frame(left_grey, right_grey)
         logging.getLogger(__name__).error("    processed frame ...")
 
-        motion = self._viso.getMotion()  # Motion is a 4x4 pose matrix
+        motion = viso.getMotion()  # Motion is a 4x4 pose matrix
         np_motion = np.zeros((4, 4))
         motion.toNumpy(np_motion)
-        np_motion = np.linalg.inv(np_motion)    # Invert the motion to make it new frame relative to old
-        relative_pose = make_relative_pose(np_motion)  # This is the pose of the previous pose relative to the next one
-        self._estimated_world_pose = self._estimated_world_pose.find_independent(relative_pose)
-        logging.getLogger(__name__).error("    got estimated motion ...")
+        np_motion = np.linalg.inv(np_motion)  # Invert the motion to make it new frame relative to old
+        # This is the pose of the previous pose relative to the next one
+        return make_relative_pose(np_motion)
 
-        true_motion = self._previous_pose.find_relative(image.camera_pose) \
-            if self._previous_pose is not None else tf.Transform()
-        self._previous_pose = image.camera_pose
-        end_time = time.time()
-
-        self._frame_results.append(FrameResult(
-            timestamp=timestamp,
-            image=image,
-            processing_time=end_time - start_time,
-            pose=image.camera_pose,
-            motion=true_motion,
-            estimated_pose=self._estimated_world_pose,
-            estimated_motion=relative_pose,
-            num_matches=self._viso.getNumberOfMatches()
-        ))
-        logging.getLogger(__name__).error("    Processing done.")
-
-    def finish_trial(self) -> SLAMTrialResult:
-        logging.getLogger(__name__).error("Finishing LibVisO trial ...")
-        result = SLAMTrialResult(
-            system=self,
-            success=True,
-            settings={
-                'focal_distance': self._focal_distance,
-                'cu': self._cu,
-                'cv': self._cv,
-                'base': self._base
-            },
-            results=self._frame_results,
-            has_scale=True
-        )
-        self._frame_results = None
-        self._previous_pose = None
-        self._estimated_world_pose = None
-        self._viso = None
-        logging.getLogger(__name__).error("    Created result")
-        return result
-
-    def get_columns(self) -> typing.Set[str]:
-        """
-        Get the set of available properties for this system. Pass these to "get_properties", below.
-        :return:
-        """
-        return set(self.columns.keys())
-
-    def get_properties(self, columns: typing.Iterable[str] = None) -> typing.Mapping[str, typing.Any]:
-        """
-        Get the values of the requested properties
-        :param columns:
-        :return:
-        """
-        if columns is None:
-            columns = self.columns.keys()
-        return {
-            col_name: self.columns.get_value(self, col_name)
-            for col_name in columns
-            if col_name in self.columns
-        }
+    def get_settings(self):
+        settings = super(LibVisOStereoSystem, self).get_settings()
+        settings['base'] = self._base
+        return settings
 
     @classmethod
     def preload_image_data(cls, image: Image) -> None:
@@ -311,23 +385,10 @@ class LibVisOStereoSystem(VisionSystem):
         return obj
 
 
-class LibVisOMonoSystem(VisionSystem):
+class LibVisOMonoSystem(LibVisOSystem):
     """
-    Class to run LibVisO2 as a vision system.
+    Class to run LibVisO2 as a vision system in monocular mode.
     """
-    matcher_nms_n = fields.IntegerField(default=3)
-    matcher_nms_tau = fields.IntegerField(default=50)
-    matcher_match_binsize = fields.IntegerField(default=50)
-    matcher_match_radius = fields.IntegerField(default=200)
-    matcher_match_disp_tolerance = fields.IntegerField(default=2)
-    matcher_outlier_disp_tolerance = fields.IntegerField(default=5)
-    matcher_outlier_flow_tolerance = fields.IntegerField(default=5)
-    matcher_multi_stage = fields.BooleanField(default=True)
-    matcher_half_resolution = fields.BooleanField(default=True)
-    matcher_refinement = fields.IntegerField(default=50)
-    bucketing_max_features = fields.IntegerField(default=2)
-    bucketing_bucket_width = fields.IntegerField(default=50)
-    bucketing_bucket_height = fields.IntegerField(default=50)
     height = fields.FloatField(default=1.0)
     pitch = fields.FloatField(default=0.0)
     ransac_iters = fields.IntegerField(default=2000)
@@ -336,19 +397,7 @@ class LibVisOMonoSystem(VisionSystem):
 
     # List of available metadata columns, and getters for each
     columns = ColumnList(
-        matcher_nms_n=attrgetter('matcher_nms_n'),
-        matcher_nms_tau=attrgetter('matcher_nms_tau'),
-        matcher_match_binsize=attrgetter('matcher_match_binsize'),
-        matcher_match_radius=attrgetter('matcher_match_radius'),
-        matcher_match_disp_tolerance=attrgetter('matcher_match_disp_tolerance'),
-        matcher_outlier_disp_tolerance=attrgetter('matcher_outlier_disp_tolerance'),
-        matcher_outlier_flow_tolerance=attrgetter('matcher_outlier_flow_tolerance'),
-        matcher_multi_stage=attrgetter('matcher_multi_stage'),
-        matcher_half_resolution=attrgetter('matcher_half_resolution'),
-        matcher_refinement=attrgetter('matcher_refinement'),
-        bucketing_max_features=attrgetter('bucketing_max_features'),
-        bucketing_bucket_width=attrgetter('bucketing_bucket_width'),
-        bucketing_bucket_height=attrgetter('bucketing_bucket_height'),
+        LibVisOSystem.columns,
         height=attrgetter('height'),
         pitch=attrgetter('pitch'),
         ransac_iters=attrgetter('ransac_iters'),
@@ -356,44 +405,15 @@ class LibVisOMonoSystem(VisionSystem):
         motion_threshold=attrgetter('motion_threshold')
     )
 
-    def __init__(self, *args, **kwargs):
+    @property
+    def has_scale(self):
+        return False
+
+    def make_viso_instance(self):
         """
-
-        """
-        super(LibVisOMonoSystem, self).__init__(*args, **kwargs)
-
-        # These will get overridden by set_camera_intrinisics
-        self._focal_distance = 1.0
-        self._cu = 320
-        self._cv = 240
-
-        # Ongoing state during a trial that is initialised in start_trial
-        self._viso = None
-        self._previous_pose = None
-        self._estimated_world_pose = None
-        self._frame_results = []
-
-    def is_deterministic(self) -> bool:
-        return True
-
-    def is_image_source_appropriate(self, image_source: ImageSource) -> bool:
-        return image_source.sequence_type == ImageSequenceType.SEQUENTIAL
-
-    def set_camera_intrinsics(self, camera_intrinsics: CameraIntrinsics) -> None:
-        """
-        Set the camera intrinisics for libviso2
-        :param camera_intrinsics: The camera intrinsics, relative to the image resolution
+        Make a monocular libviso instance
         :return:
         """
-        logging.getLogger(__name__).error("Setting camera intrinsics")
-        self._focal_distance = float(camera_intrinsics.fx)
-        self._cu = float(camera_intrinsics.cx)
-        self._cv = float(camera_intrinsics.cy)
-
-    def start_trial(self, sequence_type: ImageSequenceType) -> None:
-        logging.getLogger(__name__).error("Starting LibVisO trial...")
-        if not sequence_type == ImageSequenceType.SEQUENTIAL:
-            return
         params = Mono_parameters()
         logging.getLogger(__name__).error("    Created parameters object, populating ...")
 
@@ -430,15 +450,9 @@ class LibVisOMonoSystem(VisionSystem):
         params.calib.cv = self._cv
         logging.getLogger(__name__).error("    Parameters built, creating viso object ...")
 
-        self._viso = VisualOdometryMono(params)
-        self._previous_pose = None
-        self._estimated_world_pose = tf.Transform()
-        self._frame_results = []
-        logging.getLogger(__name__).error("    Started LibVisO trial.")
+        return VisualOdometryMono(params)
 
-    def process_image(self, image: Image, timestamp: float) -> None:
-        logging.getLogger(__name__).error("Processing image at time {0} ...".format(timestamp))
-        start_time = time.time()
+    def handle_process_image(self, viso, image: Image, timestamp: float) -> tf.Transform:
         image_greyscale = prepare_image(image.pixels)
         logging.getLogger(__name__).error("    prepared images ...")
 
@@ -448,68 +462,9 @@ class LibVisOMonoSystem(VisionSystem):
         motion = self._viso.getMotion()  # Motion is a 4x4 pose matrix
         np_motion = np.zeros((4, 4))
         motion.toNumpy(np_motion)
-        np_motion = np.linalg.inv(np_motion)    # Invert the motion to make it new frame relative to old
-        relative_pose = make_relative_pose(np_motion)  # This is the pose of the previous pose relative to the next one
-        self._estimated_world_pose = self._estimated_world_pose.find_independent(relative_pose)
-        logging.getLogger(__name__).error("    got estimated motion ...")
-
-        true_motion = self._previous_pose.find_relative(image.camera_pose) \
-            if self._previous_pose is not None else tf.Transform()
-        self._previous_pose = image.camera_pose
-        end_time = time.time()
-
-        self._frame_results.append(FrameResult(
-            timestamp=timestamp,
-            image=image,
-            processing_time=end_time - start_time,
-            pose=image.camera_pose,
-            motion=true_motion,
-            estimated_pose=self._estimated_world_pose,
-            estimated_motion=relative_pose,
-            num_matches=self._viso.getNumberOfMatches()
-        ))
-        logging.getLogger(__name__).error("    Processing done.")
-
-    def finish_trial(self) -> SLAMTrialResult:
-        logging.getLogger(__name__).error("Finishing LibVisO trial ...")
-        result = SLAMTrialResult(
-            system=self,
-            success=True,
-            settings={
-                'focal_distance': self._focal_distance,
-                'cu': self._cu,
-                'cv': self._cv
-            },
-            results=self._frame_results,
-            has_scale=False
-        )
-        self._frame_results = None
-        self._previous_pose = None
-        self._estimated_world_pose = None
-        self._viso = None
-        logging.getLogger(__name__).error("    Created result")
-        return result
-
-    def get_columns(self) -> typing.Set[str]:
-        """
-        Get the set of available properties for this system. Pass these to "get_properties", below.
-        :return:
-        """
-        return set(self.columns.keys())
-
-    def get_properties(self, columns: typing.Iterable[str] = None) -> typing.Mapping[str, typing.Any]:
-        """
-        Get the values of the requested properties
-        :param columns:
-        :return:
-        """
-        if columns is None:
-            columns = self.columns.keys()
-        return {
-            col_name: self.columns.get_value(self, col_name)
-            for col_name in columns
-            if col_name in self.columns
-        }
+        np_motion = np.linalg.inv(np_motion)  # Invert the motion to make it new frame relative to old
+        # This is the pose of the previous pose relative to the next one
+        return make_relative_pose(np_motion)
 
     @classmethod
     def get_instance(

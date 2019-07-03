@@ -266,17 +266,26 @@ class TestLibVisOStereoExecution(unittest.TestCase):
             image = create_frame(time / num_frames)
             subject.process_image(image, 4 * time / num_frames)
         result = subject.finish_trial()
+
         self.assertIsInstance(result, SLAMTrialResult)
         self.assertEqual(subject, result.system)
         self.assertTrue(result.success)
         self.assertTrue(result.has_scale)
-        self.assertEqual(num_frames, len(result.results))
+        self.assertIsNotNone(result.run_time)
         self.assertEqual({
             'focal_distance': 120,
             'cu': 160,
             'cv': 120,
             'base': 25
         }, result.settings)
+        self.assertEqual(num_frames, len(result.results))
+
+        for time, frame_result in enumerate(result.results):
+            self.assertEqual(4 * time / num_frames, frame_result.timestamp)
+            self.assertIsNotNone(frame_result.pose)
+            self.assertIsNotNone(frame_result.motion)
+            self.assertIsNotNone(frame_result.estimated_pose)
+            self.assertIsNotNone(frame_result.estimated_motion)
 
 
 def create_frame(time):
