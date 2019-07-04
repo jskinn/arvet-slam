@@ -25,8 +25,8 @@ class FrameResult(pymodm.EmbeddedMongoModel):
     processing_time = fields.FloatField(required=True)
     pose = TransformField(required=True)
     motion = TransformField(required=True)
-    estimated_pose = TransformField()
-    estimated_motion = TransformField()
+    estimated_pose = TransformField(blank=True)
+    estimated_motion = TransformField(blank=True)
     tracking_state = EnumField(TrackingState, default=TrackingState.OK, required=True)
     num_features = fields.IntegerField(default=0)
     num_matches = fields.IntegerField(default=0)
@@ -72,14 +72,12 @@ class SLAMTrialResult(TrialResult):
         if len(self.results) > 0:
             # Fill in missing pose and motions for the first frame
             # Defaults are usually 0
+            self.results[0].motion = Transform()
             if self.results[0].pose is None:
                 self.results[0].pose = Transform()
-            if self.results[0].motion is None:
-                self.results[0].motion = Transform()
-            if self.results[0].estimated_pose is None:
-                self.results[0].estimated_pose = Transform()
 
             # Fill in missing pose or motion
+            to_backpropagate_motions = []
             for idx in range(1, len(self.results)):
                 if self.results[idx].pose is None and self.results[idx].motion is not None:
                     # We have motion but no pose, compute pose
@@ -88,18 +86,32 @@ class SLAMTrialResult(TrialResult):
                     # We have pose but no motion, compute motion
                     self.results[idx].motion = self.results[idx - 1].pose.find_relative(self.results[idx].pose)
 
-                if self.results[idx].estimated_motion is None and self.results[idx].estimated_pose is not None \
-                        and self.results[idx - 1].estimated_pose is not None:
-                    # We have estimated poses, but no estimated motion, infer estimated motion
-                    self.results[idx].estimated_motion = self.results[idx - 1].estimated_pose.find_relative(
-                        self.results[idx].estimated_pose
-                    )
-                if self.results[idx].estimated_pose is None and self.results[idx].estimated_motion is not None \
-                        and self.results[idx - 1].estimated_pose is not None:
-                    # We have the previous estimated pose, and the estimated motion,
-                    # we can combine into the next estimated motion
-                    self.results[idx].estimated_pose = self.results[idx - 1].estimated_pose.find_independent(
-                        self.results[idx].estimated_motion)
+                if self.results[idx - 1].estimated_pose is None:
+                    if self.results[idx].estimated_pose is not None and self.results[idx].estimated_motion is not None:
+                        # We have a pose and a motion for this frame, but no pose for the previous frame, we can go back
+                        to_backpropagate_motions.append(idx)
+                else:
+                    if self.results[idx].estimated_pose is not None and self.results[idx].estimated_motion is None:
+                        # We have estimated poses, but no estimated motion, infer estimated motion
+                        self.results[idx].estimated_motion = self.results[idx - 1].estimated_pose.find_relative(
+                            self.results[idx].estimated_pose
+                        )
+                    if self.results[idx].estimated_pose is None and self.results[idx].estimated_motion is not None:
+                        # We have the previous estimated pose, and the estimated motion,
+                        # we can combine into the next estimated motion
+                        self.results[idx].estimated_pose = self.results[idx - 1].estimated_pose.find_independent(
+                            self.results[idx].estimated_motion)
+
+            # Go back and infer earlier estimated poses from later ones and motions
+            for start_idx in reversed(to_backpropagate_motions):
+                for idx in range(start_idx, 0, -1):
+                    if self.results[idx].estimated_pose is not None and self.results[idx].estimated_motion is not None \
+                            and self.results[idx - 1].estimated_pose is None:
+                        self.results[idx - 1].estimated_pose = self.results[idx].estimated_pose.find_independent(
+                            self.results[idx].estimated_motion.inverse()
+                        )
+                    else:
+                        break
 
     def clean(self):
         """
@@ -109,7 +121,16 @@ class SLAMTrialResult(TrialResult):
         Uses is_close to avoid floating point variation
         :return:
         """
+        if self.results[0].motion != Transform():
+            raise ValidationError("The true motion for the first frame must be zero")
+        if self.results[0].estimated_motion is not None:
+            raise ValidationError("The estimated motion for the first frame must be None")
+
         for idx in range(1, len(self.results)):
+            # Check for 0 change in timestamp, will cause divide by zeros when calculating speed
+            if self.results[idx].timestamp - self.results[idx - 1].timestamp <= 0:
+                raise ValidationError("Frame {0} has timestamp less than or equal to the frame before it".format(idx))
+
             # Validate the true motion
             pose_motion = self.results[idx - 1].pose.find_relative(self.results[idx].pose)
             if not np.all(np.isclose(pose_motion.location, self.results[idx].motion.location)) or not \
