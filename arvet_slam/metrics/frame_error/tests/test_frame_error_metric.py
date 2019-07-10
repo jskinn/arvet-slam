@@ -732,6 +732,73 @@ class TestFrameErrorMetricOutput(unittest.TestCase):
                     self.assertErrorIsAlmostZero(frame_error.relative_error)
                     self.assertErrorIsAlmostZero(frame_error.noise)
 
+    def test_returns_nonzero_error_and_noise_for_misscaled_trajectory_that_has_scale(self):
+        repeats = 3
+
+        # Make 3 trials, each with a different scale, they should be rescaled to correct
+        trial_results = []
+        for repeat in range(repeats):
+            scale = 5 * (repeat + 1) / 8
+            frame_results = self.make_frame_results_from_poses([
+                Transform(location=(scale * idx * 15, scale * idx, 0))
+                for idx in range(len(self.images))
+            ])
+            trial_result = self.make_trial(frame_results, has_scale=True)
+            trial_results.append(trial_result)
+        avg_scale = sum(5 * (repeat + 1) / 8 for repeat in range(repeats)) / 3
+
+        metric = FrameErrorMetric()
+        result = metric.measure_results(trial_results)
+
+        self.assertTrue(result.success)
+        self.assertEqual(repeats * len(self.images), len(result.errors))
+        for repeat in range(repeats):
+            for idx in range(len(self.images)):
+                frame_error = result.errors[repeat * len(self.images) + idx]
+                frame_result = trial_results[repeat].results[idx]
+                self.assertEqual(repeat, frame_error.repeat)
+                self.assertEqual(frame_result.timestamp, frame_error.timestamp)
+                self.assertEqual(frame_result.image, frame_error.image)
+                self.assertEqual(TrackingState.OK, frame_error.tracking)
+                self.assertEqual(frame_result.num_features, frame_error.num_features)
+                self.assertEqual(frame_result.num_matches, frame_error.num_matches)
+
+                # Errors should all be non-zero. We can be stricter on the rotation error in this test because
+                # the scale only affects the translation.
+                scale = 5 * (repeat + 1) / 8
+
+                self.assertEqual(15 * (scale * idx - idx), frame_error.absolute_error.x)
+                self.assertEqual(scale * idx - idx, frame_error.absolute_error.y)
+                self.assertEqual(0, frame_error.absolute_error.z)
+                self.assertEqual(
+                    np.linalg.norm([15 * (scale * idx - idx), scale * idx - idx, 0]),
+                    frame_error.absolute_error.length
+                )
+                self.assertEqual(0, frame_error.absolute_error.rot)
+
+                if idx <= 0:
+                    # No relative error or noise on the first frame, because there is no motion
+                    self.assertIsNone(frame_error.relative_error)
+                    self.assertIsNone(frame_error.noise)
+                else:
+                    self.assertEqual(15 * scale - 15, frame_error.relative_error.x)
+                    self.assertEqual(scale - 1, frame_error.relative_error.y)
+                    self.assertEqual(0, frame_error.relative_error.z)
+                    self.assertEqual(
+                        np.linalg.norm([15 * scale - 15, scale - 1, 0]),
+                        frame_error.relative_error.length
+                    )
+                    self.assertEqual(0, frame_error.relative_error.rot)
+
+                    self.assertEqual(15 * (scale - avg_scale), frame_error.noise.x)
+                    self.assertEqual(scale - avg_scale, frame_error.noise.y)
+                    self.assertEqual(0, frame_error.noise.z)
+                    self.assertEqual(
+                        np.linalg.norm([15 * (scale - avg_scale), scale - avg_scale, 0]),
+                        frame_error.noise.length
+                    )
+                    self.assertEqual(0, frame_error.noise.rot)
+
     def test_measure_multiple_many_random_trials(self):
         repeats = 5
 
