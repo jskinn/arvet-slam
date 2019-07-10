@@ -857,6 +857,36 @@ class TestSLAMTrialResultDatabase(unittest.TestCase):
         self.assertEqual(all_entities[0], obj)
         all_entities[0].delete()
 
+    def test_stores_and_loads_no_estimate(self):
+        results = [
+            FrameResult(
+                timestamp=idx + np.random.normal(0, 0.01),
+                image=self.image,
+                processing_time=np.random.uniform(0.01, 1),
+                pose=Transform(
+                    (idx * 15 + np.random.normal(0, 1), idx + np.random.normal(0, 0.1), np.random.normal(0, 1)),
+                    (1, 0, 0, 0), w_first=True
+                ),
+                tracking_state=TrackingState.OK,
+                num_features=np.random.randint(10, 1000),
+                num_matches=np.random.randint(10, 1000)
+            )
+            for idx in range(10)
+        ]
+        obj = SLAMTrialResult(
+            system=self.system,
+            image_source=self.image_source,
+            success=True,
+            results=results
+        )
+        obj.save()
+
+        # Load all the entities
+        all_entities = list(SLAMTrialResult.objects.all())
+        self.assertGreaterEqual(len(all_entities), 1)
+        self.assertEqual(all_entities[0], obj)
+        all_entities[0].delete()
+
     def test_required_fields_are_required(self):
         results = [
             FrameResult(
@@ -913,6 +943,17 @@ class TestSLAMTrialResultDatabase(unittest.TestCase):
             system=self.system,
             image_source=self.image_source,
             success=True
+        )
+        with self.assertRaises(ValidationError) as err_context:
+            obj.save()
+        self.assertIn('results', err_context.exception.message)
+
+        # empty results
+        obj = SLAMTrialResult(
+            system=self.system,
+            image_source=self.image_source,
+            success=True,
+            results=[]
         )
         with self.assertRaises(ValidationError) as err_context:
             obj.save()
