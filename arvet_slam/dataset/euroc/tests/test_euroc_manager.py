@@ -14,7 +14,7 @@ class TestEurocManager(unittest.TestCase):
         os.makedirs(mh_01_root, exist_ok=True)
 
         marker = "/foobar"
-        mock_euroc_loader.find_files.side_effect = lambda x: x + marker
+        mock_euroc_loader.find_files.side_effect = lambda x: (x + marker, None, None, None, None, None)
 
         root_dirs = EuRoCManager.find_roots(mock_dataset_root)
         self.assertTrue(mock_euroc_loader.find_files.called)
@@ -26,7 +26,7 @@ class TestEurocManager(unittest.TestCase):
         rmtree(mock_dataset_root)
 
     @mock.patch('arvet_slam.dataset.euroc.euroc_manager.euroc_loader', autospec=True)
-    def test_find_roots_skips_roots_that_fild_files_raises_exception(self, mock_euroc_loader):
+    def test_find_roots_skips_roots_that_file_files_raises_exception(self, mock_euroc_loader):
         mock_dataset_root = os.path.join(os.path.dirname(__file__), 'mock_euroc_dataset')
         mh_01_root = os.path.join(mock_dataset_root, 'MH_01_easy')
         os.makedirs(mh_01_root, exist_ok=True)
@@ -54,7 +54,7 @@ class TestEurocManager(unittest.TestCase):
             expected_root_dirs[name] = dataset_root + marker
             os.makedirs(dataset_root, exist_ok=True)
 
-        mock_euroc_loader.find_files.side_effect = lambda x: x + marker
+        mock_euroc_loader.find_files.side_effect = lambda x: (x + marker, None, None, None, None, None)
 
         root_dirs = EuRoCManager.find_roots(mock_dataset_root)
         self.assertEqual(expected_root_dirs, root_dirs)
@@ -86,7 +86,7 @@ class TestEurocManager(unittest.TestCase):
         os.makedirs(mh_01_root, exist_ok=True)
 
         module_name = 'mymodulename'
-        mock_euroc_loader.find_files.side_effect = lambda x: x
+        mock_euroc_loader.find_files.side_effect = lambda x: (x, None, None, None, None, None)
         mock_euroc_loader.__name__ = module_name
         mock_task_manager.get_import_dataset_task.return_value = mock.Mock()
 
@@ -112,7 +112,7 @@ class TestEurocManager(unittest.TestCase):
         mh_01_root = os.path.join(mock_dataset_root, 'MH_01_easy')
         os.makedirs(mh_01_root, exist_ok=True)
 
-        mock_euroc_loader.find_files.side_effect = lambda x: x
+        mock_euroc_loader.find_files.side_effect = lambda x: (x, None, None, None, None, None)
         mock_task = mock.Mock()
         mock_task.is_finished = True
         mock_task_manager.get_import_dataset_task.return_value = mock_task
@@ -131,7 +131,7 @@ class TestEurocManager(unittest.TestCase):
         mh_01_root = os.path.join(mock_dataset_root, 'MH_01_easy')
         os.makedirs(mh_01_root, exist_ok=True)
 
-        mock_euroc_loader.find_files.side_effect = lambda x: x
+        mock_euroc_loader.find_files.side_effect = lambda x: (x, None, None, None, None, None)
         mock_task = mock.Mock()
         mock_task.is_finished = False
         mock_task_manager.get_import_dataset_task.return_value = mock_task
@@ -142,4 +142,3 @@ class TestEurocManager(unittest.TestCase):
 
         # Clean up
         rmtree(mock_dataset_root)
-

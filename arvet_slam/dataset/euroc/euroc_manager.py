@@ -74,7 +74,8 @@ class EuRoCManager:
                                 actual_root = euroc_loader.find_files(dir_entry.path)
                             except FileNotFoundError:
                                 continue
-                            actual_roots[dir_name] = actual_root
+                            # Only want the root path, ignore the other return values
+                            actual_roots[dir_name] = actual_root[0]
                         else:
                             to_search.add(dir_entry.path)
         return actual_roots
