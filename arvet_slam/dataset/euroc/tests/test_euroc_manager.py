@@ -96,6 +96,7 @@ class TestEurocManager(unittest.TestCase):
         self.assertEqual(mock.call(
             module_name=module_name,
             path=mh_01_root,
+            additional_args={'dataset_name': 'MH_01_easy'},
             num_cpus=mock.ANY,
             num_gpus=mock.ANY,
             memory_requirements=mock.ANY,

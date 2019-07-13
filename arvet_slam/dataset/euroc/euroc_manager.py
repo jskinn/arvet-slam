@@ -39,10 +39,11 @@ class EuRoCManager:
             import_dataset_task = task_manager.get_import_dataset_task(
                 module_name=euroc_loader.__name__,
                 path=self._full_paths[name],
+                additional_args={'dataset_name': name},
                 num_cpus=1,
                 num_gpus=0,
                 memory_requirements='3GB',
-                expected_duration='8:00:00'
+                expected_duration='8:00:00',
             )
             if import_dataset_task.is_finished:
                 return import_dataset_task.result

@@ -203,7 +203,7 @@ def rectify(left_extrinsics: tf.Transform, left_intrinsics: CameraIntrinsics,
     r_left = np.zeros((3, 3))
     r_right = np.zeros((3, 3))
     p_left = np.zeros((3, 4))
-    p_right = np.zeros((3,4))
+    p_right = np.zeros((3, 4))
     cv2.stereoRectify(
         cameraMatrix1=left_intrinsics.intrinsic_matrix(),
         distCoeffs1=left_distortion,
@@ -289,13 +289,30 @@ def find_files(base_root):
     raise FileNotFoundError("Could not find a valid root directory within '{0}'".format(base_root))
 
 
-def import_dataset(root_folder, **_):
+# Different environment types for different datasets
+environment_types = {
+    'MH_01_easy': imeta.EnvironmentType.INDOOR,
+    'MH_02_easy': imeta.EnvironmentType.INDOOR,
+    'MH_03_medium': imeta.EnvironmentType.INDOOR,
+    'MH_04_difficult': imeta.EnvironmentType.INDOOR,
+    'MH_05_difficult': imeta.EnvironmentType.INDOOR,
+    'V1_01_easy': imeta.EnvironmentType.INDOOR_CLOSE,
+    'V1_02_medium': imeta.EnvironmentType.INDOOR_CLOSE,
+    'V1_03_difficult': imeta.EnvironmentType.INDOOR_CLOSE,
+    'V2_01_easy': imeta.EnvironmentType.INDOOR_CLOSE,
+    'V2_02_medium': imeta.EnvironmentType.INDOOR_CLOSE,
+    'V2_03_difficult': imeta.EnvironmentType.INDOOR_CLOSE
+}
+
+
+def import_dataset(root_folder, dataset_name, **_):
     """
     Load an Autonomous Systems Lab dataset into the database.
     See http://projects.asl.ethz.ch/datasets/doku.php?id=kmavvisualinertialdatasets#downloads
 
     Some information drawn from the ethz_asl dataset tools, see: https://github.com/ethz-asl/dataset_tools
     :param root_folder: The body folder, containing body.yaml (i.e. the extracted mav0 folder)
+    :param dataset_name: The name of the dataset, see the manager for the list of valid values.
     :return:
     """
     if not os.path.isdir(root_folder):
@@ -351,7 +368,7 @@ def import_dataset(root_folder, **_):
             camera_pose=left_pose,
             intrinsics=left_intrinsics,
             source_type=imeta.ImageSourceType.REAL_WORLD,
-            environment_type=imeta.EnvironmentType.INDOOR_CLOSE,
+            environment_type=environment_types.get(dataset_name, default=imeta.EnvironmentType.INDOOR_CLOSE),
             light_level=imeta.LightingLevel.WELL_LIT,
             time_of_day=imeta.TimeOfDay.DAY,
         )
@@ -375,7 +392,10 @@ def import_dataset(root_folder, **_):
     collection = ImageCollection(
         images=images,
         timestamps=timestamps,
-        sequence_type=ImageSequenceType.SEQUENTIAL
+        sequence_type=ImageSequenceType.SEQUENTIAL,
+        dataset='EuRoC MAV',
+        sequence_name=dataset_name,
+        trajectory_id=dataset_name
     )
     collection.save()
     return collection
