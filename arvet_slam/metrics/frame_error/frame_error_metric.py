@@ -155,7 +155,7 @@ class FrameErrorMetric(Metric):
         return {}
 
     def is_trial_appropriate(self, trial_result):
-        return isinstance(SLAMTrialResult, trial_result)
+        return isinstance(trial_result, SLAMTrialResult)
 
     def measure_results(self, trial_results: typing.Iterable[TrialResult]) -> FrameErrorResult:
         """

@@ -153,6 +153,11 @@ class TestFrameErrorMetricDatabase(unittest.TestCase):
 
 class TestFrameErrorMetric(unittest.TestCase):
 
+    def test_only_slam_trial_results_are_appropriate(self):
+        metric = FrameErrorMetric()
+        self.assertTrue(metric.is_trial_appropriate(mock.create_autospec(SLAMTrialResult)))
+        self.assertFalse(metric.is_trial_appropriate(mock_types.MockTrialResult()))
+
     def test_returns_failed_metric_if_any_trials_have_failed(self):
         system = mock_types.MockSystem()
         image_source = mock_types.MockImageSource()
