@@ -368,7 +368,7 @@ def import_dataset(root_folder, dataset_name, **_):
             camera_pose=left_pose,
             intrinsics=left_intrinsics,
             source_type=imeta.ImageSourceType.REAL_WORLD,
-            environment_type=environment_types.get(dataset_name, default=imeta.EnvironmentType.INDOOR_CLOSE),
+            environment_type=environment_types.get(dataset_name, imeta.EnvironmentType.INDOOR_CLOSE),
             light_level=imeta.LightingLevel.WELL_LIT,
             time_of_day=imeta.TimeOfDay.DAY,
         )
