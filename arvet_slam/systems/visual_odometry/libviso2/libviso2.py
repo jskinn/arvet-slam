@@ -85,28 +85,28 @@ class LibVisOSystem(VisionSystem, metaclass=ABCModelMeta):
         :param camera_intrinsics: The camera intrinsics, relative to the image resolution
         :return:
         """
-        logging.getLogger(__name__).error("Setting camera intrinsics")
+        logging.getLogger(__name__).debug("Setting camera intrinsics")
         self._focal_distance = float(camera_intrinsics.fx)
         self._cu = float(camera_intrinsics.cx)
         self._cv = float(camera_intrinsics.cy)
 
     def start_trial(self, sequence_type: ImageSequenceType) -> None:
-        logging.getLogger(__name__).error("Starting LibVisO trial...")
+        logging.getLogger(__name__).debug("Starting LibVisO trial...")
         self._start_time = time.time()
         if not sequence_type == ImageSequenceType.SEQUENTIAL:
             return
 
         self._viso = self.make_viso_instance()
         self._frame_results = []
-        logging.getLogger(__name__).error("    Started LibVisO trial.")
+        logging.getLogger(__name__).debug("    Started LibVisO trial.")
 
     def process_image(self, image: Image, timestamp: float) -> None:
         start_time = time.time()
-        logging.getLogger(__name__).error("Processing image at time {0} ...".format(timestamp))
+        logging.getLogger(__name__).debug("Processing image at time {0} ...".format(timestamp))
 
         # This is the pose of the previous pose relative to the next one
         estimated_motion = self.handle_process_image(self._viso, image, timestamp)
-        logging.getLogger(__name__).error("    got estimated motion ...")
+        logging.getLogger(__name__).debug("    got estimated motion ...")
         end_time = time.time()
 
         self._frame_results.append(FrameResult(
@@ -117,10 +117,10 @@ class LibVisOSystem(VisionSystem, metaclass=ABCModelMeta):
             estimated_motion=estimated_motion,
             num_matches=self._viso.getNumberOfMatches()
         ))
-        logging.getLogger(__name__).error("    Processing done.")
+        logging.getLogger(__name__).debug("    Processing done.")
 
     def finish_trial(self) -> SLAMTrialResult:
-        logging.getLogger(__name__).error("Finishing LibVisO trial ...")
+        logging.getLogger(__name__).debug("Finishing LibVisO trial ...")
         if len(self._frame_results) > 0:
             # set the intial pose estimate to 0, so we can infer the later ones from the motions
             self._frame_results[0].estimated_pose = tf.Transform()
@@ -136,7 +136,7 @@ class LibVisOSystem(VisionSystem, metaclass=ABCModelMeta):
         self._viso = None
         result.run_time = time.time() - self._start_time
         self._start_time = None
-        logging.getLogger(__name__).error("    Created result")
+        logging.getLogger(__name__).debug("    Created result")
         return result
 
     def get_columns(self) -> typing.Set[str]:
@@ -231,7 +231,7 @@ class LibVisOStereoSystem(LibVisOSystem):
         :return:
         """
         baseline = -1 * offset.location[1]   # right is -Y axis
-        logging.getLogger(__name__).error("Setting stereo baseline to {0}".format(baseline))
+        logging.getLogger(__name__).debug("Setting stereo baseline to {0}".format(baseline))
         self._base = float(baseline)
 
     def make_viso_instance(self):
@@ -240,7 +240,7 @@ class LibVisOStereoSystem(LibVisOSystem):
         :return:
         """
         params = Stereo_parameters()
-        logging.getLogger(__name__).error("    Created parameters object, populating ...")
+        logging.getLogger(__name__).debug("    Created parameters object, populating ...")
 
         # Matcher parameters
         params.match.nms_n = self.matcher_nms_n
@@ -253,26 +253,26 @@ class LibVisOStereoSystem(LibVisOSystem):
         params.match.multi_stage = 1 if self.matcher_multi_stage else 0
         params.match.half_resolution = 1 if self.matcher_half_resolution else 0
         params.match.refinement = self.matcher_refinement
-        logging.getLogger(__name__).error("    Added matcher parameters ...")
+        logging.getLogger(__name__).debug("    Added matcher parameters ...")
 
         # Feature bucketing
         params.bucket.max_features = self.bucketing_max_features
         params.bucket.bucket_width = self.bucketing_bucket_width
         params.bucket.bucket_height = self.bucketing_bucket_height
-        logging.getLogger(__name__).error("    Added bucket parameters ...")
+        logging.getLogger(__name__).debug("    Added bucket parameters ...")
 
         # Stereo-specific parameters
         params.ransac_iters = self.ransac_iters
         params.inlier_threshold = self.inlier_threshold
         params.reweighting = self.reweighting
-        logging.getLogger(__name__).error("Added stereo specific parameters ...")
+        logging.getLogger(__name__).debug("Added stereo specific parameters ...")
 
         # Camera calibration
         params.calib.f = self._focal_distance
         params.calib.cu = self._cu
         params.calib.cv = self._cv
         params.base = self._base
-        logging.getLogger(__name__).error("    Parameters built, creating viso object ...")
+        logging.getLogger(__name__).debug("    Parameters built, creating viso object ...")
 
         return VisualOdometryStereo(params)
 
@@ -286,10 +286,10 @@ class LibVisOStereoSystem(LibVisOSystem):
         """
         left_grey = prepare_image(image.left_pixels)
         right_grey = prepare_image(image.right_pixels)
-        logging.getLogger(__name__).error("    prepared images ...")
+        logging.getLogger(__name__).debug("    prepared images ...")
 
         viso.process_frame(left_grey, right_grey)
-        logging.getLogger(__name__).error("    processed frame ...")
+        logging.getLogger(__name__).debug("    processed frame ...")
 
         motion = viso.getMotion()  # Motion is a 4x4 pose matrix
         np_motion = np.zeros((4, 4))
@@ -416,7 +416,7 @@ class LibVisOMonoSystem(LibVisOSystem):
         :return:
         """
         params = Mono_parameters()
-        logging.getLogger(__name__).error("    Created parameters object, populating ...")
+        logging.getLogger(__name__).debug("    Created parameters object, populating ...")
 
         # Matcher parameters
         params.match.nms_n = self.matcher_nms_n
@@ -429,13 +429,13 @@ class LibVisOMonoSystem(LibVisOSystem):
         params.match.multi_stage = 1 if self.matcher_multi_stage else 0
         params.match.half_resolution = 1 if self.matcher_half_resolution else 0
         params.match.refinement = self.matcher_refinement
-        logging.getLogger(__name__).error("    Added matcher parameters ...")
+        logging.getLogger(__name__).debug("    Added matcher parameters ...")
 
         # Feature bucketing
         params.bucket.max_features = self.bucketing_max_features
         params.bucket.bucket_width = self.bucketing_bucket_width
         params.bucket.bucket_height = self.bucketing_bucket_height
-        logging.getLogger(__name__).error("    Added bucket parameters ...")
+        logging.getLogger(__name__).debug("    Added bucket parameters ...")
 
         # Monocular-specific parameters
         params.height = self.height
@@ -443,22 +443,22 @@ class LibVisOMonoSystem(LibVisOSystem):
         params.ransac_iters = self.ransac_iters
         params.inlier_threshold = self.inlier_threshold
         params.motion_threshold = self.motion_threshold
-        logging.getLogger(__name__).error("Added monocular specific parameters ...")
+        logging.getLogger(__name__).debug("Added monocular specific parameters ...")
 
         # Camera calibration
         params.calib.f = self._focal_distance
         params.calib.cu = self._cu
         params.calib.cv = self._cv
-        logging.getLogger(__name__).error("    Parameters built, creating viso object ...")
+        logging.getLogger(__name__).debug("    Parameters built, creating viso object ...")
 
         return VisualOdometryMono(params)
 
     def handle_process_image(self, viso, image: Image, timestamp: float) -> tf.Transform:
         image_greyscale = prepare_image(image.pixels)
-        logging.getLogger(__name__).error("    prepared images ...")
+        logging.getLogger(__name__).debug("    prepared images ...")
 
         self._viso.process_frame(image_greyscale)
-        logging.getLogger(__name__).error("    processed frame ...")
+        logging.getLogger(__name__).debug("    processed frame ...")
 
         motion = self._viso.getMotion()  # Motion is a 4x4 pose matrix
         np_motion = np.zeros((4, 4))
