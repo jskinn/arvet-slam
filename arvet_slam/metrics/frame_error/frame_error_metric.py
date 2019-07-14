@@ -1,9 +1,15 @@
 # Copyright (c) 2018, John Skinner
 import typing
 from operator import attrgetter
+import bson
 import pymodm
 import pymodm.fields as fields
+from pymodm.queryset import QuerySet
+from pymodm.manager import Manager
+from pymodm.context_managers import no_auto_dereference
 import numpy as np
+from arvet.database.autoload_modules import autoload_modules
+from arvet.database.reference_list_field import ReferenceListField
 from arvet.database.enum_field import EnumField
 from arvet.core.system import VisionSystem
 from arvet.core.image_source import ImageSource
@@ -32,7 +38,7 @@ class PoseError(pymodm.EmbeddedMongoModel):
     rot = fields.FloatField(required=True)
 
 
-class FrameError(pymodm.EmbeddedMongoModel):
+class FrameError(pymodm.MongoModel):
     """
     All the errors from a single frame
     One of these gets created for each frame for each trial
@@ -104,14 +110,43 @@ class FrameError(pymodm.EmbeddedMongoModel):
         }
 
 
+class FrameErrorResultQuerySet(QuerySet):
+    
+    def delete(self):
+        """
+        When a frame error result is deleted, also delete the frame errors it refers to
+        :return:
+        """
+        frame_error_ids = set(err_id for doc in self.values() for err_id in doc['errors'])
+        FrameError.objects.raw({'_id': {'$in': list(frame_error_ids)}}).delete()
+        super(FrameErrorResultQuerySet, self).delete()
+
+
+FrameErrorResultManger = Manager.from_queryset(FrameErrorResultQuerySet)
+
+
 class FrameErrorResult(MetricResult):
     """
     Error observations per estimate of a pose
     """
     system = fields.ReferenceField(VisionSystem, required=True, on_delete=pymodm.ReferenceField.CASCADE)
     image_source = fields.ReferenceField(ImageSource, required=True, on_delete=pymodm.ReferenceField.CASCADE)
-    errors = fields.EmbeddedDocumentListField(FrameError, required=True, blank=True)
+    errors = ReferenceListField(FrameError, required=True, blank=True, on_delete=pymodm.ReferenceField.CASCADE)
     image_columns = fields.ListField(fields.CharField())
+
+    objects = FrameErrorResultManger()
+
+    def save(self, cascade=None, full_clean=True, force_insert=False):
+        """
+        When saving, also save the
+        :param cascade:
+        :param full_clean:
+        :param force_insert:
+        :return:
+        """
+        for frame_error in self.errors:
+            frame_error.save(cascade, full_clean, force_insert)
+        super(FrameErrorResult, self).save(cascade, full_clean, force_insert)
 
     def get_columns(self) -> typing.Set[str]:
         columns = set(FrameError.columns.keys()) | set(self.image_columns) \
@@ -165,6 +200,15 @@ class FrameErrorMetric(Metric):
         :rtype BenchmarkResult:
         """
         trial_results = list(trial_results)
+
+        # preload model types for the models linked to the trial results.
+        with no_auto_dereference(SLAMTrialResult):
+            model_ids = set(tr.system for tr in trial_results if isinstance(tr.system, bson.ObjectId))
+            autoload_modules(VisionSystem, list(model_ids))
+            model_ids = set(tr.image_source for tr in trial_results if isinstance(tr.image_source, bson.ObjectId))
+            autoload_modules(ImageSource, list(model_ids))
+
+        # Check if the set of trial results is valid. Loads the models.
         invalid_reason = check_trial_collection(trial_results)
         if invalid_reason is not None:
             return MetricResult(
@@ -316,3 +360,22 @@ def find_average_motions(trajectories: typing.Iterable[typing.Mapping[float, tf.
         if time in associated_poses and len(associated_poses[time]) > 1 else None
         for time in associated_times.keys()
     }
+
+
+def quat_cosine(q1: typing.Union[typing.Sequence, np.ndarray], q2: typing.Union[typing.Sequence, np.ndarray]) -> float:
+    """
+    Find the cosine of the  angle between the two quaternions
+    This is similar to the quat-diff, but without the arccos, which makes it more stable around zero
+    :param q1: A quaternion, [w, x, y, z]
+    :param q2: A quaternion, [w, x, y, z]
+    :return:
+    """
+    q1 = np.asarray(q1)
+    if np.dot(q1, q2) < 0:
+        # Quaternions have opposite handedness, flip q1 since it's already an ndarray
+        q1 = -1 * q1
+    q_inv = q1 * np.array([1.0, -1.0, -1.0, -1.0])
+    q_inv = q_inv / np.linalg.norm(q_inv)
+
+    # We only care about the scalar component, compose only that
+    return q_inv[0] * q2[0] - q_inv[1] * q2[1] - q_inv[2] * q2[2] - q_inv[3] * q2[3]

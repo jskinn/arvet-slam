@@ -357,10 +357,6 @@ class TestFrameErrorGetProperties(unittest.TestCase):
         self.assertEqual(expected_properties, frame_error.get_properties())
 
 
-class TestFrameErrorMongoModel(pymodm.MongoModel):
-    frame_error = pymodm.fields.EmbeddedDocumentField(FrameError)
-
-
 class TestFrameErrorDatabase(unittest.TestCase):
 
     @classmethod
@@ -372,7 +368,7 @@ class TestFrameErrorDatabase(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         # Clean up after ourselves by dropping the collection for this model
-        TestFrameErrorMongoModel._mongometa.collection.drop()
+        FrameError._mongometa.collection.drop()
         Image._mongometa.collection.drop()
         if os.path.isfile(dbconn.image_file):
             os.remove(dbconn.image_file)
@@ -418,26 +414,25 @@ class TestFrameErrorDatabase(unittest.TestCase):
         )
 
         # Clear the models
-        TestFrameErrorMongoModel._mongometa.collection.drop()
+        FrameError._mongometa.collection.drop()
 
         # Save the model
-        model = TestFrameErrorMongoModel()
-        model.frame_error = frame_error
-        model.save()
+        frame_error.save()
 
         # Load all the entities
-        all_entities = list(TestFrameErrorMongoModel.objects.all())
+        all_entities = list(FrameError.objects.all())
         self.assertEqual(len(all_entities), 1)
 
         # For some reason, we need to force the load of these properties for the objects to compare equal
-        self.assertEqual(all_entities[0].frame_error.image, image)
-        self.assertEqual(all_entities[0].frame_error.tracking, frame_error.tracking)
-        self.assertEqual(all_entities[0].frame_error.absolute_error, frame_error.absolute_error)
-        self.assertEqual(all_entities[0].frame_error.relative_error, frame_error.relative_error)
-        self.assertEqual(all_entities[0].frame_error.noise, frame_error.noise)
+        frame_error = all_entities[0]
+        self.assertEqual(frame_error.image, image)
+        self.assertEqual(frame_error.tracking, frame_error.tracking)
+        self.assertEqual(frame_error.absolute_error, frame_error.absolute_error)
+        self.assertEqual(frame_error.relative_error, frame_error.relative_error)
+        self.assertEqual(frame_error.noise, frame_error.noise)
 
-        self.assertEqual(all_entities[0].frame_error, frame_error)
-        all_entities[0].delete()
+        self.assertEqual(frame_error, frame_error)
+        frame_error.delete()
 
     def test_required_fields_are_required(self):
         pixels = np.array([[1, 2, 3], [4, 5, 6], [7, 8, 9]])
@@ -446,10 +441,9 @@ class TestFrameErrorDatabase(unittest.TestCase):
             metadata=make_metadata(pixels, source_type=ImageSourceType.SYNTHETIC)
         )
         image.save()
-        model = TestFrameErrorMongoModel()
 
         # No repeat
-        model.frame_error = FrameError(
+        frame_error = FrameError(
             timestamp=1.3,
             image=image,
             absolute_error=PoseError(
@@ -470,10 +464,10 @@ class TestFrameErrorDatabase(unittest.TestCase):
             )
         )
         with self.assertRaises(ValidationError):
-            model.save()
+            frame_error.save()
 
         # No timestamp
-        model.frame_error = FrameError(
+        frame_error = FrameError(
             repeat=1,
             image=image,
             absolute_error=PoseError(
@@ -494,10 +488,10 @@ class TestFrameErrorDatabase(unittest.TestCase):
             )
         )
         with self.assertRaises(ValidationError):
-            model.save()
+            frame_error.save()
 
         # No image
-        model.frame_error = FrameError(
+        frame_error = FrameError(
             repeat=1,
             timestamp=1.3,
             absolute_error=PoseError(
@@ -518,7 +512,7 @@ class TestFrameErrorDatabase(unittest.TestCase):
             )
         )
         with self.assertRaises(ValidationError):
-            model.save()
+            frame_error.save()
 
 
 # ------------------------- FRAME ERROR RESULT -------------------------
@@ -1177,12 +1171,13 @@ class TestFrameErrorResultDatabase(unittest.TestCase):
                     relative_error=make_pose_error(est_motion, true_motion),
                     noise=make_pose_error(est_pose, avg_pose)
                 )
+                frame_error.save()
                 cls.frame_errors.append(frame_error)
 
     @classmethod
     def tearDownClass(cls):
         # Clean up after ourselves by dropping the collection for this model
-        TestFrameErrorMongoModel._mongometa.collection.drop()
+        FrameError._mongometa.collection.drop()
         Image._mongometa.collection.drop()
         if os.path.isfile(dbconn.image_file):
             os.remove(dbconn.image_file)
@@ -1301,3 +1296,66 @@ class TestFrameErrorResultDatabase(unittest.TestCase):
         )
         with self.assertRaises(ValidationError):
             result.save()
+
+    def test_delete_removes_frame_errors(self):
+        frame_errors = []
+        for repeat in range(3):
+            for idx, image in enumerate(self.images):
+                true_pose = Transform(
+                    location=(3.5 * idx, 0.7 * idx, 0),
+                    rotation=tf3d.quaternions.axangle2quat((1, 2, 3), idx * np.pi / 12),
+                    w_first=True
+                )
+                est_pose = Transform(
+                    location=(3.7 * idx, 0.6 * idx, -0.01 * idx),
+                    rotation=tf3d.quaternions.axangle2quat((1, 2, 3), 1.1 * idx * np.pi / 12),
+                    w_first=True
+                )
+                true_motion = Transform(
+                    location=(3.5 * (idx - 1), 0.7 * (idx - 1), 0),
+                    rotation=tf3d.quaternions.axangle2quat((1, 2, 3), (idx - 1) * np.pi / 12),
+                    w_first=True
+                ).find_relative(true_pose)
+                est_motion = Transform(
+                    location=(3.7 * (idx - 1), 0.6 * (idx - 1), -0.01 * (idx - 1)),
+                    rotation=tf3d.quaternions.axangle2quat((1, 2, 3), 1.1 * (idx - 1) * np.pi / 12),
+                    w_first=True
+                ).find_relative(est_pose)
+                avg_pose = Transform(
+                    location=(3.6 * idx, 0.65 * idx, -0.015 * idx),
+                    rotation=tf3d.quaternions.axangle2quat((1, 2, 3), 1.1 * idx * np.pi / 12),
+                    w_first=True
+                )
+                frame_error = FrameError(
+                    repeat=repeat,
+                    timestamp=1.3 * idx,
+                    image=image,
+                    tracking=TrackingState.OK,
+                    num_features=423,
+                    num_matches=238,
+                    absolute_error=make_pose_error(est_pose, true_pose),
+                    relative_error=make_pose_error(est_motion, true_motion),
+                    noise=make_pose_error(est_pose, avg_pose)
+                )
+                frame_error.save()
+                frame_errors.append(frame_error)
+        result = FrameErrorResult(
+            metric=self.metric,
+            trial_results=[self.trial_result],
+            success=True,
+            system=self.system,
+            image_source=self.image_source,
+            errors=frame_errors
+        )
+        result.save()
+
+        frame_error_ids = [err.pk for err in frame_errors]
+        result_id = result.pk
+
+        self.assertEqual(len(frame_errors), FrameError.objects.raw({'_id': {'$in': frame_error_ids}}).count())
+        self.assertEqual(1, FrameErrorResult.objects.raw({'_id': result_id}).count())
+
+        result.delete()
+
+        self.assertEqual(0, FrameError.objects.raw({'_id': {'$in': frame_error_ids}}).count())
+        self.assertEqual(0, FrameErrorResult.objects.raw({'_id': result_id}).count())
