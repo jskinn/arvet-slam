@@ -285,7 +285,10 @@ class TestLibVisOStereoExecution(unittest.TestCase):
             self.assertIsNotNone(frame_result.pose)
             self.assertIsNotNone(frame_result.motion)
             self.assertIsNotNone(frame_result.estimated_pose)
-            self.assertIsNotNone(frame_result.estimated_motion)
+            if time == 0:
+                self.assertIsNone(frame_result.estimated_motion)
+            else:
+                self.assertIsNotNone(frame_result.estimated_motion)
 
 
 def create_frame(time):

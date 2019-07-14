@@ -124,6 +124,7 @@ class LibVisOSystem(VisionSystem, metaclass=ABCModelMeta):
         if len(self._frame_results) > 0:
             # set the intial pose estimate to 0, so we can infer the later ones from the motions
             self._frame_results[0].estimated_pose = tf.Transform()
+            self._frame_results[0].estimated_motion = None
         result = SLAMTrialResult(
             system=self,
             success=True,
