@@ -3,7 +3,7 @@ import numpy as np
 import transforms3d as tf3d
 import arvet.util.transform as tf
 from arvet.util.test_helpers import ExtendedTestCase
-import arvet_slam.systems.visual_odometry.libviso2.libviso2 as viso
+import arvet_slam.systems.visual_odometry.libviso2 as viso
 
 
 class TestMakeRelativePose(ExtendedTestCase):
