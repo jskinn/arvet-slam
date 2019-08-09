@@ -18,6 +18,7 @@ from arvet.core.image_source import ImageSource
 from arvet.core.sequence_type import ImageSequenceType
 from arvet.core.system import VisionSystem
 import arvet.util.transform as tf
+from arvet_slam.trials.slam.tracking_state import TrackingState
 from arvet_slam.trials.slam.visual_slam import FrameResult, SLAMTrialResult
 
 
@@ -71,6 +72,7 @@ class LibVisOSystem(VisionSystem, metaclass=ABCModelMeta):
         # Ongoing state during a trial that is initialised in start_trial
         self._viso = None
         self._start_time = None
+        self._has_chosen_origin = False
         self._frame_results = []
 
     def is_deterministic(self) -> bool:
@@ -97,6 +99,7 @@ class LibVisOSystem(VisionSystem, metaclass=ABCModelMeta):
             return
 
         self._viso = self.make_viso_instance()
+        self._has_chosen_origin = False
         self._frame_results = []
         logging.getLogger(__name__).debug("    Started LibVisO trial.")
 
@@ -105,26 +108,30 @@ class LibVisOSystem(VisionSystem, metaclass=ABCModelMeta):
         logging.getLogger(__name__).debug("Processing image at time {0} ...".format(timestamp))
 
         # This is the pose of the previous pose relative to the next one
-        estimated_motion = self.handle_process_image(self._viso, image, timestamp)
+        tracking, estimated_motion = self.handle_process_image(self._viso, image, timestamp)
         logging.getLogger(__name__).debug("    got estimated motion ...")
         end_time = time.time()
 
-        self._frame_results.append(FrameResult(
+        frame_result = FrameResult(
             timestamp=timestamp,
             image=image,
             processing_time=end_time - start_time,
             pose=image.camera_pose,
+            tracking_state=TrackingState.OK if tracking else
+            TrackingState.LOST if self._has_chosen_origin else TrackingState.NOT_INITIALIZED,
             estimated_motion=estimated_motion,
             num_matches=self._viso.getNumberOfMatches()
-        ))
+        )
+        if tracking and not self._has_chosen_origin:
+            # set the intial pose estimate to 0, so we can infer the later ones from the motions
+            self._has_chosen_origin = True
+            frame_result.estimated_pose = tf.Transform()
+            frame_result.estimated_motion = None    # This will always be the identity on the first valid frame
+        self._frame_results.append(frame_result)
         logging.getLogger(__name__).debug("    Processing done.")
 
     def finish_trial(self) -> SLAMTrialResult:
         logging.getLogger(__name__).debug("Finishing LibVisO trial ...")
-        if len(self._frame_results) > 0:
-            # set the intial pose estimate to 0, so we can infer the later ones from the motions
-            self._frame_results[0].estimated_pose = tf.Transform()
-            self._frame_results[0].estimated_motion = None
         result = SLAMTrialResult(
             system=self,
             success=True,
@@ -169,14 +176,15 @@ class LibVisOSystem(VisionSystem, metaclass=ABCModelMeta):
         pass
 
     @abc.abstractmethod
-    def handle_process_image(self, viso, image: Image, timestamp: float) -> tf.Transform:
+    def handle_process_image(self, viso, image: Image, timestamp: float) -> \
+            typing.Tuple[bool, typing.Union[tf.Transform, None]]:
         """
         Send the image to the viso object.
         In stereo mode, we need to send left and right frames, in monocular only one frame.
         :param viso: The viso object, created by 'make_viso_instance'
         :param image: The image object
         :param timestamp: The timestamp for this frame
-        :return:
+        :return: True and a transform if the estimate is successful, False and None otherwise
         """
         pass
 
@@ -276,27 +284,30 @@ class LibVisOStereoSystem(LibVisOSystem):
 
         return VisualOdometryStereo(params)
 
-    def handle_process_image(self, viso, image: Image, timestamp: float) -> tf.Transform:
+    def handle_process_image(self, viso, image: Image, timestamp: float) -> \
+            typing.Tuple[bool, typing.Union[tf.Transform, None]]:
         """
         Send a frame to LibViso2, and get back the estimated motion
         :param viso: The visual odometry object. Will be a stereo object.
         :param image: The image object. Will be a stereo image
         :param timestamp: The timestamp
-        :return:
+        :return: True and a transform if the estimate is successful, False and None otherwise
         """
         left_grey = prepare_image(image.left_pixels)
         right_grey = prepare_image(image.right_pixels)
         logging.getLogger(__name__).debug("    prepared images ...")
 
-        viso.process_frame(left_grey, right_grey)
+        success = viso.process_frame(left_grey, right_grey)
         logging.getLogger(__name__).debug("    processed frame ...")
 
-        motion = viso.getMotion()  # Motion is a 4x4 pose matrix
-        np_motion = np.zeros((4, 4))
-        motion.toNumpy(np_motion)
-        np_motion = np.linalg.inv(np_motion)  # Invert the motion to make it new frame relative to old
-        # This is the pose of the previous pose relative to the next one
-        return make_relative_pose(np_motion)
+        if success:
+            motion = viso.getMotion()  # Motion is a 4x4 pose matrix
+            np_motion = np.zeros((4, 4))
+            motion.toNumpy(np_motion)
+            np_motion = np.linalg.inv(np_motion)  # Invert the motion to make it new frame relative to old
+            # This is the pose of the previous pose relative to the next one
+            return True, make_relative_pose(np_motion)
+        return False, None
 
     def get_settings(self):
         settings = super(LibVisOStereoSystem, self).get_settings()
@@ -453,19 +464,29 @@ class LibVisOMonoSystem(LibVisOSystem):
 
         return VisualOdometryMono(params)
 
-    def handle_process_image(self, viso, image: Image, timestamp: float) -> tf.Transform:
+    def handle_process_image(self, viso, image: Image, timestamp: float) -> \
+            typing.Tuple[bool, typing.Union[tf.Transform, None]]:
+        """
+        Send a frame to LibViso2, and get back the estimated motion
+        :param viso: The visual odometry object. Will be a stereo object.
+        :param image: The image object. Will be a stereo image
+        :param timestamp: The timestamp
+        :return: True and a transform if the estimate is successful, False and None otherwise
+        """
         image_greyscale = prepare_image(image.pixels)
         logging.getLogger(__name__).debug("    prepared images ...")
 
-        self._viso.process_frame(image_greyscale)
+        success = self._viso.process_frame(image_greyscale)
         logging.getLogger(__name__).debug("    processed frame ...")
 
-        motion = self._viso.getMotion()  # Motion is a 4x4 pose matrix
-        np_motion = np.zeros((4, 4))
-        motion.toNumpy(np_motion)
-        np_motion = np.linalg.inv(np_motion)  # Invert the motion to make it new frame relative to old
-        # This is the pose of the previous pose relative to the next one
-        return make_relative_pose(np_motion)
+        if success:
+            motion = self._viso.getMotion()  # Motion is a 4x4 pose matrix
+            np_motion = np.zeros((4, 4))
+            motion.toNumpy(np_motion)
+            np_motion = np.linalg.inv(np_motion)  # Invert the motion to make it new frame relative to old
+            # This is the pose of the previous pose relative to the next one
+            return True, make_relative_pose(np_motion)
+        return False, None
 
     @classmethod
     def get_instance(

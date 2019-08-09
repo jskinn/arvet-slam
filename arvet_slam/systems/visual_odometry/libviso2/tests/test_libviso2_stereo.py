@@ -14,6 +14,7 @@ from arvet.core.image import StereoImage
 from arvet.core.image_collection import ImageCollection
 
 from arvet_slam.systems.visual_odometry.libviso2.libviso2 import LibVisOStereoSystem
+from arvet_slam.trials.slam.tracking_state import TrackingState
 from arvet_slam.trials.slam.visual_slam import SLAMTrialResult
 
 
@@ -280,15 +281,36 @@ class TestLibVisOStereoExecution(unittest.TestCase):
         }, result.settings)
         self.assertEqual(num_frames, len(result.results))
 
+        has_been_found = False
+        has_been_lost = False
         for time, frame_result in enumerate(result.results):
             self.assertEqual(4 * time / num_frames, frame_result.timestamp)
             self.assertIsNotNone(frame_result.pose)
             self.assertIsNotNone(frame_result.motion)
-            self.assertIsNotNone(frame_result.estimated_pose)
-            if time == 0:
+
+            # If we're lost, our tracking state should depend of if we've been lost before
+            is_first_frame = False
+            if frame_result.tracking_state != TrackingState.OK:
+                if has_been_found:
+                    has_been_lost = True
+                    self.assertEqual(frame_result.tracking_state, TrackingState.LOST)
+                else:
+                    self.assertEqual(frame_result.tracking_state, TrackingState.NOT_INITIALIZED)
+            elif has_been_found is False:
+                is_first_frame = True
+                has_been_found = True
+
+            # Motion should be none when we are lost, and on the first found frame
+            if is_first_frame or frame_result.tracking_state != TrackingState.OK:
                 self.assertIsNone(frame_result.estimated_motion)
             else:
                 self.assertIsNotNone(frame_result.estimated_motion)
+
+            # Estimates will be none until we get a successful estimate, or after it has lost
+            if not has_been_found or has_been_lost:
+                self.assertIsNone(frame_result.estimated_pose)
+            else:
+                self.assertIsNotNone(frame_result.estimated_pose)
 
 
 def create_frame(time):
