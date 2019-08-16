@@ -81,10 +81,11 @@ class LibVisOSystem(VisionSystem, metaclass=ABCModelMeta):
     def is_image_source_appropriate(self, image_source: ImageSource) -> bool:
         return image_source.sequence_type == ImageSequenceType.SEQUENTIAL
 
-    def set_camera_intrinsics(self, camera_intrinsics: CameraIntrinsics) -> None:
+    def set_camera_intrinsics(self, camera_intrinsics: CameraIntrinsics, average_timestep: float) -> None:
         """
         Set the camera intrinisics for libviso2
         :param camera_intrinsics: The camera intrinsics, relative to the image resolution
+        :param average_timestep: The average time between frames. Not relevant to libviso.
         :return:
         """
         logging.getLogger(__name__).debug("Setting camera intrinsics")
@@ -114,7 +115,7 @@ class LibVisOSystem(VisionSystem, metaclass=ABCModelMeta):
 
         frame_result = FrameResult(
             timestamp=timestamp,
-            image=image,
+            image=image.pk,
             processing_time=end_time - start_time,
             pose=image.camera_pose,
             tracking_state=TrackingState.OK if tracking else

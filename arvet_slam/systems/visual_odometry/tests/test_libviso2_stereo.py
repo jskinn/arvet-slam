@@ -92,7 +92,7 @@ class TestLibVisOStereoDatabase(unittest.TestCase):
             fy=120,
             cx=160,
             cy=120
-        ))
+        ), 1 / 10)
         subject.set_stereo_offset(tf.Transform([0, -25, 0]))
         subject.start_trial(ImageSequenceType.SEQUENTIAL)
         for time, image in enumerate(images):
@@ -259,7 +259,7 @@ class TestLibVisOStereoExecution(unittest.TestCase):
             fy=120,
             cx=160,
             cy=120
-        ))
+        ), 1 / 10)
         subject.set_stereo_offset(tf.Transform([0, -25, 0]))
         subject.start_trial(ImageSequenceType.SEQUENTIAL)
         num_frames = 50

@@ -94,7 +94,7 @@ class TestLibVisOMonoDatabase(unittest.TestCase):
             fy=120,
             cx=160,
             cy=120
-        ))
+        ), 1 / 10)
         subject.start_trial(ImageSequenceType.SEQUENTIAL)
         for time, image in enumerate(images):
             subject.process_image(image, time)
@@ -272,7 +272,7 @@ class TestLibVisOMonoExecution(unittest.TestCase):
             fy=120,
             cx=160,
             cy=120
-        ))
+        ), 1 / 10)
         subject.start_trial(ImageSequenceType.SEQUENTIAL)
         num_frames = 50
         for time in range(num_frames):
