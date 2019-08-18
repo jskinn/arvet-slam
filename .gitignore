@@ -104,3 +104,6 @@ jrs_auto_task*
 
 # Profile statistics
 *.stats
+
+# ORBSLAM vocabulary (test)
+arvet_slam/systems/slam/tests/ORBvoc-synth.txt

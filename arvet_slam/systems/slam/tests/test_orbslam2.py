@@ -17,6 +17,7 @@ from bson import ObjectId
 from pymodm.context_managers import no_auto_dereference
 
 import arvet.database.tests.database_connection as dbconn
+import arvet.database.image_manager as im_manager
 from arvet.util.transform import Transform
 from arvet.util.test_helpers import ExtendedTestCase
 from arvet.config.path_manager import PathManager
@@ -24,6 +25,7 @@ import arvet.metadata.image_metadata as imeta
 from arvet.metadata.camera_intrinsics import CameraIntrinsics
 from arvet.core.sequence_type import ImageSequenceType
 from arvet.core.image_source import ImageSource
+from arvet.core.image_collection import ImageCollection
 from arvet.core.image import Image, StereoImage
 from arvet.core.system import VisionSystem
 
@@ -32,32 +34,39 @@ from arvet_slam.trials.slam.visual_slam import SLAMTrialResult, FrameResult
 from arvet_slam.systems.slam.orbslam2 import OrbSlam2, SensorMode, dump_config, nested_to_dotted, \
     make_relative_pose, run_orbslam
 
-_temp_folder = 'temp-test-orbslam2'
-
 
 class TestOrbSlam2Database(unittest.TestCase):
+    temp_folder = 'temp-test-orbslam2'
+    path_manager = None
 
     @classmethod
     def setUpClass(cls):
         dbconn.connect_to_test_db()
+        os.makedirs(cls.temp_folder, exist_ok=True)
+        logging.disable(logging.CRITICAL)
+        cls.path_manager = PathManager([Path(__file__).parent], cls.temp_folder)
 
     def setUp(self):
         # Remove the collection as the start of the test, so that we're sure it's empty
-        VisionSystem._mongometa.collection.drop()
+        VisionSystem.objects.all().delete()
 
     @classmethod
     def tearDownClass(cls):
         # Clean up after ourselves by dropping the collection for this model
         VisionSystem._mongometa.collection.drop()
+        SLAMTrialResult._mongometa.collection.drop()
+        ImageCollection._mongometa.collection.drop()
+        Image._mongometa.collection.drop()
         if os.path.isfile(dbconn.image_file):
             os.remove(dbconn.image_file)
+        logging.disable(logging.NOTSET)
+        shutil.rmtree(cls.temp_folder)
 
     def test_stores_and_loads(self):
         obj = OrbSlam2(
             vocabulary_file='im-a-file-{0}'.format(np.random.randint(0, 100000)),
             mode=np.random.choice([SensorMode.MONOCULAR, SensorMode.STEREO, SensorMode.RGBD]),
             depth_threshold=np.random.uniform(10, 100),
-            depthmap_factor=np.random.uniform(0.1, 2),
             orb_num_features=np.random.randint(10, 10000),
             orb_scale_factor=np.random.uniform(0.5, 2),
             orb_num_levels=np.random.randint(3, 20),
@@ -85,18 +94,245 @@ class TestOrbSlam2Database(unittest.TestCase):
         self.assertEqual(all_entities[0], obj)
         all_entities[0].delete()
 
+    @mock.patch('arvet_slam.systems.slam.orbslam2.multiprocessing', autospec=multiprocessing)
+    def test_result_saves_mono(self, mock_multiprocessing):
+        image_manager = im_manager.DefaultImageManager(dbconn.image_file)
+        im_manager.set_image_manager(image_manager)
+
+        # Make an image collection with some number of images
+        images = []
+        num_images = 10
+        for time in range(num_images):
+            image = make_image(SensorMode.MONOCULAR)
+            image.metadata.camera_pose = Transform((0.25 * (14 - time), -1.1 * time, 0.11 * time))
+            image.save()
+            images.append(image)
+        image_collection = ImageCollection(
+            images=images,
+            timestamps=list(range(len(images))),
+            sequence_type=ImageSequenceType.SEQUENTIAL
+        )
+        image_collection.save()
+
+        # Mock the subprocess to control the orbslam output, we don't want to actually run it.
+        mock_queue = mock.create_autospec(multiprocessing.queues.Queue)
+        mock_queue.qsize.return_value = 0
+        mock_queue.get.side_effect = [
+            'ORBSLAM Ready!',
+            {
+                idx: [
+                    0.122 + 0.09 * idx,  # Processing Time
+                    15 + idx,  # Number of features
+                    6 + idx,  # Number of matches
+                    TrackingState.OK,  # Tracking state
+                    [  # Estimated pose
+                        [1, 0, 0, idx],
+                        [0, 1, 0, -0.1 * idx],
+                        [0, 0, 1, 0.22 * (14 - idx)]
+                    ]
+                ]
+                for idx in range(10)
+            }
+        ]
+        mock_multiprocessing.Queue.return_value = mock_queue
+
+        subject = OrbSlam2(mode=SensorMode.MONOCULAR, vocabulary_file='ORBvoc-tiny.txt')
+        subject.save()
+        subject.set_camera_intrinsics(image_collection.camera_intrinsics, image_collection.average_timestep)
+        subject.resolve_paths(self.path_manager)
+
+        with mock.patch('arvet_slam.systems.slam.orbslam2.open', mock.mock_open(), create=True):
+            subject.start_trial(ImageSequenceType.SEQUENTIAL)
+        for timestamp, image in image_collection:
+            subject.process_image(image, timestamp)
+        result = subject.finish_trial()
+        self.assertIsInstance(result, SLAMTrialResult)
+        for frame_result in result.results:
+            self.assertIsNotNone(frame_result.image)
+        result.image_source = image_collection
+        result.save()
+
+        # Load all the entities
+        all_entities = list(SLAMTrialResult.objects.all())
+        self.assertGreaterEqual(len(all_entities), 1)
+        self.assertEqual(all_entities[0], result)
+        self.assertEqual(all_entities[0].system, subject)
+        self.assertEqual(all_entities[0].image_source, image_collection)
+        for idx, (timestamp, image) in enumerate(image_collection):
+            self.assertEqual(all_entities[0].results[idx].image, image)
+            self.assertEqual(all_entities[0].results[idx].timestamp, timestamp)
+        all_entities[0].delete()
+
+        SLAMTrialResult.objects.all().delete()
+        VisionSystem.objects.all().delete()
+        ImageCollection.objects.all().delete()
+
+    @mock.patch('arvet_slam.systems.slam.orbslam2.multiprocessing', autospec=multiprocessing)
+    def test_result_saves_stereo(self, mock_multiprocessing):
+        image_manager = im_manager.DefaultImageManager(dbconn.image_file)
+        im_manager.set_image_manager(image_manager)
+
+        # Make an image collection with some number of images
+        images = []
+        num_images = 10
+        stereo_offset = Transform([0, 0.12, 0])
+        for time in range(num_images):
+            image = make_image(SensorMode.STEREO)
+            img_pose = Transform((0.25 * (14 - time), -1.1 * time, 0.11 * time))
+            image.metadata.camera_pose = img_pose
+            image.right_metadata.camera_pose = img_pose.find_independent(stereo_offset)
+            image.save()
+            images.append(image)
+        image_collection = ImageCollection(
+            images=images,
+            timestamps=list(range(len(images))),
+            sequence_type=ImageSequenceType.SEQUENTIAL
+        )
+        image_collection.save()
+
+        # Mock the subprocess to control the orbslam output, we don't want to actually run it.
+        mock_queue = mock.create_autospec(multiprocessing.queues.Queue)
+        mock_queue.qsize.return_value = 0
+        mock_queue.get.side_effect = [
+            'ORBSLAM Ready!',
+            {
+                idx: [
+                    0.122 + 0.09 * idx,  # Processing Time
+                    15 + idx,  # Number of features
+                    6 + idx,  # Number of matches
+                    TrackingState.OK,  # Tracking state
+                    [  # Estimated pose
+                        [1, 0, 0, idx],
+                        [0, 1, 0, -0.1 * idx],
+                        [0, 0, 1, 0.22 * (14 - idx)]
+                    ]
+                ]
+                for idx in range(10)
+            }
+        ]
+        mock_multiprocessing.Queue.return_value = mock_queue
+
+        subject = OrbSlam2(mode=SensorMode.STEREO, vocabulary_file='ORBvoc-tiny.txt')
+        subject.save()
+        subject.set_camera_intrinsics(image_collection.camera_intrinsics, image_collection.average_timestep)
+        subject.resolve_paths(self.path_manager)
+        subject.set_stereo_offset(image_collection.stereo_offset)
+
+        with mock.patch('arvet_slam.systems.slam.orbslam2.open', mock.mock_open(), create=True):
+            subject.start_trial(ImageSequenceType.SEQUENTIAL)
+        for timestamp, image in image_collection:
+            subject.process_image(image, timestamp)
+        result = subject.finish_trial()
+        self.assertIsInstance(result, SLAMTrialResult)
+        for frame_result in result.results:
+            self.assertIsNotNone(frame_result.image)
+        result.image_source = image_collection
+        result.save()
+
+        # Load all the entities
+        all_entities = list(SLAMTrialResult.objects.all())
+        self.assertGreaterEqual(len(all_entities), 1)
+        self.assertEqual(all_entities[0], result)
+        self.assertEqual(all_entities[0].system, subject)
+        self.assertEqual(all_entities[0].image_source, image_collection)
+        for idx, (timestamp, image) in enumerate(image_collection):
+            self.assertEqual(all_entities[0].results[idx].image, image)
+            self.assertEqual(all_entities[0].results[idx].timestamp, timestamp)
+        all_entities[0].delete()
+
+        SLAMTrialResult.objects.all().delete()
+        VisionSystem.objects.all().delete()
+        ImageCollection.objects.all().delete()
+
+    @mock.patch('arvet_slam.systems.slam.orbslam2.multiprocessing', autospec=multiprocessing)
+    def test_result_saves_rgbd(self, mock_multiprocessing):
+        image_manager = im_manager.DefaultImageManager(dbconn.image_file)
+        im_manager.set_image_manager(image_manager)
+
+        # Make an image collection with some number of images
+        images = []
+        num_images = 10
+        for time in range(num_images):
+            image = make_image(SensorMode.RGBD)
+            img_pose = Transform((0.25 * (14 - time), -1.1 * time, 0.11 * time))
+            image.metadata.camera_pose = img_pose
+            image.save()
+            images.append(image)
+        image_collection = ImageCollection(
+            images=images,
+            timestamps=list(range(len(images))),
+            sequence_type=ImageSequenceType.SEQUENTIAL
+        )
+        image_collection.save()
+
+        # Mock the subprocess to control the orbslam output, we don't want to actually run it.
+        mock_queue = mock.create_autospec(multiprocessing.queues.Queue)
+        mock_queue.qsize.return_value = 0
+        mock_queue.get.side_effect = [
+            'ORBSLAM Ready!',
+            {
+                idx: [
+                    0.122 + 0.09 * idx,  # Processing Time
+                    15 + idx,  # Number of features
+                    6 + idx,  # Number of matches
+                    TrackingState.OK,  # Tracking state
+                    [  # Estimated pose
+                        [1, 0, 0, idx],
+                        [0, 1, 0, -0.1 * idx],
+                        [0, 0, 1, 0.22 * (14 - idx)]
+                    ]
+                ]
+                for idx in range(10)
+            }
+        ]
+        mock_multiprocessing.Queue.return_value = mock_queue
+
+        subject = OrbSlam2(mode=SensorMode.RGBD, vocabulary_file='ORBvoc-tiny.txt')
+        subject.save()
+        subject.set_camera_intrinsics(image_collection.camera_intrinsics, image_collection.average_timestep)
+        subject.resolve_paths(self.path_manager)
+
+        with mock.patch('arvet_slam.systems.slam.orbslam2.open', mock.mock_open(), create=True):
+            subject.start_trial(ImageSequenceType.SEQUENTIAL)
+        for timestamp, image in image_collection:
+            subject.process_image(image, timestamp)
+        result = subject.finish_trial()
+        self.assertIsInstance(result, SLAMTrialResult)
+        for frame_result in result.results:
+            self.assertIsNotNone(frame_result.image)
+        result.image_source = image_collection
+        result.save()
+
+        # Load all the entities
+        all_entities = list(SLAMTrialResult.objects.all())
+        self.assertGreaterEqual(len(all_entities), 1)
+        self.assertEqual(all_entities[0], result)
+        self.assertEqual(all_entities[0].system, subject)
+        self.assertEqual(all_entities[0].image_source, image_collection)
+        for idx, (timestamp, image) in enumerate(image_collection):
+            self.assertEqual(all_entities[0].results[idx].image, image)
+            self.assertEqual(all_entities[0].results[idx].timestamp, timestamp)
+        all_entities[0].delete()
+
+        SLAMTrialResult.objects.all().delete()
+        VisionSystem.objects.all().delete()
+        ImageCollection.objects.all().delete()
+
 
 class TestOrbSlam2(unittest.TestCase):
+    temp_folder = 'temp-test-orbslam2'
+    path_manager = None
 
     @classmethod
     def setUpClass(cls):
         logging.disable(logging.CRITICAL)
-        os.makedirs(_temp_folder, exist_ok=True)
+        os.makedirs(cls.temp_folder, exist_ok=True)
+        cls.path_manager = PathManager([Path(__file__).parent], cls.temp_folder)
 
     @classmethod
     def tearDownClass(cls):
         logging.disable(logging.NOTSET)
-        shutil.rmtree(_temp_folder)
+        shutil.rmtree(cls.temp_folder)
 
     def test_is_image_source_appropriate_returns_true_for_monocular_systems_and_sequential_image_sources(self):
         subject = OrbSlam2(mode=SensorMode.MONOCULAR)
@@ -160,20 +396,17 @@ class TestOrbSlam2(unittest.TestCase):
             subject.save_settings()
 
     def test_save_settings_raises_error_without_camera_intrinsics(self):
-        path_manager = PathManager([Path(__file__).parent], _temp_folder)
         subject = OrbSlam2(mode=SensorMode.MONOCULAR, vocabulary_file='ORBvoc-tiny.txt')
-        subject.resolve_paths(path_manager)
+        subject.resolve_paths(self.path_manager)
 
         with self.assertRaises(RuntimeError):
             subject.save_settings()
 
     def test_save_settings_raises_error_without_camera_baseline_if_stereo(self):
         intrinsics = CameraIntrinsics(width=640, height=480, fx=320, fy=320, cx=320, cy=240)
-        path_manager = PathManager([Path(__file__).parent], _temp_folder)
-
         subject = OrbSlam2(mode=SensorMode.STEREO, vocabulary_file='ORBvoc-tiny.txt')
         subject.set_camera_intrinsics(intrinsics, 1 / 30)
-        subject.resolve_paths(path_manager)
+        subject.resolve_paths(self.path_manager)
 
         with self.assertRaises(RuntimeError):
             subject.save_settings()
@@ -185,10 +418,9 @@ class TestOrbSlam2(unittest.TestCase):
         mock_open.return_value = StringIO()
 
         intrinsics = CameraIntrinsics(width=640, height=480, fx=320, fy=321, cx=322, cy=240)
-        path_manager = PathManager([Path(__file__).parent], _temp_folder)
         subject = OrbSlam2(mode=SensorMode.MONOCULAR, vocabulary_file='ORBvoc-tiny.txt')
         subject.set_camera_intrinsics(intrinsics, 1 / 30)
-        subject.resolve_paths(path_manager)
+        subject.resolve_paths(self.path_manager)
 
         with mock.patch('arvet_slam.systems.slam.orbslam2.open', mock_open, create=True):
             subject.save_settings()
@@ -207,10 +439,9 @@ class TestOrbSlam2(unittest.TestCase):
             width=640, height=480, fx=320, fy=321, cx=322, cy=240,
             k1=1, k2=2, k3=3, p1=4, p2=5
         )
-        path_manager = PathManager([Path(__file__).parent], _temp_folder)
         subject = OrbSlam2(mode=SensorMode.MONOCULAR, vocabulary_file='ORBvoc-tiny.txt')
         subject.set_camera_intrinsics(intrinsics, 1 / 29)
-        subject.resolve_paths(path_manager)
+        subject.resolve_paths(self.path_manager)
 
         with mock.patch('arvet_slam.systems.slam.orbslam2.open', mock_open, create=True):
             subject.save_settings()
@@ -245,11 +476,10 @@ class TestOrbSlam2(unittest.TestCase):
             width=640, height=480, fx=320, fy=321, cx=322, cy=240,
             k1=1, k2=2, k3=3, p1=4, p2=5
         )
-        path_manager = PathManager([Path(__file__).parent], _temp_folder)
         subject = OrbSlam2(mode=SensorMode.STEREO, vocabulary_file='ORBvoc-tiny.txt')
         subject.set_camera_intrinsics(intrinsics, 1 / 29)
         subject.set_stereo_offset(Transform([0.012, -0.142, 0.09]))
-        subject.resolve_paths(path_manager)
+        subject.resolve_paths(self.path_manager)
 
         with mock.patch('arvet_slam.systems.slam.orbslam2.open', mock_open, create=True):
             subject.save_settings()
@@ -270,12 +500,10 @@ class TestOrbSlam2(unittest.TestCase):
         mock_open.return_value = mock_file
 
         intrinsics = CameraIntrinsics(width=640, height=480, fx=320, fy=321, cx=322, cy=240)
-        path_manager = PathManager([Path(__file__).parent], _temp_folder)
         subject = OrbSlam2(
             mode=SensorMode.MONOCULAR,
             vocabulary_file='ORBvoc-tiny.txt',
             depth_threshold=58.2,
-            depthmap_factor=1.22,
             orb_num_features=2337,
             orb_scale_factor=1.32,
             orb_num_levels=16,
@@ -283,7 +511,7 @@ class TestOrbSlam2(unittest.TestCase):
             orb_min_threshold_fast=14
         )
         subject.set_camera_intrinsics(intrinsics, 1 / 29)
-        subject.resolve_paths(path_manager)
+        subject.resolve_paths(self.path_manager)
 
         with mock.patch('arvet_slam.systems.slam.orbslam2.open', mock_open, create=True):
             subject.save_settings()
@@ -294,7 +522,7 @@ class TestOrbSlam2(unittest.TestCase):
 
         # Camera Configuration
         self.assertIn('ThDepth: 58.2', lines)
-        self.assertIn('DepthMapFactor: 1.22', lines)
+        self.assertIn('DepthMapFactor: 1.0', lines)
         self.assertIn('ORBextractor.nFeatures: 2337', lines)
         self.assertIn('ORBextractor.scaleFactor: 1.32', lines)
         self.assertIn('ORBextractor.nLevels: 16', lines)
@@ -326,19 +554,17 @@ class TestOrbSlam2(unittest.TestCase):
         intrinsics = CameraIntrinsics(
             width=width, height=height, fx=fx, fy=fy, cx=cx, cy=cy, k1=k1, k2=k2, k3=k3, p1=p1, p2=p2
         )
-        path_manager = PathManager([Path(__file__).parent], _temp_folder)
         subject = OrbSlam2(
             mode=SensorMode.STEREO,
             vocabulary_file='ORBvoc-tiny.txt',
             depth_threshold=np.random.uniform(0, 255),
-            depthmap_factor=np.random.uniform(0, 3),
             orb_num_features=np.random.randint(0, 8000),
             orb_scale_factor=np.random.uniform(0, 2),
             orb_num_levels=np.random.randint(1, 10),
             orb_ini_threshold_fast=np.random.randint(15, 100),
             orb_min_threshold_fast=np.random.randint(0, 15)
         )
-        subject.resolve_paths(path_manager)
+        subject.resolve_paths(self.path_manager)
         subject.set_camera_intrinsics(intrinsics, 1 / framerate)
         subject.set_stereo_offset(stereo_offset)
         with mock.patch('arvet_slam.systems.slam.orbslam2.open', mock_open, create=True):
@@ -363,7 +589,6 @@ class TestOrbSlam2(unittest.TestCase):
         self.assertIn('Camera.fps: {0}'.format(framerate), lines)
         self.assertIn('Camera.bf: {0}'.format(-1 * stereo_offset.location[1] * fx), lines)
         self.assertIn('ThDepth: {0}'.format(subject.depth_threshold), lines)
-        self.assertIn('DepthMapFactor: {0}'.format(subject.depthmap_factor), lines)
         self.assertIn('ORBextractor.nFeatures: {0}'.format(subject.orb_num_features), lines)
         self.assertIn('ORBextractor.scaleFactor: {0}'.format(subject.orb_scale_factor), lines)
         self.assertIn('ORBextractor.nLevels: {0}'.format(subject.orb_num_levels), lines)
@@ -375,10 +600,9 @@ class TestOrbSlam2(unittest.TestCase):
         sys_id = ObjectId()
         mock_open = mock.mock_open()
 
-        path_manager = PathManager([Path(__file__).parent], _temp_folder)
         subject = OrbSlam2(_id=sys_id, mode=SensorMode.MONOCULAR, vocabulary_file='ORBvoc-tiny.txt')
         subject.set_camera_intrinsics(CameraIntrinsics(width=640, height=480, fx=320, fy=321, cx=322, cy=240), 1 / 29)
-        subject.resolve_paths(path_manager)
+        subject.resolve_paths(self.path_manager)
 
         with mock.patch('arvet_slam.systems.slam.orbslam2.open', mock_open, create=True):
             subject.start_trial(ImageSequenceType.SEQUENTIAL)
@@ -387,10 +611,9 @@ class TestOrbSlam2(unittest.TestCase):
 
     @mock.patch('arvet_slam.systems.slam.orbslam2.multiprocessing', autospec=multiprocessing)
     def test_start_trial_finds_available_file(self, _):
-        path_manager = PathManager([Path(__file__).parent], _temp_folder)
         subject = OrbSlam2(mode=SensorMode.MONOCULAR, vocabulary_file='ORBvoc-tiny.txt')
         subject.set_camera_intrinsics(CameraIntrinsics(width=640, height=480, fx=320, fy=321, cx=322, cy=240), 1 / 29)
-        subject.resolve_paths(path_manager)
+        subject.resolve_paths(self.path_manager)
 
         self.assertIsNone(subject._settings_file)
         with mock.patch('arvet_slam.systems.slam.orbslam2.open', mock.mock_open(), create=True):
@@ -400,13 +623,12 @@ class TestOrbSlam2(unittest.TestCase):
 
     @mock.patch('arvet_slam.systems.slam.orbslam2.multiprocessing', autospec=multiprocessing)
     def test_start_trial_does_nothing_for_non_sequential_input(self, mock_multiprocessing):
-        path_manager = PathManager([Path(__file__).parent], _temp_folder)
         mock_process = mock.create_autospec(multiprocessing.Process)
         mock_multiprocessing.Process.return_value = mock_process
         mock_open = mock.mock_open()
         subject = OrbSlam2(mode=SensorMode.MONOCULAR, vocabulary_file='ORBvoc-tiny.txt')
         subject.set_camera_intrinsics(CameraIntrinsics(width=640, height=480, fx=320, fy=321, cx=322, cy=240), 1 / 29)
-        subject.resolve_paths(path_manager)
+        subject.resolve_paths(self.path_manager)
         with mock.patch('arvet_slam.systems.slam.orbslam2.open', mock_open, create=True):
             subject.start_trial(ImageSequenceType.NON_SEQUENTIAL)
         self.assertFalse(mock_multiprocessing.Process.called)
@@ -418,10 +640,9 @@ class TestOrbSlam2(unittest.TestCase):
         mock_process = mock.create_autospec(multiprocessing.Process)
         mock_multiprocessing.Process.return_value = mock_process
 
-        path_manager = PathManager([Path(__file__).parent], _temp_folder)
         subject = OrbSlam2(mode=SensorMode.MONOCULAR, vocabulary_file='ORBvoc-tiny.txt')
         subject.set_camera_intrinsics(CameraIntrinsics(width=640, height=480, fx=320, fy=321, cx=322, cy=240), 1 / 29)
-        subject.resolve_paths(path_manager)
+        subject.resolve_paths(self.path_manager)
 
         with mock.patch('arvet_slam.systems.slam.orbslam2.open', mock.mock_open(), create=True):
             subject.start_trial(ImageSequenceType.SEQUENTIAL)
@@ -435,10 +656,9 @@ class TestOrbSlam2(unittest.TestCase):
         mock_queue.get.return_value = 'ORBSLAM Ready!'
         mock_multiprocessing.Queue.return_value = mock_queue
 
-        path_manager = PathManager([Path(__file__).parent], _temp_folder)
         subject = OrbSlam2(mode=SensorMode.MONOCULAR, vocabulary_file='ORBvoc-tiny.txt')
         subject.set_camera_intrinsics(CameraIntrinsics(width=640, height=480, fx=320, fy=321, cx=322, cy=240), 1 / 29)
-        subject.resolve_paths(path_manager)
+        subject.resolve_paths(self.path_manager)
 
         with mock.patch('arvet_slam.systems.slam.orbslam2.open', mock.mock_open(), create=True):
             subject.start_trial(ImageSequenceType.SEQUENTIAL)
@@ -453,17 +673,14 @@ class TestOrbSlam2(unittest.TestCase):
         mock_queue.get.side_effect = QueueEmpty
         mock_multiprocessing.Queue.return_value = mock_queue
 
-        path_manager = PathManager([Path(__file__).parent], _temp_folder)
         subject = OrbSlam2(mode=SensorMode.MONOCULAR, vocabulary_file='ORBvoc-tiny.txt')
         subject.set_camera_intrinsics(CameraIntrinsics(width=640, height=480, fx=320, fy=321, cx=322, cy=240), 1 / 29)
-        subject.resolve_paths(path_manager)
+        subject.resolve_paths(self.path_manager)
 
         subject.save_settings()
         settings_path = subject._settings_file
-
-        with mock.patch('arvet_slam.systems.slam.orbslam2.open', mock.mock_open(), create=True):
-            with self.assertRaises(RuntimeError):
-                subject.start_trial(ImageSequenceType.SEQUENTIAL)
+        with self.assertRaises(RuntimeError):
+            subject.start_trial(ImageSequenceType.SEQUENTIAL)
         self.assertTrue(mock_process.start.called)
         self.assertTrue(mock_process.terminate.called)
         self.assertTrue(mock_process.join.called)
@@ -472,7 +689,6 @@ class TestOrbSlam2(unittest.TestCase):
 
     @mock.patch('arvet_slam.systems.slam.orbslam2.multiprocessing', autospec=multiprocessing)
     def test_process_image_mono_sends_image_to_subprocess(self, mock_multiprocessing):
-        path_manager = PathManager([Path(__file__).parent], _temp_folder)
         mock_queue = mock.create_autospec(multiprocessing.queues.Queue)     # Have to be specific to get the class
         mock_queue.qsize.return_value = 0
         mock_multiprocessing.Queue.return_value = mock_queue
@@ -480,7 +696,7 @@ class TestOrbSlam2(unittest.TestCase):
 
         subject = OrbSlam2(mode=SensorMode.MONOCULAR, vocabulary_file='ORBvoc-tiny.txt')
         subject.set_camera_intrinsics(CameraIntrinsics(width=640, height=480, fx=320, fy=321, cx=322, cy=240), 1 / 29)
-        subject.resolve_paths(path_manager)
+        subject.resolve_paths(self.path_manager)
 
         with mock.patch('arvet_slam.systems.slam.orbslam2.open', mock.mock_open(), create=True):
             subject.start_trial(ImageSequenceType.SEQUENTIAL)
@@ -494,7 +710,6 @@ class TestOrbSlam2(unittest.TestCase):
 
     @mock.patch('arvet_slam.systems.slam.orbslam2.multiprocessing', autospec=multiprocessing)
     def test_process_image_rgbd_sends_image_and_depth_to_subprocess(self, mock_multiprocessing):
-        path_manager = PathManager([Path(__file__).parent], _temp_folder)
         mock_queue = mock.create_autospec(multiprocessing.queues.Queue)     # Have to be specific to get the class
         mock_queue.qsize.return_value = 0
         mock_multiprocessing.Queue.return_value = mock_queue
@@ -502,7 +717,7 @@ class TestOrbSlam2(unittest.TestCase):
 
         subject = OrbSlam2(mode=SensorMode.RGBD, vocabulary_file='ORBvoc-tiny.txt')
         subject.set_camera_intrinsics(CameraIntrinsics(width=640, height=480, fx=320, fy=321, cx=322, cy=240), 1 / 29)
-        subject.resolve_paths(path_manager)
+        subject.resolve_paths(self.path_manager)
 
         with mock.patch('arvet_slam.systems.slam.orbslam2.open', mock.mock_open(), create=True):
             subject.start_trial(ImageSequenceType.SEQUENTIAL)
@@ -517,7 +732,6 @@ class TestOrbSlam2(unittest.TestCase):
 
     @mock.patch('arvet_slam.systems.slam.orbslam2.multiprocessing', autospec=multiprocessing)
     def test_process_image_stereo_sends_left_and_right_image_to_subprocess(self, mock_multiprocessing):
-        path_manager = PathManager([Path(__file__).parent], _temp_folder)
         mock_queue = mock.create_autospec(multiprocessing.queues.Queue)     # Have to be specific to get the class
         mock_queue.qsize.return_value = 0
         mock_multiprocessing.Queue.return_value = mock_queue
@@ -525,7 +739,7 @@ class TestOrbSlam2(unittest.TestCase):
 
         subject = OrbSlam2(mode=SensorMode.STEREO, vocabulary_file='ORBvoc-tiny.txt')
         subject.set_camera_intrinsics(CameraIntrinsics(width=640, height=480, fx=320, fy=321, cx=322, cy=240), 1 / 29)
-        subject.resolve_paths(path_manager)
+        subject.resolve_paths(self.path_manager)
         subject.set_stereo_offset(Transform(location=(0.2, -0.6, 0.01)))
 
         with mock.patch('arvet_slam.systems.slam.orbslam2.open', mock.mock_open(), create=True):
@@ -540,16 +754,14 @@ class TestOrbSlam2(unittest.TestCase):
         self.assertTrue(np.any([np.array_equal(image.right_pixels, elem) for elem in mock_queue.put.call_args[0][0]]))
 
     def test_finish_trial_raises_exception_if_unstarted(self):
-        path_manager = PathManager([Path(__file__).parent], _temp_folder)
         subject = OrbSlam2(mode=SensorMode.MONOCULAR, vocabulary_file='ORBvoc-tiny.txt')
         subject.set_camera_intrinsics(CameraIntrinsics(width=640, height=480, fx=320, fy=321, cx=322, cy=240), 1 / 29)
-        subject.resolve_paths(path_manager)
+        subject.resolve_paths(self.path_manager)
         with self.assertRaises(RuntimeError):
             subject.finish_trial()
 
     @mock.patch('arvet_slam.systems.slam.orbslam2.multiprocessing', autospec=multiprocessing)
     def test_finish_trial_joins_subprocess(self, mock_multiprocessing):
-        path_manager = PathManager([Path(__file__).parent], _temp_folder)
         mock_process = mock.create_autospec(multiprocessing.Process)
         mock_multiprocessing.Process.return_value = mock_process
         mock_queue = mock.create_autospec(multiprocessing.queues.Queue)
@@ -572,7 +784,7 @@ class TestOrbSlam2(unittest.TestCase):
 
         subject = OrbSlam2(mode=SensorMode.MONOCULAR, vocabulary_file='ORBvoc-tiny.txt')
         subject.set_camera_intrinsics(CameraIntrinsics(width=640, height=480, fx=320, fy=321, cx=322, cy=240), 1 / 29)
-        subject.resolve_paths(path_manager)
+        subject.resolve_paths(self.path_manager)
 
         with mock.patch('arvet_slam.systems.slam.orbslam2.open', mock.mock_open(), create=True):
             subject.start_trial(ImageSequenceType.SEQUENTIAL)
@@ -584,7 +796,6 @@ class TestOrbSlam2(unittest.TestCase):
 
     @mock.patch('arvet_slam.systems.slam.orbslam2.multiprocessing', autospec=multiprocessing)
     def test_finish_trial_returns_result_with_data_from_subprocess(self, mock_multiprocessing):
-        path_manager = PathManager([Path(__file__).parent], _temp_folder)
         mock_queue = mock.create_autospec(multiprocessing.queues.Queue)
         mock_queue.qsize.return_value = 0
         mock_queue.get.side_effect = [
@@ -596,9 +807,9 @@ class TestOrbSlam2(unittest.TestCase):
                     6 + idx,                # Number of matches
                     TrackingState.OK,       # Tracking state
                     [   # Estimated pose
-                        1, 0, 0, idx,
-                        0, 1, 0, -0.1 * idx,
-                        0, 0, 1, 0.22 * (14 - idx)
+                        [1, 0, 0, idx],
+                        [0, 1, 0, -0.1 * idx],
+                        [0, 0, 1, 0.22 * (14 - idx)]
                     ]
                 ]
                 for idx in range(10)
@@ -606,10 +817,22 @@ class TestOrbSlam2(unittest.TestCase):
         ]
         mock_multiprocessing.Queue.return_value = mock_queue
         image_ids = []
+        intrinsics = CameraIntrinsics(
+            width=640, height=480, fx=320, fy=321, cx=322, cy=240,
+            k1=0.11, k2=-.33, k3=0.077, p1=1.3, p2=-0.44
+        )
 
-        subject = OrbSlam2(mode=SensorMode.MONOCULAR, vocabulary_file='ORBvoc-tiny.txt')
-        subject.set_camera_intrinsics(CameraIntrinsics(width=640, height=480, fx=320, fy=321, cx=322, cy=240), 1 / 29)
-        subject.resolve_paths(path_manager)
+        subject = OrbSlam2(
+            mode=SensorMode.MONOCULAR, vocabulary_file='ORBvoc-tiny.txt',
+            depth_threshold=42.0,
+            orb_num_features=1337,
+            orb_scale_factor=1.03,
+            orb_num_levels=22,
+            orb_ini_threshold_fast=7,
+            orb_min_threshold_fast=4
+        )
+        subject.set_camera_intrinsics(intrinsics, 1 / 29)
+        subject.resolve_paths(self.path_manager)
 
         with mock.patch('arvet_slam.systems.slam.orbslam2.open', mock.mock_open(), create=True):
             subject.start_trial(ImageSequenceType.SEQUENTIAL)
@@ -622,7 +845,29 @@ class TestOrbSlam2(unittest.TestCase):
         self.assertIsInstance(trial_result, SLAMTrialResult)
         self.assertTrue(trial_result.success)
         self.assertGreater(trial_result.run_time, 0)
-        self.assertIsNotNone(trial_result.settings)
+        self.assertEqual({
+            'Camera': {
+                'fx': intrinsics.fx,
+                'fy': intrinsics.fy,
+                'cx': intrinsics.cx,
+                'cy': intrinsics.cy,
+                'k1': intrinsics.k1,
+                'k2': intrinsics.k2,
+                'p1': intrinsics.p1,
+                'p2': intrinsics.p2,
+                'k3': intrinsics.k3,
+                'width': intrinsics.width,
+                'height': intrinsics.height
+            },
+            'depth_threshold': subject.depth_threshold,
+            'ORBextractor': {
+                'nFeatures': subject.orb_num_features,
+                'scaleFactor': subject.orb_scale_factor,
+                'nLevels': subject.orb_num_levels,
+                'iniThFAST': subject.orb_ini_threshold_fast,
+                'minThFAST': subject.orb_min_threshold_fast
+            }
+        }, trial_result.settings)
         self.assertEqual(10, len(trial_result.results))
         for idx in range(10):
             frame_result = trial_result.results[idx]
@@ -638,7 +883,6 @@ class TestOrbSlam2(unittest.TestCase):
     @mock.patch('arvet_slam.systems.slam.orbslam2.logging', autospec=logging)
     @mock.patch('arvet_slam.systems.slam.orbslam2.multiprocessing', autospec=multiprocessing)
     def test_logs_timestamps_returned_by_subprocess_without_matching_frame(self, mock_multiprocessing, mock_logging):
-        path_manager = PathManager([Path(__file__).parent], _temp_folder)
         mock_queue = mock.create_autospec(multiprocessing.queues.Queue)
         mock_queue.qsize.return_value = 0
         mock_queue.get.side_effect = [
@@ -665,7 +909,7 @@ class TestOrbSlam2(unittest.TestCase):
 
         subject = OrbSlam2(mode=SensorMode.MONOCULAR, vocabulary_file='ORBvoc-tiny.txt')
         subject.set_camera_intrinsics(CameraIntrinsics(width=640, height=480, fx=320, fy=321, cx=322, cy=240), 1 / 29)
-        subject.resolve_paths(path_manager)
+        subject.resolve_paths(self.path_manager)
 
         with mock.patch('arvet_slam.systems.slam.orbslam2.open', mock.mock_open(), create=True):
             subject.start_trial(ImageSequenceType.SEQUENTIAL)
@@ -682,7 +926,6 @@ class TestOrbSlam2(unittest.TestCase):
 
     @mock.patch('arvet_slam.systems.slam.orbslam2.multiprocessing', autospec=multiprocessing)
     def test_finish_trial_cleans_up_and_raises_exception_if_cannot_get_data_from_subprocess(self, mock_multiprocessing):
-        path_manager = PathManager([Path(__file__).parent], _temp_folder)
         mock_process = mock.create_autospec(multiprocessing.Process)
         mock_multiprocessing.Process.return_value = mock_process
         mock_queue = mock.create_autospec(multiprocessing.queues.Queue)
@@ -692,14 +935,11 @@ class TestOrbSlam2(unittest.TestCase):
 
         subject = OrbSlam2(mode=SensorMode.MONOCULAR, vocabulary_file='ORBvoc-tiny.txt')
         subject.set_camera_intrinsics(CameraIntrinsics(width=640, height=480, fx=320, fy=321, cx=322, cy=240), 1 / 29)
-        subject.resolve_paths(path_manager)
+        subject.resolve_paths(self.path_manager)
 
         subject.save_settings()
         settings_file = subject._settings_file
-
-        with mock.patch('arvet_slam.systems.slam.orbslam2.open', mock.mock_open(), create=True):
-            subject.start_trial(ImageSequenceType.SEQUENTIAL)
-
+        subject.start_trial(ImageSequenceType.SEQUENTIAL)
         with self.assertRaises(RuntimeError):
             subject.finish_trial()
         self.assertTrue(mock_process.join.called)
@@ -724,7 +964,7 @@ class TestDumpConfig(unittest.TestCase):
             'RGB': 1
         },
         'ThDepth': 70,
-        'DepthMapFactor': 1.2,
+        'DepthMapFactor': 1.0,
         'ORBextractor': {
             'nFeatures': 2000,
             'scaleFactor': 1.2,
@@ -890,7 +1130,14 @@ def make_image(img_type: SensorMode):
     )
     if img_type == SensorMode.STEREO:
         right_pixels = np.random.randint(0, 255, (32, 32, 3), dtype='uint8')
-        right_metadata = imeta.make_right_metadata(right_pixels, metadata)
+        right_metadata = imeta.make_right_metadata(
+            right_pixels, metadata,
+            intrinsics=CameraIntrinsics(
+                width=right_pixels.shape[1],
+                height=right_pixels.shape[0],
+                fx=16, fy=16, cx=16, cy=16
+            )
+        )
         return StereoImage(
             _id=ObjectId(),
             pixels=pixels,

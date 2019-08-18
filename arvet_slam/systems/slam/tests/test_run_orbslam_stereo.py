@@ -36,20 +36,20 @@ class TestRunOrbslamMono(unittest.TestCase):
         speed = 0.1
         path_manager = PathManager([Path(__file__).parent], self.temp_folder)
         image_builder = DemoImageBuilder(
-            mode=SensorMode.MONOCULAR,
-            width=160, height=120, num_stars=2000,
+            mode=SensorMode.STEREO, stereo_offset=0.15,
+            width=320, height=240, num_stars=500,
             length=max_time * speed, speed=speed,
-            close_ratio=0.4, min_size=1, max_size=5
+            min_size=4, max_size=50
         )
         subject = OrbSlam2(
             vocabulary_file=self.vocab_path,
-            mode=SensorMode.MONOCULAR,
-            orb_num_levels=1,
-            orb_ini_threshold_fast=3,
-            orb_min_threshold_fast=3
+            mode=SensorMode.STEREO,
+            orb_ini_threshold_fast=12,
+            orb_min_threshold_fast=7
         )
         subject.resolve_paths(path_manager)
         subject.set_camera_intrinsics(image_builder.get_camera_intrinsics(), max_time / num_frames)
+        subject.set_stereo_offset(image_builder.get_stereo_offset())
 
         subject.start_trial(ImageSequenceType.SEQUENTIAL)
         for idx in range(num_frames):
@@ -62,7 +62,7 @@ class TestRunOrbslamMono(unittest.TestCase):
         with no_auto_dereference(SLAMTrialResult):
             self.assertEqual(subject.pk, result.system)
         self.assertTrue(result.success)
-        self.assertFalse(result.has_scale)
+        self.assertTrue(result.has_scale)
         self.assertIsNotNone(result.run_time)
         self.assertIsNotNone(result.settings)
         self.assertEqual(num_frames, len(result.results))

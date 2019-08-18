@@ -46,7 +46,6 @@ class OrbSlam2(VisionSystem):
     vocabulary_file = fields.CharField(required=True)
     mode = EnumField(SensorMode, required=True)
     depth_threshold = fields.FloatField(required=True, default=40.0)
-    depthmap_factor = fields.FloatField(required=True, default=1.0)
     orb_num_features = fields.IntegerField(required=True, default=2000)
     orb_scale_factor = fields.FloatField(required=True, default=1.2)
     orb_num_levels = fields.IntegerField(required=True, default=8)
@@ -149,8 +148,8 @@ class OrbSlam2(VisionSystem):
         self._child_process = multiprocessing.Process(target=run_orbslam,
                                                       args=(self._output_queue,
                                                             self._input_queue,
-                                                            self._actual_vocab_file,
-                                                            self._settings_file,
+                                                            str(self._actual_vocab_file),
+                                                            str(self._settings_file),
                                                             self.mode))
         self._child_process.daemon = True
         self._child_process.start()
@@ -243,19 +242,9 @@ class OrbSlam2(VisionSystem):
                 self._partial_frame_results[timestamp].num_matches = frame_stats[2]
                 self._partial_frame_results[timestamp].tracking_state = frame_stats[3]
                 if frame_stats[4] is not None:
-                    (
-                        r00, r01, r02, t0,
-                        r10, r11, r12, t1,
-                        r20, r21, r22, t2
-                    ) = frame_stats[4]
-                    self._partial_frame_results[timestamp].estimated_pose = make_relative_pose(
-                        np.array([
-                            [r00, r01, r02, t0],
-                            [r10, r11, r12, t1],
-                            [r20, r21, r22, t2],
-                            [0, 0, 0, 1],
-                        ])
-                    )
+                    estimated_pose = np.identity(4)
+                    estimated_pose[0:3, :] = frame_stats[4]
+                    self._partial_frame_results[timestamp].estimated_pose = make_relative_pose(estimated_pose)
         if len(unrecognised_timestamps) > 0:
             valid_timestamps = np.array(list(self._partial_frame_results.keys()))
             logging.getLogger(__name__).warning("Got inconsistent timestamps:\n" + '\n'.join(
@@ -287,7 +276,6 @@ class OrbSlam2(VisionSystem):
                     'height': self._intrinsics.height
                 },
                 'depth_threshold': self.depth_threshold,
-                'depthmap_factor': self.depthmap_factor,
                 'ORBextractor': {
                     'nFeatures': self.orb_num_features,
                     'scaleFactor': self.orb_scale_factor,
@@ -340,7 +328,7 @@ class OrbSlam2(VisionSystem):
                 'ThDepth': self.depth_threshold,
 
                 # Depthmap values factor (all my depth is in meters, rescaling is handled elsewhere)
-                'DepthMapFactor': self.depthmap_factor,
+                'DepthMapFactor': 1.0,
 
                 'ORBextractor': {
                     # ORB Extractor: Number of features per image
@@ -548,7 +536,7 @@ def run_orbslam(output_queue, input_queue, vocab_file, settings_file, mode):
         sensor_mode = System.STEREO
     logging.getLogger(__name__).info("Starting ORBSLAM2 in {0} mode...".format(mode.name.lower()))
 
-    orbslam_system = System(vocab_file, settings_file, sensor_mode, bUseViewer=False)
+    orbslam_system = System(str(vocab_file), str(settings_file), sensor_mode, bUseViewer=False)
     output_queue.put('ORBSLAM started!')  # Tell the parent process we've set-up correctly and are ready to go.
     logging.getLogger(__name__).info("ORBSLAM2 Ready.")
 
@@ -580,7 +568,7 @@ def run_orbslam(output_queue, input_queue, vocab_file, settings_file, mode):
 
             # Record statistics about the current frame.
             num_features = orbslam_system.get_num_features()
-            num_matches = orbslam_system.get_num_matched_features()
+            num_matches = orbslam_system.get_num_matches()
             current_state = orbslam_system.get_tracking_state()
             frame_statistics[timestamp] = [
                 processing_time,
@@ -596,21 +584,17 @@ def run_orbslam(output_queue, input_queue, vocab_file, settings_file, mode):
 
     # Get the trajectory from orbslam
     trajectory = orbslam_system.get_trajectory_points()
-    for (
-            timestamp,
-            r00, r01, r02, t0,
-            r10, r11, r12, t1,
-            r20, r21, r22, t2
-    ) in trajectory:
-        pose_mat = (
-            r00, r01, r02, t0,
-            r10, r11, r12, t1,
-            r20, r21, r22, t2
-        )
-        if timestamp in frame_statistics:
-            frame_statistics[timestamp][4] = pose_mat
+    for est in trajectory:
+        # Manually reshape the pose matrix into arrays
+        pose_mat = [
+            [est.r00, est.r01, est.r02, est.t0],
+            [est.r10, est.r11, est.r12, est.t1],
+            [est.r20, est.r21, est.r22, est.t2]
+        ]
+        if est.timestamp in frame_statistics:
+            frame_statistics[est.timestamp][4] = pose_mat
         else:
-            frame_statistics[timestamp] = [
+            frame_statistics[est.timestamp] = [
                 None,
                 None,
                 None,
