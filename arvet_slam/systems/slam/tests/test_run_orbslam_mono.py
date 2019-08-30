@@ -44,7 +44,7 @@ class TestRunOrbslamMono(unittest.TestCase):
         subject = OrbSlam2(
             vocabulary_file=self.vocab_path,
             mode=SensorMode.MONOCULAR,
-            orb_num_levels=1,
+            orb_num_levels=8,
             orb_ini_threshold_fast=3,
             orb_min_threshold_fast=3
         )
