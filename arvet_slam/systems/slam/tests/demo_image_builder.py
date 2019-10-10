@@ -1,15 +1,21 @@
+from enum import Enum
 import numpy as np
 from arvet.util.transform import Transform
 import arvet.metadata.image_metadata as imeta
 from arvet.metadata.camera_intrinsics import CameraIntrinsics
 from arvet.core.image import Image, StereoImage
-from arvet_slam.systems.slam.orbslam2 import SensorMode
+
+
+class ImageMode(Enum):
+    MONOCULAR = 0
+    STEREO = 1
+    RGBD = 2
 
 
 class DemoImageBuilder:
 
     def __init__(
-            self, mode: SensorMode, seed: int = 0, width: int = 320, height: int = 240,
+            self, mode: ImageMode = ImageMode.MONOCULAR, seed: int = 0, width: int = 320, height: int = 240,
             focal_length: float = None, stereo_offset: float = 0.15,
             num_stars: int = 300, close_ratio: float = 0.5, min_size: float = 4.0, max_size: float = 50.0,
             speed: float = 5.0, length: float = 60, corridor_width: float = 2.0
@@ -75,7 +81,7 @@ class DemoImageBuilder:
     def create_frame(self, time: float) -> Image:
         frame = np.zeros((self.height, self.width), dtype=np.uint8)
         depth = None
-        if self.mode is SensorMode.RGBD:
+        if self.mode is ImageMode.RGBD:
             depth = (1000 + 2 * len(self.stars)) * np.ones((self.height, self.width), dtype=np.float16)
         f = self.focal_length
         cx = frame.shape[1] / 2
@@ -121,7 +127,7 @@ class DemoImageBuilder:
         )
 
         # If we're building a stereo image, make the right image
-        if self.mode is SensorMode.STEREO:
+        if self.mode is ImageMode.STEREO:
             right_frame = np.zeros((self.height, self.width), dtype=np.uint8)
             for star in self.stars:
                 x, y, z = star['pos']
@@ -171,3 +177,19 @@ class DemoImageBuilder:
             depth=depth,
             metadata=metadata
         )
+
+    def visualise_sequence(self, max_time: float, frame_interval: float = 1):
+        import matplotlib.pyplot as plt
+        from matplotlib.animation import ArtistAnimation
+
+        fig = plt.figure()
+
+        images = []
+        for time in np.linspace(0, max_time, int(max_time / frame_interval)):
+            image = self.create_frame(time)
+            ax_img = plt.imshow(image.pixels, cmap='gray', animated=True)
+            images.append([ax_img])
+
+        ani = ArtistAnimation(fig, images, interval=frame_interval * 1000, blit=True, repeat_delay=2 * max_time)
+        plt.show()
+

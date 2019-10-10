@@ -10,7 +10,7 @@ from arvet.core.sequence_type import ImageSequenceType
 from arvet_slam.trials.slam.tracking_state import TrackingState
 from arvet_slam.trials.slam.visual_slam import SLAMTrialResult
 from arvet_slam.systems.slam.orbslam2 import OrbSlam2, SensorMode
-from arvet_slam.systems.slam.tests.demo_image_builder import DemoImageBuilder
+from arvet_slam.systems.slam.tests.demo_image_builder import DemoImageBuilder, ImageMode
 from arvet_slam.systems.slam.tests.create_vocabulary import create_vocab
 
 
@@ -36,7 +36,7 @@ class TestRunOrbslamMono(unittest.TestCase):
         speed = 0.1
         path_manager = PathManager([Path(__file__).parent], self.temp_folder)
         image_builder = DemoImageBuilder(
-            mode=SensorMode.MONOCULAR,
+            mode=ImageMode.MONOCULAR,
             width=160, height=120, num_stars=2000,
             length=max_time * speed, speed=speed,
             close_ratio=0.4, min_size=1, max_size=5
