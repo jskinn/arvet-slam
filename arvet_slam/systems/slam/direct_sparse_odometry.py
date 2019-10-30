@@ -38,7 +38,7 @@ class RectificationMode(enum.Enum):
     NONE = 0
     CALIB = 1
     CROP = 2
-    FULL = 3
+    # FULL = 3  # I think FULL rectification mode is broken, from reading their code. The K Matrix is missing.
 
 
 class DSO(VisionSystem):
@@ -49,7 +49,6 @@ class DSO(VisionSystem):
     """
     rectification_mode = EnumField(RectificationMode, required=True)
     rectification_intrinsics = fields.EmbeddedDocumentField(CameraIntrinsics, required=True)
-    # depth_threshold = fields.FloatField(required=True, default=40.0)
 
     def __init__(self, *args, **kwargs):
         super(DSO, self).__init__(*args, **kwargs)
@@ -120,7 +119,9 @@ class DSO(VisionSystem):
         :return: void
         """
         if sequence_type is not ImageSequenceType.SEQUENTIAL:
-            return
+            raise RuntimeError("Cannot start trial with {0} image source".format(sequence_type.name))
+        if self._intrinsics is None:
+            raise RuntimeError("Cannot start trial, intrinsics have not been provided yet")
 
         self._start_time = time.time()
         self._frame_results = {}
@@ -149,7 +150,8 @@ class DSO(VisionSystem):
             self._undistorter = make_undistort_from_mode(self._intrinsics, self.rectification_mode,
                                                          self.rectification_intrinsics.width,
                                                          self.rectification_intrinsics.height)
-        self._undistorter.setNoPhotometricCalibration()
+        if mode is not 0:
+            self._undistorter.setNoPhotometricCalibration()
         self._undistorter.applyGlobalConfig()   # Need to do this to set camera intrinsics
 
         # Make an output wrapper to accumulate output information
@@ -171,7 +173,10 @@ class DSO(VisionSystem):
         :param timestamp: A timestamp or index associated with this image. Sometimes None.
         :return: void
         """
-        dso_img = self._undistorter.undistort_greyscale(image_utils.to_uint_image(image.pixels), 0, timestamp, 1.0)
+        if self._undistorter is None:
+            raise RuntimeError("Cannot process image, trial has not started yet. Call 'start_trial'")
+        image_data = image_utils.to_uint_image(image_utils.convert_to_grey(image.pixels))
+        dso_img = self._undistorter.undistort_greyscale(image_data, 0, timestamp, 1.0)
         self._processing_start_times[timestamp] = time.time()
         self._system.addActiveFrame(dso_img, self._image_index)
         self._image_index += 1
@@ -180,7 +185,8 @@ class DSO(VisionSystem):
             timestamp=timestamp,
             image=image.pk,
             pose=image.camera_pose,
-            tracking_state=TrackingState.NOT_INITIALIZED
+            tracking_state=TrackingState.NOT_INITIALIZED,
+            processing_time=np.nan
         )
 
     def finish_trial(self) -> SLAMTrialResult:
@@ -190,6 +196,9 @@ class DSO(VisionSystem):
         :return:
         :rtype TrialResult:
         """
+        if self._system is None:
+            raise RuntimeError("Cannot finish trial, no trial started. Call 'start_trial'")
+
         # Wait for the system to finish
         self._system.blockUntilMappingIsFinished()
 
@@ -231,37 +240,25 @@ class DSO(VisionSystem):
             results=[self._frame_results[timestamp]
                      for timestamp in sorted(self._frame_results.keys())],
             has_scale=False,
-            settings={
-                # 'Camera': {
-                #     'fx': self._intrinsics.fx,
-                #     'fy': self._intrinsics.fy,
-                #     'cx': self._intrinsics.cx,
-                #     'cy': self._intrinsics.cy,
-                #     'k1': self._intrinsics.k1,
-                #     'k2': self._intrinsics.k2,
-                #     'p1': self._intrinsics.p1,
-                #     'p2': self._intrinsics.p2,
-                #     'k3': self._intrinsics.k3,
-                #     'width': self._intrinsics.width,
-                #     'height': self._intrinsics.height
-                # },
-                # 'depth_threshold': self.depth_threshold,
-                # 'ORBextractor': {
-                #     'nFeatures': self.orb_num_features,
-                #     'scaleFactor': self.orb_scale_factor,
-                #     'nLevels': self.orb_num_levels,
-                #     'iniThFAST': self.orb_ini_threshold_fast,
-                #     'minThFAST': self.orb_min_threshold_fast
-                # }
-            }
+            settings=self.make_settings()
         )
         result.run_time = time.time() - self._start_time
         self._frame_results = None
         self._start_time = None
         return result
 
-    def save_settings(self):
-        pass
+    def make_settings(self):
+        settings = {
+            'rectification_mode': self.rectification_mode.name,
+            'width': self.rectification_intrinsics.width,
+            'height': self.rectification_intrinsics.height
+        }
+        if self.rectification_mode is RectificationMode.CALIB:
+            settings['out_fx'] = self.rectification_intrinsics.fx
+            settings['out_fy'] = self.rectification_intrinsics.fy
+            settings['out_cx'] = self.rectification_intrinsics.cx
+            settings['out_cy'] = self.rectification_intrinsics.cy
+        return settings
 
 
 class DSOOutputWrapper(Output3DWrapper):
@@ -340,10 +337,11 @@ def make_undistort_from_mode(intrinsics: CameraIntrinsics, rectification_mode: R
     :return: A new DSO undistort object.
     """
     rect_mode = Undistort.RECT_CROP
-    if rectification_mode is RectificationMode.FULL:
-        rect_mode = Undistort.RECT_FULL
-    elif rectification_mode is RectificationMode.NONE:
+    if rectification_mode is RectificationMode.NONE:
         rect_mode = Undistort.RECT_NONE
+    elif rectification_mode is RectificationMode.CALIB:
+        raise ValueError("Cannot build Undistort with CALIB mode without intrinsics, "
+                         "use 'make_undistort_from_out_intrinsics'")
 
     if intrinsics.k1 == 0 and intrinsics.k2 == 0 and \
             intrinsics.p1 == 0 and intrinsics.p2 == 0:
@@ -361,8 +359,8 @@ def make_undistort_from_mode(intrinsics: CameraIntrinsics, rectification_mode: R
     return UndistortRadTan(
         intrinsics.fx,
         intrinsics.fy,
-        intrinsics.cx - 0.5,
-        intrinsics.cy - 0.5,
+        intrinsics.cx,
+        intrinsics.cy,
         intrinsics.k1,
         intrinsics.k2,
         intrinsics.p1,
@@ -395,28 +393,28 @@ def make_undistort_from_out_intrinsics(intrinsics: CameraIntrinsics, out_intrins
             intrinsics.cy,
             intrinsics.width,
             intrinsics.height,
-            out_intrinsics.fx,
-            out_intrinsics.fy,
-            out_intrinsics.cx,
-            out_intrinsics.cy,
+            out_intrinsics.fx / out_intrinsics.width,
+            out_intrinsics.fy / out_intrinsics.height,
+            out_intrinsics.cx / out_intrinsics.width,
+            out_intrinsics.cy / out_intrinsics.height,
             out_intrinsics.width,
             out_intrinsics.height
         )
     return UndistortRadTan(
         intrinsics.fx,
         intrinsics.fy,
-        intrinsics.cx - 0.5,
-        intrinsics.cy - 0.5,
+        intrinsics.cx,
+        intrinsics.cy,
         intrinsics.k1,
         intrinsics.k2,
         intrinsics.p1,
         intrinsics.p2,
         intrinsics.width,
         intrinsics.height,
-        out_intrinsics.fx,
-        out_intrinsics.fy,
-        out_intrinsics.cx,
-        out_intrinsics.cy,
+        out_intrinsics.fx / out_intrinsics.width,
+        out_intrinsics.fy / out_intrinsics.height,
+        out_intrinsics.cx / out_intrinsics.width,
+        out_intrinsics.cy / out_intrinsics.height,
         out_intrinsics.width,
         out_intrinsics.height
     )
