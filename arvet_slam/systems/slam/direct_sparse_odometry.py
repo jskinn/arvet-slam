@@ -2,21 +2,14 @@
 import time
 import logging
 import typing
-from os import PathLike
-
 import numpy as np
-import re
-import queue
-import multiprocessing
 import enum
-import tempfile
-from pathlib import Path
 import pymodm.fields as fields
-from dso import DSOSystem, Undistort, UndistortPinhole, UndistortRadTan, Output3DWrapper, FrameShell, CalibHessian, configure as dso_configure
+from dso import DSOSystem, Undistort, UndistortPinhole, UndistortRadTan, Output3DWrapper, \
+    FrameShell, CalibHessian, configure as dso_configure
 
 import arvet.util.transform as tf
 import arvet.util.image_utils as image_utils
-from arvet.config.path_manager import PathManager
 from arvet.database.enum_field import EnumField
 from arvet.metadata.camera_intrinsics import CameraIntrinsics
 from arvet.core.system import VisionSystem
@@ -24,14 +17,6 @@ from arvet.core.image_source import ImageSource
 from arvet.core.image import Image
 from arvet.core.sequence_type import ImageSequenceType
 from arvet_slam.trials.slam.visual_slam import SLAMTrialResult, FrameResult, TrackingState
-
-
-# Try and use LibYAML where available, fall back to the python implementation
-from yaml import dump as yaml_dump
-try:
-    from yaml import CDumper as YamlDumper
-except ImportError:
-    from yaml import Dumper as YamlDumper
 
 
 class RectificationMode(enum.Enum):
@@ -262,32 +247,15 @@ class DSO(VisionSystem):
 
 
 class DSOOutputWrapper(Output3DWrapper):
+    """
+    A simple grabber for collecting frame estimates output from DSO
+    """
 
     def __init__(self):
         super().__init__()
         self.frame_deltas = []
 
-    # def publishGraph(self, connectivity: 'std::map< uint64_t,Eigen::Vector2i,std::less< uint64_t >,Eigen::aligned_allocator< std::pair< uint64_t const,Eigen::Vector2i > > > const &') -> None:
-    #     print("Got a graph? Ok I guess...")
-
-    # def needPushDepthImage(self) -> bool:
-    #     print("Asked about depth images")
-    #     return False
-
-    # def publishKeyframes(self, frames: 'FrameHessianVec', final: 'bool', HCalib: 'CalibHessian') -> None:
-    #     print("GOT A KEYFRAME!!!!!")
-
     def publishCamPose(self, frame: FrameShell, HCalib: CalibHessian) -> None:
-        # print("OUT: Current Frame {0} (time {1}, internal ID {2}). CameraToWorld:".format(
-        #     frame.incoming_id,
-        #     frame.timestamp,
-        #     frame.id
-        # ))
-        # print("Translation: {0}, Rotation: {1}".format(
-        #     frame.get_cam_to_world_translation(),
-        #     frame.get_cam_to_world_rotation()
-        # ))
-
         self.frame_deltas.append([
             frame.timestamp,
             np.squeeze(frame.get_cam_to_world_translation()),
