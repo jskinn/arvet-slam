@@ -156,6 +156,122 @@ class TestDSODatabase(unittest.TestCase):
         VisionSystem.objects.all().delete()
         ImageCollection.objects.all().delete()
 
+    def test_get_instance_throws_exception_without_rectification_mode(self):
+        with self.assertRaises(ValueError):
+            DSO.get_instance(rectification_intrinsics=CameraIntrinsics(
+                width=640,
+                height=480,
+                fx=320,
+                fy=320,
+                cx=320,
+                cy=240
+            ))
+
+    def test_get_instance_throws_exception_without_intrinsics(self):
+        for rectification_mode in {RectificationMode.CROP, RectificationMode.NONE, RectificationMode.CALIB}:
+            with self.assertRaises(ValueError):
+                DSO.get_instance(rectification_mode=rectification_mode)
+
+    def test_get_instance_can_create_an_instance(self):
+        rectification_mode = np.random.choice([RectificationMode.CALIB, RectificationMode.NONE, RectificationMode.CROP])
+        intrinsics = CameraIntrinsics(
+            width=int(np.random.randint(100, 500)),
+            height=int(np.random.randint(100, 500)),
+            fx=int(np.random.randint(100, 500)),
+            fy=int(np.random.randint(100, 500)),
+            cx=int(np.random.randint(100, 500)),
+            cy=int(np.random.randint(100, 500))
+        )
+        obj = DSO.get_instance(
+            rectification_mode=rectification_mode,
+            rectification_intrinsics=intrinsics
+        )
+        self.assertIsInstance(obj, DSO)
+        self.assertEqual(rectification_mode, obj.rectification_mode)
+        self.assertEqual(intrinsics, obj.rectification_intrinsics)
+
+        # Check the object can be saved
+        obj.save()
+
+    def test_get_instance_returns_an_existing_instance(self):
+        intrinsics = CameraIntrinsics(
+            width=int(np.random.randint(100, 500)),
+            height=int(np.random.randint(100, 500)),
+            fx=int(np.random.randint(100, 500)),
+            fy=int(np.random.randint(100, 500)),
+            cx=int(np.random.randint(100, 500)),
+            cy=int(np.random.randint(100, 500))
+        )
+        for rectification_mode in {RectificationMode.CROP, RectificationMode.NONE, RectificationMode.CALIB}:
+            obj = DSO(rectification_mode=rectification_mode, rectification_intrinsics=intrinsics)
+            obj.save()
+
+            result = DSO.get_instance(rectification_mode=rectification_mode, rectification_intrinsics=intrinsics)
+            self.assertIsInstance(result, DSO)
+            self.assertEqual(obj.pk, result.pk)
+            self.assertEqual(obj, result)
+
+    def test_get_instance_only_checks_width_height_for_crop_and_none_rectification(self):
+        intrinsics = CameraIntrinsics(
+            width=int(np.random.randint(100, 500)),
+            height=int(np.random.randint(100, 500)),
+            fx=int(np.random.randint(100, 500)),
+            fy=int(np.random.randint(100, 500)),
+            cx=int(np.random.randint(100, 500)),
+            cy=int(np.random.randint(100, 500))
+        )
+        for rectification_mode in {RectificationMode.CROP, RectificationMode.NONE}:
+            obj = DSO(rectification_mode=rectification_mode, rectification_intrinsics=intrinsics)
+            obj.save()
+
+            alt_intrinsics = CameraIntrinsics(
+                width=intrinsics.width,
+                height=intrinsics.height,
+                fx=intrinsics.fx + 10,  # these are different, but it shouldn't matter
+                fy=intrinsics.fy + 10,
+                cx=intrinsics.cx + 10,
+                cy=intrinsics.cy + 10
+            )
+            result = DSO.get_instance(rectification_mode=rectification_mode, rectification_intrinsics=alt_intrinsics)
+            self.assertIsInstance(result, DSO)
+            self.assertEqual(obj.pk, result.pk)
+            self.assertEqual(obj, result)
+
+    def test_get_instance_ignores_distortion_for_calib_rectification(self):
+        intrinsics = CameraIntrinsics(
+            width=int(np.random.randint(100, 500)),
+            height=int(np.random.randint(100, 500)),
+            fx=int(np.random.randint(100, 500)),
+            fy=int(np.random.randint(100, 500)),
+            cx=int(np.random.randint(100, 500)),
+            cy=int(np.random.randint(100, 500)),
+            k1=float(np.random.uniform(-0.1, 0.1)),
+            k2=float(np.random.uniform(-0.1, 0.1)),
+            k3=float(np.random.uniform(-0.1, 0.1)),
+            p1=float(np.random.uniform(-0.1, 0.1)),
+            p2=float(np.random.uniform(-0.1, 0.1))
+        )
+        obj = DSO(rectification_mode=RectificationMode.CALIB, rectification_intrinsics=intrinsics)
+        obj.save()
+
+        alt_intrinsics = CameraIntrinsics(
+            width=intrinsics.width,
+            height=intrinsics.height,
+            fx=intrinsics.fx,  # these are different, but it shouldn't matter
+            fy=intrinsics.fy,
+            cx=intrinsics.cx,
+            cy=intrinsics.cy,
+            k1=intrinsics.k1 * -3.2,
+            k2=intrinsics.k2 + 0.31,
+            k3=intrinsics.k3 + 0.31,
+            p1=intrinsics.p1 + 0.31,
+            p2=intrinsics.p2 + 0.31
+        )
+        result = DSO.get_instance(rectification_mode=RectificationMode.CALIB, rectification_intrinsics=alt_intrinsics)
+        self.assertIsInstance(result, DSO)
+        self.assertEqual(obj.pk, result.pk)
+        self.assertEqual(obj, result)
+
 
 class TestDSO(unittest.TestCase):
     temp_folder = 'temp-test-dso'

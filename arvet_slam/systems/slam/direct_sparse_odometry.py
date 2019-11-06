@@ -245,6 +245,46 @@ class DSO(VisionSystem):
             settings['out_cy'] = self.rectification_intrinsics.cy
         return settings
 
+    @classmethod
+    def get_instance(
+            cls,
+            rectification_mode: RectificationMode = None,
+            rectification_intrinsics: CameraIntrinsics = None
+    ) -> 'DSO':
+        """
+        Get an instance of this vision system, with some parameters, pulling from the database if possible,
+        or construct a new one if needed.
+        It is the responsibility of subclasses to ensure that as few instances of each system as possible exist
+        within the database.
+        Does not save the returned object, you'll usually want to do that straight away.
+        :return:
+        """
+        if rectification_mode is None:
+            raise ValueError("Cannot search for DSO without rectification mode")
+        if rectification_intrinsics is None:
+            raise ValueError("Cannot search for DSO without intrinsics")
+        # Look for existing objects with the same settings
+        query = {
+            'rectification_mode': rectification_mode.name,
+            'rectification_intrinsics.width': rectification_intrinsics.width,
+            'rectification_intrinsics.height': rectification_intrinsics.height
+        }
+        if rectification_mode is RectificationMode.CALIB:
+            # When using CALIB rectification, the other intrinsics matter
+            query['rectification_intrinsics.fx'] = rectification_intrinsics.fx
+            query['rectification_intrinsics.fy'] = rectification_intrinsics.fy
+            query['rectification_intrinsics.cx'] = rectification_intrinsics.cx
+            query['rectification_intrinsics.cy'] = rectification_intrinsics.cy
+        all_objects = DSO.objects.raw(query)
+        if all_objects.count() > 0:
+            return all_objects.first()
+        # There isn't an existing system with those settings, make a new one.
+        obj = cls(
+            rectification_mode=rectification_mode,
+            rectification_intrinsics=rectification_intrinsics
+        )
+        return obj
+
 
 class DSOOutputWrapper(Output3DWrapper):
     """
