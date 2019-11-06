@@ -113,6 +113,159 @@ class TestLibVisOMonoDatabase(unittest.TestCase):
         ImageCollection._mongometa.collection.drop()
         Image._mongometa.collection.drop()
 
+    def test_get_instance_can_create_an_instance(self):
+        matcher_nms_n = np.random.randint(1, 5)
+        matcher_nms_tau = np.random.randint(20, 100)
+        matcher_match_binsize = np.random.randint(20, 100)
+        matcher_match_radius = np.random.randint(20, 100)
+        matcher_match_disp_tolerance = np.random.randint(1, 5)
+        matcher_outlier_disp_tolerance = np.random.randint(2, 10)
+        matcher_outlier_flow_tolerance = np.random.randint(2, 10)
+        matcher_multi_stage = np.random.choice([True, False])
+        matcher_half_resolution = np.random.choice([True, False])
+        matcher_refinement = np.random.randint(20, 100)
+        bucketing_max_features = np.random.randint(2, 10)
+        bucketing_bucket_width = np.random.randint(20, 100)
+        bucketing_bucket_height = np.random.randint(20, 100)
+        height = np.random.uniform(0.8, 1.2)
+        pitch = np.random.uniform(-0.1, 0.1)
+        ransac_iters = np.random.randint(500, 3000)
+        inlier_threshold = np.random.uniform(0, 0.0001)
+        motion_threshold = np.random.uniform(20.0, 300.0)
+        obj = LibVisOMonoSystem.get_instance(
+            matcher_nms_n=matcher_nms_n,
+            matcher_nms_tau=matcher_nms_tau,
+            matcher_match_binsize=matcher_match_binsize,
+            matcher_match_radius=matcher_match_radius,
+            matcher_match_disp_tolerance=matcher_match_disp_tolerance,
+            matcher_outlier_disp_tolerance=matcher_outlier_disp_tolerance,
+            matcher_outlier_flow_tolerance=matcher_outlier_flow_tolerance,
+            matcher_multi_stage=matcher_multi_stage,
+            matcher_half_resolution=matcher_half_resolution,
+            matcher_refinement=matcher_refinement,
+            bucketing_max_features=bucketing_max_features,
+            bucketing_bucket_width=bucketing_bucket_width,
+            bucketing_bucket_height=bucketing_bucket_height,
+            height=height,
+            pitch=pitch,
+            ransac_iters=ransac_iters,
+            inlier_threshold=inlier_threshold,
+            motion_threshold=motion_threshold
+        )
+        self.assertEqual(matcher_nms_n, obj.matcher_nms_n)
+        self.assertEqual(matcher_nms_tau, obj.matcher_nms_tau)
+        self.assertEqual(matcher_match_binsize, obj.matcher_match_binsize)
+        self.assertEqual(matcher_match_radius, obj.matcher_match_radius)
+        self.assertEqual(matcher_match_disp_tolerance, obj.matcher_match_disp_tolerance)
+        self.assertEqual(matcher_outlier_disp_tolerance, obj.matcher_outlier_disp_tolerance)
+        self.assertEqual(matcher_outlier_flow_tolerance, obj.matcher_outlier_flow_tolerance)
+        self.assertEqual(matcher_multi_stage, obj.matcher_multi_stage)
+        self.assertEqual(matcher_half_resolution, obj.matcher_half_resolution)
+        self.assertEqual(matcher_refinement, obj.matcher_refinement)
+        self.assertEqual(bucketing_max_features, obj.bucketing_max_features)
+        self.assertEqual(bucketing_bucket_width, obj.bucketing_bucket_width)
+        self.assertEqual(bucketing_bucket_height, obj.bucketing_bucket_height)
+        self.assertEqual(height, obj.height)
+        self.assertEqual(pitch, obj.pitch)
+        self.assertEqual(ransac_iters, obj.ransac_iters)
+        self.assertEqual(inlier_threshold, obj.inlier_threshold)
+        self.assertEqual(motion_threshold, obj.motion_threshold)
+
+    def test_creates_an_instance_with_defaults_by_default(self):
+        obj = LibVisOMonoSystem()
+        result = LibVisOMonoSystem.get_instance()
+        self.assertEqual(obj.matcher_nms_n, result.matcher_nms_n)
+        self.assertEqual(obj.matcher_nms_tau, result.matcher_nms_tau)
+        self.assertEqual(obj.matcher_match_binsize, result.matcher_match_binsize)
+        self.assertEqual(obj.matcher_match_radius, result.matcher_match_radius)
+        self.assertEqual(obj.matcher_match_disp_tolerance, result.matcher_match_disp_tolerance)
+        self.assertEqual(obj.matcher_outlier_disp_tolerance, result.matcher_outlier_disp_tolerance)
+        self.assertEqual(obj.matcher_outlier_flow_tolerance, result.matcher_outlier_flow_tolerance)
+        self.assertEqual(obj.matcher_multi_stage, result.matcher_multi_stage)
+        self.assertEqual(obj.matcher_half_resolution, result.matcher_half_resolution)
+        self.assertEqual(obj.matcher_refinement, result.matcher_refinement)
+        self.assertEqual(obj.bucketing_max_features, result.bucketing_max_features)
+        self.assertEqual(obj.bucketing_bucket_width, result.bucketing_bucket_width)
+        self.assertEqual(obj.bucketing_bucket_height, result.bucketing_bucket_height)
+        self.assertEqual(obj.height, result.height)
+        self.assertEqual(obj.pitch, result.pitch)
+        self.assertEqual(obj.ransac_iters, result.ransac_iters)
+        self.assertEqual(obj.inlier_threshold, result.inlier_threshold)
+        self.assertEqual(obj.motion_threshold, result.motion_threshold)
+
+    def test_get_instance_returns_an_existing_instance_simple(self):
+        obj = LibVisOMonoSystem()
+        obj.save()
+
+        result = LibVisOMonoSystem.get_instance()
+        self.assertEqual(obj.pk, result.pk)
+        self.assertEqual(obj, result)
+
+    def test_get_instance_returns_an_existing_instance_complex(self):
+        matcher_nms_n = np.random.randint(1, 5)
+        matcher_nms_tau = np.random.randint(20, 100)
+        matcher_match_binsize = np.random.randint(20, 100)
+        matcher_match_radius = np.random.randint(20, 100)
+        matcher_match_disp_tolerance = np.random.randint(1, 5)
+        matcher_outlier_disp_tolerance = np.random.randint(2, 10)
+        matcher_outlier_flow_tolerance = np.random.randint(2, 10)
+        matcher_multi_stage = np.random.choice([True, False])
+        matcher_half_resolution = np.random.choice([True, False])
+        matcher_refinement = np.random.randint(20, 100)
+        bucketing_max_features = np.random.randint(2, 10)
+        bucketing_bucket_width = np.random.randint(20, 100)
+        bucketing_bucket_height = np.random.randint(20, 100)
+        height = np.random.uniform(0.8, 1.2)
+        pitch = np.random.uniform(-0.1, 0.1)
+        ransac_iters = np.random.randint(500, 3000)
+        inlier_threshold = np.random.uniform(0, 0.0001)
+        motion_threshold = np.random.uniform(20.0, 300.0)
+
+        obj = LibVisOMonoSystem(
+            matcher_nms_n=matcher_nms_n,
+            matcher_nms_tau=matcher_nms_tau,
+            matcher_match_binsize=matcher_match_binsize,
+            matcher_match_radius=matcher_match_radius,
+            matcher_match_disp_tolerance=matcher_match_disp_tolerance,
+            matcher_outlier_disp_tolerance=matcher_outlier_disp_tolerance,
+            matcher_outlier_flow_tolerance=matcher_outlier_flow_tolerance,
+            matcher_multi_stage=matcher_multi_stage,
+            matcher_half_resolution=matcher_half_resolution,
+            matcher_refinement=matcher_refinement,
+            bucketing_max_features=bucketing_max_features,
+            bucketing_bucket_width=bucketing_bucket_width,
+            bucketing_bucket_height=bucketing_bucket_height,
+            height=height,
+            pitch=pitch,
+            ransac_iters=ransac_iters,
+            inlier_threshold=inlier_threshold,
+            motion_threshold=motion_threshold
+        )
+        obj.save()
+
+        result = LibVisOMonoSystem.get_instance(
+            matcher_nms_n=matcher_nms_n,
+            matcher_nms_tau=matcher_nms_tau,
+            matcher_match_binsize=matcher_match_binsize,
+            matcher_match_radius=matcher_match_radius,
+            matcher_match_disp_tolerance=matcher_match_disp_tolerance,
+            matcher_outlier_disp_tolerance=matcher_outlier_disp_tolerance,
+            matcher_outlier_flow_tolerance=matcher_outlier_flow_tolerance,
+            matcher_multi_stage=matcher_multi_stage,
+            matcher_half_resolution=matcher_half_resolution,
+            matcher_refinement=matcher_refinement,
+            bucketing_max_features=bucketing_max_features,
+            bucketing_bucket_width=bucketing_bucket_width,
+            bucketing_bucket_height=bucketing_bucket_height,
+            height=height,
+            pitch=pitch,
+            ransac_iters=ransac_iters,
+            inlier_threshold=inlier_threshold,
+            motion_threshold=motion_threshold
+        )
+        self.assertEqual(obj.pk, result.pk)
+        self.assertEqual(obj, result)
+
 
 class TestLibVisOMono(unittest.TestCase):
 

@@ -290,6 +290,56 @@ class OrbSlam2(VisionSystem):
         self._start_time = None
         return result
 
+    @classmethod
+    def get_instance(
+            cls,
+            vocabulary_file: str = None,
+            mode: SensorMode = None,
+            depth_threshold: float = 40.0,
+            orb_num_features: int = 2000,
+            orb_scale_factor: float = 1.2,
+            orb_num_levels: int = 8,
+            orb_ini_threshold_fast: int = 12,
+            orb_min_threshold_fast: int = 7
+    ) -> 'OrbSlam2':
+        """
+        Get an instance of this vision system, with some parameters, pulling from the database if possible,
+        or construct a new one if needed.
+        It is the responsibility of subclasses to ensure that as few instances of each system as possible exist
+        within the database.
+        Does not save the returned object, you'll usually want to do that straight away.
+        :return:
+        """
+        if vocabulary_file is None:
+            raise ValueError("Cannot search for None vocabulary file, please specify a vocab file")
+        if mode is None:
+            raise ValueError("Cannot search for ORBSLAM without a mode, please specify a sensor mode")
+        # Look for existing objects with the same settings
+        all_objects = OrbSlam2.objects.raw({
+            'vocabulary_file': str(vocabulary_file),
+            'mode': str(mode.name),
+            'depth_threshold': float(depth_threshold),
+            'orb_num_features': int(orb_num_features),
+            'orb_scale_factor': float(orb_scale_factor),
+            'orb_num_levels': int(orb_num_levels),
+            'orb_ini_threshold_fast': int(orb_ini_threshold_fast),
+            'orb_min_threshold_fast': int(orb_min_threshold_fast)
+        })
+        if all_objects.count() > 0:
+            return all_objects.first()
+        # There isn't an existing system with those settings, make a new one.
+        obj = cls(
+            vocabulary_file=str(vocabulary_file),
+            mode=mode,
+            depth_threshold=float(depth_threshold),
+            orb_num_features=int(orb_num_features),
+            orb_scale_factor=float(orb_scale_factor),
+            orb_num_levels=int(orb_num_levels),
+            orb_ini_threshold_fast=int(orb_ini_threshold_fast),
+            orb_min_threshold_fast=int(orb_min_threshold_fast)
+        )
+        return obj
+
     def save_settings(self):
         if self._settings_file is None:
             if self._temp_folder is None:

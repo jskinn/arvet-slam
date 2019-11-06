@@ -318,6 +318,106 @@ class TestOrbSlam2Database(unittest.TestCase):
         VisionSystem.objects.all().delete()
         ImageCollection.objects.all().delete()
 
+    def test_get_instance_throws_exception_without_vocab(self):
+        for sensor_mode in {SensorMode.MONOCULAR, SensorMode.RGBD, SensorMode.STEREO}:
+            with self.assertRaises(ValueError):
+                OrbSlam2.get_instance(mode=sensor_mode)
+
+    def test_get_instance_throws_exception_without_sensor_mode(self):
+        with self.assertRaises(ValueError):
+            OrbSlam2.get_instance(vocabulary_file="ORBvoc-synth.txt")
+
+    def test_get_instance_can_create_an_instance(self):
+        voc_file = 'im-a-file-{0}'.format(np.random.randint(0, 100000))
+        sensor_mode = SensorMode.RGBD
+        depth_threshold = float(np.random.uniform(10, 100.0))
+        orb_num_features = int(np.random.randint(100, 2000))
+        orb_scale_factor = float(np.random.uniform(0.5, 2.0))
+        orb_num_levels = int(np.random.randint(5, 10))
+        orb_ini_threshold_fast = int(np.random.randint(11, 20))
+        orb_min_threshold_fast = int(np.random.randint(5, 10))
+        obj = OrbSlam2.get_instance(
+            vocabulary_file=voc_file,
+            mode=sensor_mode,
+            depth_threshold=depth_threshold,
+            orb_num_features=orb_num_features,
+            orb_scale_factor=orb_scale_factor,
+            orb_num_levels=orb_num_levels,
+            orb_ini_threshold_fast=orb_ini_threshold_fast,
+            orb_min_threshold_fast=orb_min_threshold_fast
+        )
+        self.assertIsInstance(obj, OrbSlam2)
+        self.assertEqual(voc_file, obj.vocabulary_file)
+        self.assertEqual(sensor_mode, obj.mode)
+        self.assertEqual(depth_threshold, obj.depth_threshold)
+        self.assertEqual(orb_num_features, obj.orb_num_features)
+        self.assertEqual(orb_scale_factor, obj.orb_scale_factor)
+        self.assertEqual(orb_num_levels, obj.orb_num_levels)
+        self.assertEqual(orb_ini_threshold_fast, obj.orb_ini_threshold_fast)
+        self.assertEqual(orb_min_threshold_fast, obj.orb_min_threshold_fast)
+
+        # Check the object can be saved
+        obj.save()
+
+    def test_creates_an_instance_with_defaults_by_default(self):
+        voc_file = 'im-a-file-{0}'.format(np.random.randint(0, 100000))
+        for sensor_mode in {SensorMode.MONOCULAR, SensorMode.STEREO, SensorMode.RGBD}:
+            obj = OrbSlam2(vocabulary_file=voc_file, mode=sensor_mode)
+            result = OrbSlam2.get_instance(vocabulary_file=voc_file, mode=sensor_mode)
+
+            self.assertEqual(obj.depth_threshold, result.depth_threshold)
+            self.assertEqual(obj.orb_num_features, result.orb_num_features)
+            self.assertEqual(obj.orb_scale_factor, result.orb_scale_factor)
+            self.assertEqual(obj.orb_num_levels, result.orb_num_levels)
+            self.assertEqual(obj.orb_ini_threshold_fast, result.orb_ini_threshold_fast)
+            self.assertEqual(obj.orb_min_threshold_fast, result.orb_min_threshold_fast)
+
+    def test_get_instance_returns_an_existing_instance_simple(self):
+        voc_file = 'im-a-file-{0}'.format(np.random.randint(0, 100000))
+        for sensor_mode in {SensorMode.MONOCULAR, SensorMode.STEREO, SensorMode.RGBD}:
+            obj = OrbSlam2(vocabulary_file=voc_file, mode=sensor_mode)
+            obj.save()
+
+            result = OrbSlam2.get_instance(vocabulary_file=voc_file, mode=sensor_mode)
+            self.assertIsInstance(result, OrbSlam2)
+            self.assertEqual(obj.pk, result.pk)
+            self.assertEqual(obj, result)
+
+    def test_get_instance_returns_existing_instance_complex(self):
+        voc_file = 'im-a-file-{0}'.format(np.random.randint(0, 100000))
+        sensor_mode = SensorMode.RGBD
+        depth_threshold = float(np.random.uniform(10, 100.0))
+        orb_num_features = int(np.random.randint(100, 2000))
+        orb_scale_factor = float(np.random.uniform(0.5, 2.0))
+        orb_num_levels = int(np.random.randint(5, 10))
+        orb_ini_threshold_fast = int(np.random.randint(11, 20))
+        orb_min_threshold_fast = int(np.random.randint(5, 10))
+
+        obj = OrbSlam2(
+            vocabulary_file=voc_file,
+            mode=sensor_mode,
+            depth_threshold=depth_threshold,
+            orb_num_features=orb_num_features,
+            orb_scale_factor=orb_scale_factor,
+            orb_num_levels=orb_num_levels,
+            orb_ini_threshold_fast=orb_ini_threshold_fast,
+            orb_min_threshold_fast=orb_min_threshold_fast
+        )
+        obj.save()
+
+        result = OrbSlam2.get_instance(
+            vocabulary_file=voc_file,
+            mode=sensor_mode,
+            depth_threshold=depth_threshold,
+            orb_num_features=orb_num_features,
+            orb_scale_factor=orb_scale_factor,
+            orb_num_levels=orb_num_levels,
+            orb_ini_threshold_fast=orb_ini_threshold_fast,
+            orb_min_threshold_fast=orb_min_threshold_fast
+        )
+        self.assertEqual(obj.pk, result.pk)
+        self.assertEqual(obj, result)
+
 
 class TestOrbSlam2(unittest.TestCase):
     temp_folder = 'temp-test-orbslam2'
