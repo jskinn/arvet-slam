@@ -181,10 +181,15 @@ class TestFrameErrorGetProperties(unittest.TestCase):
             pixels=self.pixels,
             metadata=make_metadata(self.pixels)
         )
+        self.motion = Transform(
+            (1.33, -0.233, -0.0343),
+            (-0.5, 0.5, 0.5, -0.5)
+        )
 
         self.repeat = 1
         self.timestamp = 1.3
         self.tracking = TrackingState.OK
+        self.processing_time = 0.568
         self.num_features = 423
         self.num_matches = 238
         self.absolute_error = PoseError(
@@ -216,7 +221,9 @@ class TestFrameErrorGetProperties(unittest.TestCase):
             repeat=self.repeat,
             timestamp=self.timestamp,
             image=self.image,
+            processing_time=self.processing_time,
             tracking=self.tracking,
+            motion=self.motion,
             num_features=self.num_features,
             num_matches=self.num_matches,
             absolute_error=self.absolute_error,
@@ -230,6 +237,15 @@ class TestFrameErrorGetProperties(unittest.TestCase):
             'repeat': self.repeat,
             'timestamp': self.timestamp,
             'tracking': self.tracking == TrackingState.OK,
+            'processing_time': self.processing_time,
+            'motion_x': self.motion.x,
+            'motion_y': self.motion.y,
+            'motion_z': self.motion.z,
+            'motion_roll': self.motion.euler[0],
+            'motion_pitch': self.motion.euler[1],
+            'motion_yaw': self.motion.euler[2],
+            'num_features': self.num_features,
+            'num_matches': self.num_matches,
 
             'abs_error_x': self.absolute_error.x,
             'abs_error_y': self.absolute_error.y,
@@ -250,10 +266,7 @@ class TestFrameErrorGetProperties(unittest.TestCase):
             'trans_noise_z': self.noise.z,
             'trans_noise_length': self.noise.length,
             'trans_noise_direction': self.noise.direction,
-            'rot_noise': self.noise.rot,
-
-            'num_features': self.num_features,
-            'num_matches': self.num_matches,
+            'rot_noise': self.noise.rot
         })
         self.assertEqual(expected_properties, self.frame_error.get_properties())
 
@@ -321,6 +334,7 @@ class TestFrameErrorGetProperties(unittest.TestCase):
             repeat=self.repeat,
             timestamp=self.timestamp,
             image=self.image,
+            motion=self.motion,
             absolute_error=self.absolute_error,
             relative_error=self.relative_error
         )
@@ -329,6 +343,15 @@ class TestFrameErrorGetProperties(unittest.TestCase):
             'repeat': self.repeat,
             'timestamp': self.timestamp,
             'tracking': True,
+            'processing_time': np.nan,
+            'motion_x': self.motion.x,
+            'motion_y': self.motion.y,
+            'motion_z': self.motion.z,
+            'motion_roll': self.motion.euler[0],
+            'motion_pitch': self.motion.euler[1],
+            'motion_yaw': self.motion.euler[2],
+            'num_features': 0,
+            'num_matches': 0,
 
             'abs_error_x': self.absolute_error.x,
             'abs_error_y': self.absolute_error.y,
@@ -349,10 +372,7 @@ class TestFrameErrorGetProperties(unittest.TestCase):
             'trans_noise_z': None,
             'trans_noise_length': None,
             'trans_noise_direction': None,
-            'rot_noise': None,
-
-            'num_features': 0,
-            'num_matches': 0,
+            'rot_noise': None
         })
         self.assertEqual(expected_properties, frame_error.get_properties())
 
@@ -385,6 +405,8 @@ class TestFrameErrorDatabase(unittest.TestCase):
             timestamp=1.3,
             image=image,
             tracking=TrackingState.OK,
+            motion=Transform((1.2, 0.1, -0.03), (0, 1, 0, 0)),
+            processing_time=0.223,
             num_features=423,
             num_matches=238,
             absolute_error=PoseError(
@@ -446,22 +468,7 @@ class TestFrameErrorDatabase(unittest.TestCase):
         frame_error = FrameError(
             timestamp=1.3,
             image=image,
-            absolute_error=PoseError(
-                x=10,
-                y=11,
-                z=12,
-                length=np.sqrt(100 + 121 + 144),
-                direction=np.pi / 7,
-                rot=np.pi / 5
-            ),
-            relative_error=PoseError(
-                x=13,
-                y=14,
-                z=15,
-                length=np.sqrt(169 + 196 + 225),
-                direction=np.pi / 36,
-                rot=np.pi / 2
-            )
+            motion=Transform((1.2, 0.1, -0.03), (0, 1, 0, 0))
         )
         with self.assertRaises(ValidationError):
             frame_error.save()
@@ -470,22 +477,7 @@ class TestFrameErrorDatabase(unittest.TestCase):
         frame_error = FrameError(
             repeat=1,
             image=image,
-            absolute_error=PoseError(
-                x=10,
-                y=11,
-                z=12,
-                length=np.sqrt(100 + 121 + 144),
-                direction=np.pi / 7,
-                rot=np.pi / 5
-            ),
-            relative_error=PoseError(
-                x=13,
-                y=14,
-                z=15,
-                length=np.sqrt(169 + 196 + 225),
-                direction=np.pi / 36,
-                rot=np.pi / 2
-            )
+            motion=Transform((1.2, 0.1, -0.03), (0, 1, 0, 0)),
         )
         with self.assertRaises(ValidationError):
             frame_error.save()
@@ -494,22 +486,16 @@ class TestFrameErrorDatabase(unittest.TestCase):
         frame_error = FrameError(
             repeat=1,
             timestamp=1.3,
-            absolute_error=PoseError(
-                x=10,
-                y=11,
-                z=12,
-                length=np.sqrt(100 + 121 + 144),
-                direction=np.pi / 7,
-                rot=np.pi / 5
-            ),
-            relative_error=PoseError(
-                x=13,
-                y=14,
-                z=15,
-                length=np.sqrt(169 + 196 + 225),
-                direction=np.pi / 36,
-                rot=np.pi / 2
-            )
+            motion=Transform((1.2, 0.1, -0.03), (0, 1, 0, 0))
+        )
+        with self.assertRaises(ValidationError):
+            frame_error.save()
+
+        # No motion
+        frame_error = FrameError(
+            repeat=1,
+            timestamp=1.3,
+            image=image
         )
         with self.assertRaises(ValidationError):
             frame_error.save()
@@ -533,6 +519,15 @@ class TestFrameErrorResult(unittest.TestCase):
             'repeat',
             'timestamp',
             'tracking',
+            'processing_time',
+            'motion_x',
+            'motion_y',
+            'motion_z',
+            'motion_roll',
+            'motion_pitch',
+            'motion_yaw',
+            'num_features',
+            'num_matches',
 
             'abs_error_x',
             'abs_error_y',
@@ -554,9 +549,6 @@ class TestFrameErrorResult(unittest.TestCase):
             'trans_noise_length',
             'trans_noise_direction',
             'rot_noise',
-
-            'num_features',
-            'num_matches',
 
             'mock_column_1',
             'mock_column_2'
@@ -575,6 +567,15 @@ class TestFrameErrorResult(unittest.TestCase):
             'repeat',
             'timestamp',
             'tracking',
+            'processing_time',
+            'motion_x',
+            'motion_y',
+            'motion_z',
+            'motion_roll',
+            'motion_pitch',
+            'motion_yaw',
+            'num_features',
+            'num_matches',
 
             'abs_error_x',
             'abs_error_y',
@@ -596,9 +597,6 @@ class TestFrameErrorResult(unittest.TestCase):
             'trans_noise_length',
             'trans_noise_direction',
             'rot_noise',
-
-            'num_features',
-            'num_matches',
 
             'mock_column_1',
             'mock_column_2'
@@ -617,6 +615,15 @@ class TestFrameErrorResult(unittest.TestCase):
             'repeat',
             'timestamp',
             'tracking',
+            'processing_time',
+            'motion_x',
+            'motion_y',
+            'motion_z',
+            'motion_roll',
+            'motion_pitch',
+            'motion_yaw',
+            'num_features',
+            'num_matches',
 
             'abs_error_x',
             'abs_error_y',
@@ -639,9 +646,6 @@ class TestFrameErrorResult(unittest.TestCase):
             'trans_noise_direction',
             'rot_noise',
 
-            'num_features',
-            'num_matches',
-
             'mock_column_1',
             'mock_column_2'
         }, result.get_columns())
@@ -659,6 +663,15 @@ class TestFrameErrorResult(unittest.TestCase):
             'repeat',
             'timestamp',
             'tracking',
+            'processing_time',
+            'motion_x',
+            'motion_y',
+            'motion_z',
+            'motion_roll',
+            'motion_pitch',
+            'motion_yaw',
+            'num_features',
+            'num_matches',
 
             'abs_error_x',
             'abs_error_y',
@@ -699,6 +712,15 @@ class TestFrameErrorResult(unittest.TestCase):
             'repeat',
             'timestamp',
             'tracking',
+            'processing_time',
+            'motion_x',
+            'motion_y',
+            'motion_z',
+            'motion_roll',
+            'motion_pitch',
+            'motion_yaw',
+            'num_features',
+            'num_matches',
 
             'abs_error_x',
             'abs_error_y',
@@ -720,9 +742,6 @@ class TestFrameErrorResult(unittest.TestCase):
             'trans_noise_length',
             'trans_noise_direction',
             'rot_noise',
-
-            'num_features',
-            'num_matches',
 
             'mock_column_1',
             'mock_column_2'
@@ -740,6 +759,15 @@ class TestFrameErrorResult(unittest.TestCase):
             'repeat',
             'timestamp',
             'tracking',
+            'processing_time',
+            'motion_x',
+            'motion_y',
+            'motion_z',
+            'motion_roll',
+            'motion_pitch',
+            'motion_yaw',
+            'num_features',
+            'num_matches',
 
             'abs_error_x',
             'abs_error_y',
@@ -760,10 +788,7 @@ class TestFrameErrorResult(unittest.TestCase):
             'trans_noise_z',
             'trans_noise_length',
             'trans_noise_direction',
-            'rot_noise',
-
-            'num_features',
-            'num_matches'
+            'rot_noise'
         }
 
         # Make images and errors
@@ -775,6 +800,7 @@ class TestFrameErrorResult(unittest.TestCase):
             timestamp=1.3 * idx,
             image=mock_image,
             tracking=TrackingState.OK,
+            motion=Transform((1.2, 0.1, -0.03), (-0.5, 0.5, -0.5, -0.5)),
             num_features=423,
             num_matches=238,
             absolute_error=make_pose_error(Transform((1.1 * idx, 0, 0)), Transform((idx, 0, 0))),
@@ -820,6 +846,7 @@ class TestFrameErrorResult(unittest.TestCase):
             timestamp=1.3 * idx,
             image=mock_image,
             tracking=TrackingState.OK,
+            motion=Transform((1.2, 0.1, -0.03), (-0.5, 0.5, -0.5, -0.5)),
             num_features=423,
             num_matches=238,
             absolute_error=make_pose_error(Transform((1.1 * idx, 0, 0)), Transform((idx, 0, 0))),
@@ -854,6 +881,7 @@ class TestFrameErrorResult(unittest.TestCase):
             timestamp=1.3 * idx,
             image=mock_image,
             tracking=TrackingState.OK,
+            motion=Transform((1.2, 0.1, -0.03), (-0.5, 0.5, -0.5, -0.5)),
             num_features=423,
             num_matches=238,
             absolute_error=make_pose_error(Transform((1.1 * idx, 0, 0)), Transform((idx, 0, 0))),
@@ -888,6 +916,7 @@ class TestFrameErrorResult(unittest.TestCase):
             timestamp=1.3 * idx,
             image=mock_image,
             tracking=TrackingState.OK,
+            motion=Transform((1.2, 0.1, -0.03), (-0.5, 0.5, -0.5, -0.5)),
             num_features=423,
             num_matches=238,
             absolute_error=make_pose_error(Transform((1.1 * idx, 0, 0)), Transform((idx, 0, 0))),
@@ -918,6 +947,7 @@ class TestFrameErrorResult(unittest.TestCase):
             repeat=repeat,
             timestamp=1.3 * idx,
             image=mock_image,
+            motion=Transform((1.2, 0.1, -0.03), (-0.5, 0.5, -0.5, -0.5)),
             tracking=TrackingState.OK,
             num_features=423,
             num_matches=238,
@@ -952,6 +982,7 @@ class TestFrameErrorResult(unittest.TestCase):
             repeat=repeat,
             timestamp=1.3 * idx,
             image=mock_image,
+            motion=Transform((1.2, 0.1, -0.03), (-0.5, 0.5, -0.5, -0.5)),
             tracking=TrackingState.OK,
             num_features=423,
             num_matches=238,
@@ -983,6 +1014,7 @@ class TestFrameErrorResult(unittest.TestCase):
             repeat=repeat,
             timestamp=1.3 * idx,
             image=mock_image,
+            motion=Transform((1.2, 0.1, -0.03), (-0.5, 0.5, -0.5, -0.5)),
             tracking=TrackingState.OK,
             num_features=423,
             num_matches=238,
@@ -1017,6 +1049,7 @@ class TestFrameErrorResult(unittest.TestCase):
             repeat=repeat,
             timestamp=1.3 * idx,
             image=mock_image,
+            motion=Transform((1.2, 0.1, -0.03), (-0.5, 0.5, -0.5, -0.5)),
             tracking=TrackingState.OK,
             num_features=423,
             num_matches=238,
@@ -1048,6 +1081,7 @@ class TestFrameErrorResult(unittest.TestCase):
             repeat=repeat,
             timestamp=1.3 * idx,
             image=mock_image,
+            motion=Transform((1.2, 0.1, -0.03), (-0.5, 0.5, -0.5, -0.5)),
             tracking=TrackingState.OK,
             num_features=423,
             num_matches=238,
@@ -1082,6 +1116,7 @@ class TestFrameErrorResult(unittest.TestCase):
             repeat=repeat,
             timestamp=1.3 * idx,
             image=mock_image,
+            motion=Transform((1.2, 0.1, -0.03), (-0.5, 0.5, -0.5, -0.5)),
             tracking=TrackingState.OK,
             num_features=423,
             num_matches=238,
@@ -1164,6 +1199,7 @@ class TestFrameErrorResultDatabase(unittest.TestCase):
                     repeat=repeat,
                     timestamp=1.3 * idx,
                     image=image,
+                    motion=true_motion,
                     tracking=TrackingState.OK,
                     num_features=423,
                     num_matches=238,
@@ -1330,6 +1366,7 @@ class TestFrameErrorResultDatabase(unittest.TestCase):
                     repeat=repeat,
                     timestamp=1.3 * idx,
                     image=image,
+                    motion=true_motion,
                     tracking=TrackingState.OK,
                     num_features=423,
                     num_matches=238,

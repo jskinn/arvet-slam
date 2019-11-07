@@ -28,6 +28,7 @@ class FrameResult(pymodm.EmbeddedMongoModel):
     estimated_pose = TransformField(blank=True)
     estimated_motion = TransformField(blank=True)
     tracking_state = EnumField(TrackingState, default=TrackingState.OK, required=True)
+    # is_loop_closure = fields.BooleanField(default=False)
     num_features = fields.IntegerField(default=0)
     num_matches = fields.IntegerField(default=0)
 

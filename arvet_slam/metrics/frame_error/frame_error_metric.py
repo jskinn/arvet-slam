@@ -14,6 +14,7 @@ from pymodm.context_managers import no_auto_dereference
 from arvet.database.autoload_modules import autoload_modules
 from arvet.database.reference_list_field import ReferenceListField
 from arvet.database.enum_field import EnumField
+from arvet.database.transform_field import TransformField
 from arvet.core.system import VisionSystem
 from arvet.core.image_source import ImageSource
 from arvet.core.image import Image
@@ -50,6 +51,9 @@ class FrameError(pymodm.MongoModel):
     repeat = fields.IntegerField(required=True)
     timestamp = fields.FloatField(required=True)
     image = fields.ReferenceField(Image, required=True, on_delete=fields.ReferenceField.CASCADE)
+    motion = TransformField(required=True)
+    processing_time = fields.FloatField(default=np.nan)
+
     tracking = EnumField(TrackingState, default=TrackingState.OK)
     absolute_error = fields.EmbeddedDocumentField(PoseError)
     relative_error = fields.EmbeddedDocumentField(PoseError)
@@ -61,6 +65,15 @@ class FrameError(pymodm.MongoModel):
         repeat=attrgetter('repeat'),
         timestamp=attrgetter('timestamp'),
         tracking=attrgetter('is_tracking'),
+        processing_time=attrgetter('processing_time'),
+        motion_x=attrgetter('motion.x'),
+        motion_y=attrgetter('motion.y'),
+        motion_z=attrgetter('motion.z'),
+        motion_roll=lambda obj: obj.motion.euler[0],
+        motion_pitch=lambda obj: obj.motion.euler[1],
+        motion_yaw=lambda obj: obj.motion.euler[2],
+        num_features=attrgetter('num_features'),
+        num_matches=attrgetter('num_matches'),
 
         abs_error_x=attrgetter('absolute_error.x'),
         abs_error_y=attrgetter('absolute_error.y'),
@@ -81,10 +94,7 @@ class FrameError(pymodm.MongoModel):
         trans_noise_z=lambda obj: obj.noise.z if obj.noise is not None else None,
         trans_noise_length=lambda obj: obj.noise.length if obj.noise is not None else None,
         trans_noise_direction=lambda obj: obj.noise.direction if obj.noise is not None else None,
-        rot_noise=lambda obj: obj.noise.rot if obj.noise is not None else None,
-
-        num_features=attrgetter('num_features'),
-        num_matches=attrgetter('num_matches')
+        rot_noise=lambda obj: obj.noise.rot if obj.noise is not None else None
     )
 
     @property
@@ -251,6 +261,7 @@ class FrameErrorMetric(Metric):
     def measure_results(self, trial_results: typing.Iterable[TrialResult]) -> FrameErrorResult:
         """
         Collect the errors
+        TODO: Track the error introduced by a loop closure, somehow. Might need to track loop closures in the FrameResult
         :param trial_results: The results of several trials to aggregate
         :return:
         :rtype BenchmarkResult:
@@ -306,6 +317,8 @@ class FrameErrorMetric(Metric):
                     timestamp=frame_result.timestamp,
                     image=frame_result.image,
                     tracking=frame_result.tracking_state,
+                    processing_time=frame_result.processing_time,
+                    motion=frame_result.motion,
                     num_features=frame_result.num_features,
                     num_matches=frame_result.num_matches
                 )
