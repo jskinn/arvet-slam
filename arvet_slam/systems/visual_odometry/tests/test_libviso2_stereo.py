@@ -13,7 +13,7 @@ from arvet.core.sequence_type import ImageSequenceType
 from arvet.core.image import StereoImage
 from arvet.core.image_collection import ImageCollection
 
-from arvet_slam.systems.visual_odometry.libviso2 import LibVisOStereoSystem
+from arvet_slam.systems.visual_odometry.libviso2 import LibVisOStereoSystem, MatcherRefinement
 from arvet_slam.trials.slam.tracking_state import TrackingState
 from arvet_slam.trials.slam.visual_slam import SLAMTrialResult
 
@@ -46,7 +46,7 @@ class TestLibVisOStereoDatabase(unittest.TestCase):
             'matcher_outlier_flow_tolerance': np.random.randint(0, 10),
             'matcher_multi_stage': np.random.choice([True, False]),
             'matcher_half_resolution': np.random.choice([True, False]),
-            'matcher_refinement': np.random.randint(0, 3),
+            'matcher_refinement': np.random.choice(MatcherRefinement),
             'bucketing_max_features': np.random.randint(0, 10),
             'bucketing_bucket_width': np.random.randint(0, 100),
             'bucketing_bucket_height': np.random.randint(0, 100),
@@ -122,7 +122,7 @@ class TestLibVisOStereoDatabase(unittest.TestCase):
         matcher_outlier_flow_tolerance = np.random.randint(2, 10)
         matcher_multi_stage = np.random.choice([True, False])
         matcher_half_resolution = np.random.choice([True, False])
-        matcher_refinement = np.random.randint(20, 100)
+        matcher_refinement = np.random.choice(MatcherRefinement)
         bucketing_max_features = np.random.randint(2, 10)
         bucketing_bucket_width = np.random.randint(20, 100)
         bucketing_bucket_height = np.random.randint(20, 100)
@@ -202,7 +202,7 @@ class TestLibVisOStereoDatabase(unittest.TestCase):
         matcher_outlier_flow_tolerance = np.random.randint(2, 10)
         matcher_multi_stage = np.random.choice([True, False])
         matcher_half_resolution = np.random.choice([True, False])
-        matcher_refinement = np.random.randint(20, 100)
+        matcher_refinement = np.random.choice(MatcherRefinement)
         bucketing_max_features = np.random.randint(2, 10)
         bucketing_bucket_width = np.random.randint(20, 100)
         bucketing_bucket_height = np.random.randint(20, 100)
@@ -291,7 +291,7 @@ class TestLibVisOStereo(unittest.TestCase):
         matcher_outlier_flow_tolerance = 6
         matcher_multi_stage = False
         matcher_half_resolution = False
-        matcher_refinement = 36
+        matcher_refinement = MatcherRefinement.SUBPIXEL
         bucketing_max_features = 6
         bucketing_bucket_width = 45
         bucketing_bucket_height = 66
@@ -346,7 +346,7 @@ class TestLibVisOStereo(unittest.TestCase):
         matcher_outlier_flow_tolerance = 6
         matcher_multi_stage = False
         matcher_half_resolution = False
-        matcher_refinement = 36
+        matcher_refinement = MatcherRefinement.SUBPIXEL
         bucketing_max_features = 6
         bucketing_bucket_width = 45
         bucketing_bucket_height = 66

@@ -4,6 +4,7 @@ import numpy as np
 import typing
 import logging
 import time
+from enum import Enum
 from operator import attrgetter
 import pymodm.fields as fields
 
@@ -11,6 +12,7 @@ from viso2 import Mono_parameters, Stereo_parameters, VisualOdometryStereo, Visu
 
 from arvet.util.column_list import ColumnList
 import arvet.util.image_utils as image_utils
+from arvet.database.enum_field import EnumField
 from arvet.metadata.camera_intrinsics import CameraIntrinsics
 from arvet.database.pymodm_abc import ABCModelMeta
 from arvet.core.image import Image
@@ -20,6 +22,12 @@ from arvet.core.system import VisionSystem
 import arvet.util.transform as tf
 from arvet_slam.trials.slam.tracking_state import TrackingState
 from arvet_slam.trials.slam.visual_slam import FrameResult, SLAMTrialResult
+
+
+class MatcherRefinement(Enum):
+    NONE = 0
+    PIXEL = 1
+    SUBPIXEL = 2
 
 
 class LibVisOSystem(VisionSystem, metaclass=ABCModelMeta):
@@ -36,7 +44,7 @@ class LibVisOSystem(VisionSystem, metaclass=ABCModelMeta):
     matcher_outlier_flow_tolerance = fields.IntegerField(default=5)
     matcher_multi_stage = fields.BooleanField(default=True)
     matcher_half_resolution = fields.BooleanField(default=True)
-    matcher_refinement = fields.IntegerField(default=50)
+    matcher_refinement = EnumField(MatcherRefinement, default=MatcherRefinement.PIXEL)
     bucketing_max_features = fields.IntegerField(default=2)
     bucketing_bucket_width = fields.IntegerField(default=50)
     bucketing_bucket_height = fields.IntegerField(default=50)
@@ -261,7 +269,7 @@ class LibVisOStereoSystem(LibVisOSystem):
         params.match.outlier_flow_tolerance = self.matcher_outlier_flow_tolerance
         params.match.multi_stage = 1 if self.matcher_multi_stage else 0
         params.match.half_resolution = 1 if self.matcher_half_resolution else 0
-        params.match.refinement = self.matcher_refinement
+        params.match.refinement = self.matcher_refinement.value
         logging.getLogger(__name__).debug("    Added matcher parameters ...")
 
         # Feature bucketing
@@ -339,7 +347,7 @@ class LibVisOStereoSystem(LibVisOSystem):
             matcher_outlier_flow_tolerance: int = 5,
             matcher_multi_stage: bool = True,
             matcher_half_resolution: bool = True,
-            matcher_refinement: int = 50,
+            matcher_refinement: MatcherRefinement = MatcherRefinement.PIXEL,
             bucketing_max_features: int = 2,
             bucketing_bucket_width: int = 50,
             bucketing_bucket_height: int = 50,
@@ -366,7 +374,7 @@ class LibVisOStereoSystem(LibVisOSystem):
             'matcher_outlier_flow_tolerance': int(matcher_outlier_flow_tolerance),
             'matcher_multi_stage': bool(matcher_multi_stage),
             'matcher_half_resolution': bool(matcher_half_resolution),
-            'matcher_refinement': int(matcher_refinement),
+            'matcher_refinement': matcher_refinement.name,
             'bucketing_max_features': int(bucketing_max_features),
             'bucketing_bucket_width': int(bucketing_bucket_width),
             'bucketing_bucket_height': int(bucketing_bucket_height),
@@ -387,7 +395,7 @@ class LibVisOStereoSystem(LibVisOSystem):
             matcher_outlier_flow_tolerance=int(matcher_outlier_flow_tolerance),
             matcher_multi_stage=bool(matcher_multi_stage),
             matcher_half_resolution=bool(matcher_half_resolution),
-            matcher_refinement=int(matcher_refinement),
+            matcher_refinement=matcher_refinement,
             bucketing_max_features=int(bucketing_max_features),
             bucketing_bucket_width=int(bucketing_bucket_width),
             bucketing_bucket_height=int(bucketing_bucket_height),
@@ -440,7 +448,7 @@ class LibVisOMonoSystem(LibVisOSystem):
         params.match.outlier_flow_tolerance = self.matcher_outlier_flow_tolerance
         params.match.multi_stage = 1 if self.matcher_multi_stage else 0
         params.match.half_resolution = 1 if self.matcher_half_resolution else 0
-        params.match.refinement = self.matcher_refinement
+        params.match.refinement = self.matcher_refinement.value
         logging.getLogger(__name__).debug("    Added matcher parameters ...")
 
         # Feature bucketing
@@ -501,7 +509,7 @@ class LibVisOMonoSystem(LibVisOSystem):
             matcher_outlier_flow_tolerance: int = 5,
             matcher_multi_stage: bool = True,
             matcher_half_resolution: bool = True,
-            matcher_refinement: int = 50,
+            matcher_refinement: MatcherRefinement = MatcherRefinement.PIXEL,
             bucketing_max_features: int = 2,
             bucketing_bucket_width: int = 50,
             bucketing_bucket_height: int = 50,
@@ -530,7 +538,7 @@ class LibVisOMonoSystem(LibVisOSystem):
             'matcher_outlier_flow_tolerance': int(matcher_outlier_flow_tolerance),
             'matcher_multi_stage': bool(matcher_multi_stage),
             'matcher_half_resolution': bool(matcher_half_resolution),
-            'matcher_refinement': int(matcher_refinement),
+            'matcher_refinement': matcher_refinement.name,
             'bucketing_max_features': int(bucketing_max_features),
             'bucketing_bucket_width': int(bucketing_bucket_width),
             'bucketing_bucket_height': int(bucketing_bucket_height),
@@ -553,7 +561,7 @@ class LibVisOMonoSystem(LibVisOSystem):
             matcher_outlier_flow_tolerance=int(matcher_outlier_flow_tolerance),
             matcher_multi_stage=bool(matcher_multi_stage),
             matcher_half_resolution=bool(matcher_half_resolution),
-            matcher_refinement=int(matcher_refinement),
+            matcher_refinement=matcher_refinement,
             bucketing_max_features=int(bucketing_max_features),
             bucketing_bucket_width=int(bucketing_bucket_width),
             bucketing_bucket_height=int(bucketing_bucket_height),
