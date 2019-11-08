@@ -334,9 +334,7 @@ class TestFrameErrorGetProperties(unittest.TestCase):
             repeat=self.repeat,
             timestamp=self.timestamp,
             image=self.image,
-            motion=self.motion,
-            absolute_error=self.absolute_error,
-            relative_error=self.relative_error
+            motion=self.motion
         )
         expected_properties = dict(self.image.get_properties())
         expected_properties.update({
@@ -353,26 +351,26 @@ class TestFrameErrorGetProperties(unittest.TestCase):
             'num_features': 0,
             'num_matches': 0,
 
-            'abs_error_x': self.absolute_error.x,
-            'abs_error_y': self.absolute_error.y,
-            'abs_error_z': self.absolute_error.z,
-            'abs_error_length': self.absolute_error.length,
-            'abs_error_direction': self.absolute_error.direction,
-            'abs_rot_error': self.absolute_error.rot,
+            'abs_error_x': np.nan,
+            'abs_error_y': np.nan,
+            'abs_error_z': np.nan,
+            'abs_error_length': np.nan,
+            'abs_error_direction': np.nan,
+            'abs_rot_error': np.nan,
 
-            'trans_error_x': self.relative_error.x,
-            'trans_error_y': self.relative_error.y,
-            'trans_error_z': self.relative_error.z,
-            'trans_error_length': self.relative_error.length,
-            'trans_error_direction': self.relative_error.direction,
-            'rot_error': self.relative_error.rot,
+            'trans_error_x': np.nan,
+            'trans_error_y': np.nan,
+            'trans_error_z': np.nan,
+            'trans_error_length': np.nan,
+            'trans_error_direction': np.nan,
+            'rot_error': np.nan,
 
-            'trans_noise_x': None,
-            'trans_noise_y': None,
-            'trans_noise_z': None,
-            'trans_noise_length': None,
-            'trans_noise_direction': None,
-            'rot_noise': None
+            'trans_noise_x': np.nan,
+            'trans_noise_y': np.nan,
+            'trans_noise_z': np.nan,
+            'trans_noise_length': np.nan,
+            'trans_noise_direction': np.nan,
+            'rot_noise': np.nan
         })
         self.assertEqual(expected_properties, frame_error.get_properties())
 

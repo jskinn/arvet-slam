@@ -75,26 +75,26 @@ class FrameError(pymodm.MongoModel):
         num_features=attrgetter('num_features'),
         num_matches=attrgetter('num_matches'),
 
-        abs_error_x=attrgetter('absolute_error.x'),
-        abs_error_y=attrgetter('absolute_error.y'),
-        abs_error_z=attrgetter('absolute_error.z'),
-        abs_error_length=attrgetter('absolute_error.length'),
-        abs_error_direction=attrgetter('absolute_error.direction'),
-        abs_rot_error=attrgetter('absolute_error.rot'),
+        abs_error_x=lambda obj: obj.absolute_error.x if obj.absolute_error is not None else np.nan,
+        abs_error_y=lambda obj: obj.absolute_error.y if obj.absolute_error is not None else np.nan,
+        abs_error_z=lambda obj: obj.absolute_error.z if obj.absolute_error is not None else np.nan,
+        abs_error_length=lambda obj: obj.absolute_error.length if obj.absolute_error is not None else np.nan,
+        abs_error_direction=lambda obj: obj.absolute_error.direction if obj.absolute_error is not None else np.nan,
+        abs_rot_error=lambda obj: obj.absolute_error.rot if obj.absolute_error is not None else np.nan,
 
-        trans_error_x=attrgetter('relative_error.x'),
-        trans_error_y=attrgetter('relative_error.y'),
-        trans_error_z=attrgetter('relative_error.z'),
-        trans_error_length=attrgetter('relative_error.length'),
-        trans_error_direction=attrgetter('relative_error.direction'),
-        rot_error=attrgetter('relative_error.rot'),
+        trans_error_x=lambda obj: obj.relative_error.x if obj.relative_error is not None else np.nan,
+        trans_error_y=lambda obj: obj.relative_error.y if obj.relative_error is not None else np.nan,
+        trans_error_z=lambda obj: obj.relative_error.z if obj.relative_error is not None else np.nan,
+        trans_error_length=lambda obj: obj.relative_error.length if obj.relative_error is not None else np.nan,
+        trans_error_direction=lambda obj: obj.relative_error.direction if obj.relative_error is not None else np.nan,
+        rot_error=lambda obj: obj.relative_error.rot if obj.relative_error is not None else np.nan,
 
-        trans_noise_x=lambda obj: obj.noise.x if obj.noise is not None else None,
-        trans_noise_y=lambda obj: obj.noise.y if obj.noise is not None else None,
-        trans_noise_z=lambda obj: obj.noise.z if obj.noise is not None else None,
-        trans_noise_length=lambda obj: obj.noise.length if obj.noise is not None else None,
-        trans_noise_direction=lambda obj: obj.noise.direction if obj.noise is not None else None,
-        rot_noise=lambda obj: obj.noise.rot if obj.noise is not None else None
+        trans_noise_x=lambda obj: obj.noise.x if obj.noise is not None else np.nan,
+        trans_noise_y=lambda obj: obj.noise.y if obj.noise is not None else np.nan,
+        trans_noise_z=lambda obj: obj.noise.z if obj.noise is not None else np.nan,
+        trans_noise_length=lambda obj: obj.noise.length if obj.noise is not None else np.nan,
+        trans_noise_direction=lambda obj: obj.noise.direction if obj.noise is not None else np.nan,
+        rot_noise=lambda obj: obj.noise.rot if obj.noise is not None else np.nan
     )
 
     @property
