@@ -4,12 +4,14 @@ import logging
 import typing
 import numpy as np
 import enum
+from operator import attrgetter
 import pymodm.fields as fields
 from dso import DSOSystem, Undistort, UndistortPinhole, UndistortRadTan, Output3DWrapper, \
     FrameShell, CalibHessian, configure as dso_configure
 
 import arvet.util.transform as tf
 import arvet.util.image_utils as image_utils
+from arvet.util.column_list import ColumnList
 from arvet.database.enum_field import EnumField
 from arvet.metadata.camera_intrinsics import CameraIntrinsics
 from arvet.core.system import VisionSystem
@@ -34,6 +36,16 @@ class DSO(VisionSystem):
     """
     rectification_mode = EnumField(RectificationMode, required=True)
     rectification_intrinsics = fields.EmbeddedDocumentField(CameraIntrinsics, required=True)
+
+    columns = ColumnList(
+        rectification_mode=attrgetter('vocabulary_file'),
+        height=attrgetter('rectification_intrinsics.height'),
+        width=attrgetter('rectification_intrinsics.width'),
+        fx=attrgetter('rectification_intrinsics.fx'),
+        fy=attrgetter('rectification_intrinsics.fy'),
+        cx=attrgetter('rectification_intrinsics.cx'),
+        cy=attrgetter('rectification_intrinsics.cy')
+    )
 
     def __init__(self, *args, **kwargs):
         super(DSO, self).__init__(*args, **kwargs)
@@ -79,10 +91,25 @@ class DSO(VisionSystem):
         return image_source.sequence_type == ImageSequenceType.SEQUENTIAL
 
     def get_columns(self) -> typing.Set[str]:
-        pass
+        """
+        Get the set of available properties for this system. Pass these to "get_properties", below.
+        :return:
+        """
+        return set(self.columns.keys())
 
     def get_properties(self, columns: typing.Iterable[str] = None) -> typing.Mapping[str, typing.Any]:
-        pass
+        """
+        Get the values of the requested properties
+        :param columns:
+        :return:
+        """
+        if columns is None:
+            columns = self.columns.keys()
+        return {
+            col_name: self.columns.get_value(self, col_name)
+            for col_name in columns
+            if col_name in self.columns
+        }
 
     def set_camera_intrinsics(self, camera_intrinsics: CameraIntrinsics, average_timestep: float) -> None:
         """

@@ -9,12 +9,14 @@ import re
 import queue
 import multiprocessing
 import enum
+from operator import attrgetter
 import tempfile
 from pathlib import Path
 import pymodm.fields as fields
 
 import arvet.util.transform as tf
 import arvet.util.image_utils as image_utils
+from arvet.util.column_list import ColumnList
 from arvet.config.path_manager import PathManager
 from arvet.database.enum_field import EnumField
 from arvet.metadata.camera_intrinsics import CameraIntrinsics
@@ -51,6 +53,18 @@ class OrbSlam2(VisionSystem):
     orb_num_levels = fields.IntegerField(required=True, default=8)
     orb_ini_threshold_fast = fields.IntegerField(required=True, default=12)
     orb_min_threshold_fast = fields.IntegerField(required=True, default=7)
+
+    # List of available metadata columns, and getters for each
+    columns = ColumnList(
+        vocabulary_file=attrgetter('vocabulary_file'),
+        mode=attrgetter('mode'),
+        depth_threshold=attrgetter('depth_threshold'),
+        orb_num_features=attrgetter('orb_num_features'),
+        orb_scale_factor=attrgetter('orb_scale_factor'),
+        orb_num_levels=attrgetter('orb_num_levels'),
+        orb_ini_threshold_fast=attrgetter('orb_ini_threshold_fast'),
+        orb_min_threshold_fast=attrgetter('orb_min_threshold_fast')
+    )
 
     def __init__(self, *args, **kwargs):
         super(OrbSlam2, self).__init__(*args, **kwargs)
@@ -100,10 +114,25 @@ class OrbSlam2(VisionSystem):
             (self.mode == SensorMode.RGBD and image_source.is_depth_available)))
 
     def get_columns(self) -> typing.Set[str]:
-        pass
+        """
+        Get the set of available properties for this system. Pass these to "get_properties", below.
+        :return:
+        """
+        return set(self.columns.keys())
 
     def get_properties(self, columns: typing.Iterable[str] = None) -> typing.Mapping[str, typing.Any]:
-        pass
+        """
+        Get the values of the requested properties
+        :param columns:
+        :return:
+        """
+        if columns is None:
+            columns = self.columns.keys()
+        return {
+            col_name: self.columns.get_value(self, col_name)
+            for col_name in columns
+            if col_name in self.columns
+        }
 
     def set_camera_intrinsics(self, camera_intrinsics: CameraIntrinsics, average_timestep: float) -> None:
         """
@@ -139,6 +168,16 @@ class OrbSlam2(VisionSystem):
         """
         if sequence_type is not ImageSequenceType.SEQUENTIAL:
             return
+
+        logging.getLogger(__name__).debug(
+            "Starting ORBSLAM with the following settings:\n"
+            "  vocab path: '{0}'\n"
+            "  temp folder: '{1}'\n"
+            "  stereo baseline: {2}\n"
+            "  intrinsics: {3}\n"
+            "  framerate: {4}".format(
+                self._actual_vocab_file, self._temp_folder, self._stereo_baseline, self._intrinsics, self._framerate
+            ))
 
         self._start_time = time.time()
         self.save_settings()  # we have to save the settings, so that orb-slam can load them
