@@ -1,6 +1,5 @@
 from orbslam2 import VocabularyBuilder
-from arvet_slam.systems.slam.orbslam2 import SensorMode
-from arvet_slam.systems.slam.tests.demo_image_builder import DemoImageBuilder
+from arvet_slam.systems.slam.tests.demo_image_builder import DemoImageBuilder, ImageMode
 
 
 def create_vocab(vocab_path="ORBvoc-synth.txt"):
@@ -11,9 +10,7 @@ def create_vocab(vocab_path="ORBvoc-synth.txt"):
     """
     total_time = 10  # seconds
     num_frames = 50
-    image_builder = DemoImageBuilder(
-        mode=SensorMode.MONOCULAR,
-    )
+    image_builder = DemoImageBuilder(mode=ImageMode.MONOCULAR)
     vocab_builder = VocabularyBuilder()
     for idx in range(num_frames):
         time = total_time * idx / num_frames
