@@ -38,7 +38,7 @@ class DSO(VisionSystem):
     rectification_intrinsics = fields.EmbeddedDocumentField(CameraIntrinsics, required=True)
 
     columns = ColumnList(
-        rectification_mode=attrgetter('vocabulary_file'),
+        rectification_mode=attrgetter('rectification_mode'),
         height=attrgetter('rectification_intrinsics.height'),
         width=attrgetter('rectification_intrinsics.width'),
         fx=attrgetter('rectification_intrinsics.fx'),
