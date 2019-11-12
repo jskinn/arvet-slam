@@ -217,10 +217,11 @@ class OrbSlam2(VisionSystem):
         """
         if self._input_queue is not None:
             # Wait here, to throttle the input rate to the queue, and prevent it from growing too large
-            delay_time = 0
-            while self._input_queue.qsize() > 30 and delay_time < 10:
-                time.sleep(1)
-                delay_time += 1
+            # delay_time = 0
+            # while self._input_queue.qsize() > 30 and delay_time < 10:
+            #     time.sleep(1)
+            #     delay_time += 1
+            logging.getLogger(__name__).debug("Sending frame {0}...".format(len(self._partial_frame_results)))
 
             # Add the camera pose to the ground-truth trajectory
             self._partial_frame_results[timestamp] = FrameResult(
@@ -631,20 +632,21 @@ def run_orbslam(output_queue, input_queue, vocab_file, settings_file, mode):
 
     frame_statistics = {}
     running = True
-    prev_timestamp = None
-    prev_actual_time = 0
+    # prev_timestamp = None
+    # prev_actual_time = 0
     while running:
         in_data = input_queue.get(block=True)
         if isinstance(in_data, tuple) and len(in_data) == 3:
+            logging.getLogger(__name__).debug("... ORBSLAM processing frame {0}.".format(len(frame_statistics)))
             img1, img2, timestamp = in_data
 
             # Wait for the timestamp after the first frame
-            if prev_timestamp is not None:
-                delay = max(0, timestamp - prev_timestamp - time.time() + prev_actual_time)
-                if delay > 0:
-                    time.sleep(delay)
-            prev_timestamp = timestamp
-            prev_actual_time = time.time()
+            # if prev_timestamp is not None:
+            #     delay = max(0, timestamp - prev_timestamp - time.time() + prev_actual_time)
+            #     if delay > 0:
+            #         time.sleep(delay)
+            # prev_timestamp = timestamp
+            # prev_actual_time = time.time()
 
             processing_start = time.time()
             if mode == SensorMode.MONOCULAR:
