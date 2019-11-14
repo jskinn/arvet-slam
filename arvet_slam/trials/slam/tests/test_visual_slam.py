@@ -483,13 +483,65 @@ class TestSLAMTrialResult(ExtendedTestCase):
             self.assertNPClose(
                 np.array((15.0 * idx, idx, 0.0)),
                 estimated_trajectory[result.timestamp].location,
-                rtol=0, atol=1e-14
+                rtol=0, atol=1e-13
             )
             # Scaling should not affect the rotation
             self.assertNPEqual(
                 tf3d.quaternions.axangle2quat((1, 2, 3), 9 * idx * np.pi / 288),
                 estimated_trajectory[result.timestamp].rotation_quat(w_first=True)
             )
+
+    def test_get_computed_camera_poses_rescales_trajectory_with_nulls(self):
+        system = mock_types.MockSystem()
+        image_source = mock_types.MockImageSource()
+        mock_image = mock.create_autospec(Image)
+
+        start = 3
+        scale = 0.1  # Uniform scaling of the estimated trajectory
+        results = [
+            FrameResult(
+                timestamp=idx,
+                image=mock_image,
+                processing_time=np.random.uniform(0.01, 1),
+                pose=Transform(
+                    (15 * idx, idx, 0),
+                    tf3d.quaternions.axangle2quat((1, 2, 3), idx * np.pi / 36), w_first=True
+                ),
+                estimated_pose=Transform(
+                    (scale * 15 * (idx - start), scale * (idx - start), 0),
+                    tf3d.quaternions.axangle2quat((1, 2, 3), 9 * (idx - start) * np.pi / 288), w_first=True
+                ) if idx >= start and idx % 3 == 0 else None,
+                tracking_state=TrackingState.OK,
+                num_features=np.random.randint(10, 1000),
+                num_matches=np.random.randint(10, 1000)
+            )
+            for idx in range(10)
+        ]
+        obj = SLAMTrialResult(
+            system=system,
+            image_source=image_source,
+            success=True,
+            results=results,
+            has_scale=False
+        )
+        estimated_trajectory = obj.get_computed_camera_poses(rescale=True)
+
+        for idx, result in enumerate(results):
+            self.assertIn(result.timestamp, estimated_trajectory)
+            if idx >= start and idx % 3 == 0:
+                # Scaling should match the ground truth (or it should be really really close)
+                self.assertNPClose(
+                    np.array((15.0 * (idx - start), idx - start, 0.0)),
+                    estimated_trajectory[result.timestamp].location,
+                    rtol=0, atol=1e-14
+                )
+                # Scaling should not affect the rotation
+                self.assertNPEqual(
+                    tf3d.quaternions.axangle2quat((1, 2, 3), 9 * (idx - start) * np.pi / 288),
+                    estimated_trajectory[result.timestamp].rotation_quat(w_first=True)
+                )
+            else:
+                self.assertIsNone(estimated_trajectory[result.timestamp])
 
     def test_get_computed_camera_poses_wont_rescale_if_has_scale_is_true(self):
         system = mock_types.MockSystem()
@@ -575,6 +627,58 @@ class TestSLAMTrialResult(ExtendedTestCase):
                 tf3d.quaternions.axangle2quat((1, 2, 3), 9 * idx * np.pi / 288),
                 estimated_motions[result.timestamp].rotation_quat(w_first=True)
             )
+
+    def test_get_computed_camera_motions_rescales_motions_with_none(self):
+        system = mock_types.MockSystem()
+        image_source = mock_types.MockImageSource()
+        mock_image = mock.create_autospec(Image)
+
+        start = 3
+        scale = 0.1  # Uniform scaling of the estimated trajectory
+        results = [
+            FrameResult(
+                timestamp=idx,
+                image=mock_image,
+                processing_time=np.random.uniform(0.01, 1),
+                motion=Transform(
+                    (15, 1, 0),
+                    tf3d.quaternions.axangle2quat((1, 2, 3), idx * np.pi / 36), w_first=True
+                ),
+                estimated_motion=Transform(
+                    (scale * 15, scale, 0),
+                    tf3d.quaternions.axangle2quat((1, 2, 3), 9 * (idx - start) * np.pi / 288), w_first=True
+                ) if idx > start and idx % 4 != 0 else None,
+                tracking_state=TrackingState.OK,
+                num_features=np.random.randint(10, 1000),
+                num_matches=np.random.randint(10, 1000)
+            )
+            for idx in range(10)
+        ]
+        obj = SLAMTrialResult(
+            system=system,
+            image_source=image_source,
+            success=True,
+            results=results,
+            has_scale=False
+        )
+        estimated_motions = obj.get_computed_camera_motions(rescale=True)
+
+        for idx, result in enumerate(results):
+            self.assertIn(result.timestamp, estimated_motions)
+            # Scaling should match the ground truth (or it should be really really close)
+            if idx > start and idx % 4 != 0:
+                self.assertNPClose(
+                    np.array((15.0, 1, 0.0)),
+                    estimated_motions[result.timestamp].location,
+                    rtol=0, atol=1e-13
+                )
+                # Scaling should not affect the rotation
+                self.assertNPEqual(
+                    tf3d.quaternions.axangle2quat((1, 2, 3), 9 * (idx - start) * np.pi / 288),
+                    estimated_motions[result.timestamp].rotation_quat(w_first=True)
+                )
+            else:
+                self.assertIsNone(estimated_motions[result.timestamp])
 
     def test_get_computed_camera_motions_wont_rescale_if_has_scale_is_true(self):
         system = mock_types.MockSystem()
