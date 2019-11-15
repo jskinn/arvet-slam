@@ -41,10 +41,10 @@ class DSO(VisionSystem):
         rectification_mode=attrgetter('rectification_mode'),
         height=attrgetter('rectification_intrinsics.height'),
         width=attrgetter('rectification_intrinsics.width'),
-        fx=attrgetter('rectification_intrinsics.fx'),
-        fy=attrgetter('rectification_intrinsics.fy'),
-        cx=attrgetter('rectification_intrinsics.cx'),
-        cy=attrgetter('rectification_intrinsics.cy')
+        fx=lambda obj: obj.rectification_intrinsics.fx if obj.rectification_mode is RectificationMode.CALIB else np.nan,
+        fy=lambda obj: obj.rectification_intrinsics.fy if obj.rectification_mode is RectificationMode.CALIB else np.nan,
+        cx=lambda obj: obj.rectification_intrinsics.cx if obj.rectification_mode is RectificationMode.CALIB else np.nan,
+        cy=lambda obj: obj.rectification_intrinsics.cx if obj.rectification_mode is RectificationMode.CALIB else np.nan
     )
 
     def __init__(self, *args, **kwargs):
