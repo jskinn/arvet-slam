@@ -16,6 +16,7 @@ import pymodm.fields as fields
 
 import arvet.util.transform as tf
 import arvet.util.image_utils as image_utils
+from arvet.util.associate import associate
 from arvet.util.column_list import ColumnList
 from arvet.config.path_manager import PathManager
 from arvet.database.enum_field import EnumField
@@ -272,19 +273,21 @@ class OrbSlam2(VisionSystem):
             raise RuntimeError("Failed to stop ORBSLAM2, timed out after {0} seconds".format(timeout))
 
         # Merge the frame statistics with the partial frame results
-        unrecognised_timestamps = set()
-        for timestamp, frame_stats in frame_statistics.items():
-            if timestamp not in self._partial_frame_results or frame_stats[0] is None:
-                unrecognised_timestamps.add(timestamp)
-            else:
-                self._partial_frame_results[timestamp].processing_time = frame_stats[0]
-                self._partial_frame_results[timestamp].num_features = frame_stats[1]
-                self._partial_frame_results[timestamp].num_matches = frame_stats[2]
-                self._partial_frame_results[timestamp].tracking_state = frame_stats[3]
+        matches = associate(self._partial_frame_results, frame_statistics, offset=0, max_difference=0.1)
+        unrecognised_timestamps = set(frame_statistics.keys())
+        for local_stamp, subprocess_stamp in matches:
+            frame_result = self._partial_frame_results[local_stamp]
+            frame_stats = frame_statistics[subprocess_stamp]
+            if frame_stats[0] is not None:
+                frame_result.processing_time = frame_stats[0]
+                frame_result.num_features = frame_stats[1]
+                frame_result.num_matches = frame_stats[2]
+                frame_result.tracking_state = frame_stats[3]
                 if frame_stats[4] is not None:
                     estimated_pose = np.identity(4)
                     estimated_pose[0:3, :] = frame_stats[4]
-                    self._partial_frame_results[timestamp].estimated_pose = make_relative_pose(estimated_pose)
+                    frame_result.estimated_pose = make_relative_pose(estimated_pose)
+                unrecognised_timestamps.remove(subprocess_stamp)
         if len(unrecognised_timestamps) > 0:
             valid_timestamps = np.array(list(self._partial_frame_results.keys()))
             logging.getLogger(__name__).warning("Got inconsistent timestamps:\n" + '\n'.join(
