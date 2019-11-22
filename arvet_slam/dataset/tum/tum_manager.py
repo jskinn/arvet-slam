@@ -1,6 +1,7 @@
 # Copyright (c) 2017, John Skinner
 import os
-import arvet.util.dict_utils as du
+import arvet.batch_analysis.task_manager as task_manager
+import arvet_slam.dataset.tum.tum_loader as tum_loader
 
 
 dataset_names = [
@@ -56,31 +57,37 @@ dataset_names = [
 
 class TUMManager:
 
-    def __init__(self, config, dataset_ids=None):
-        self._config = {name: False for name in dataset_names}
-        self._dataset_ids = {}
+    def __init__(self, root: str):
+        self._full_paths = self.find_roots(root)
 
-        for key in self._config.keys():
-            if key in config and bool(config[key]):
-                self._config[key] = True
-        if dataset_ids is not None:
-            du.defaults(self._dataset_ids, dataset_ids)
+    def __getattr__(self, item):
+        if item in dataset_names:
+            return self.get_dataset(item)
+        raise AttributeError("No dataset {0}".format(item))
 
-    @property
-    def dataset_ids(self):
-        """
-        Get a set of all the dataset ids
-        :return:
-        """
-        return set(self._dataset_ids.values())
+    def __getitem__(self, item):
+        if item in dataset_names:
+            return self.get_dataset(item)
+        raise KeyError("No dataset {0}".format(item))
 
-    @property
-    def datasets(self):
-        """
-        A generator of name -> id pairs
-        :return:
-        """
-        return self._dataset_ids.items()
+    def get_dataset(self, name):
+        if name in self._full_paths:
+            import_dataset_task = task_manager.get_import_dataset_task(
+                module_name=tum_loader.__name__,
+                path=self._full_paths[name],
+                additional_args={'dataset_name': name},
+                num_cpus=1,
+                num_gpus=0,
+                memory_requirements='3GB',
+                expected_duration='8:00:00',
+            )
+            if import_dataset_task.is_finished:
+                return import_dataset_task.result
+            else:
+                # Make sure the import dataset task gets done
+                import_dataset_task.save()
+                return None
+        raise NotADirectoryError("No root folder for {0}, did you download it?".format(name))
 
     def do_imports(self, root_folder, task_manager):
         to_import = {dataset_name for dataset_name, do_import in self._config.items()
@@ -109,24 +116,30 @@ class TUMManager:
             else:
                 task_manager.do_task(import_dataset_task)
 
-    def serialize(self):
-        return {
-            'config': self._config,
-            'dataset_ids': self._dataset_ids
-        }
-
     @classmethod
-    def deserialize(cls, serialized, **kwargs):
-        config = {}
-        dataset_ids = {}
-        if 'config' in serialized:
-            du.defaults(config, serialized['config'])
-        if 'dataset_ids' in serialized:
-            du.defaults(dataset_ids, serialized['dataset_ids'])
-        return cls(config, dataset_ids, **kwargs)
-
-
-# Add read-only properties to the manager class for each of the datasets
-# This means that specific datasets can be requested as tum_manager.rgbd_dataset_freiburg1_xyz
-for _name in dataset_names:
-    setattr(TUMManager, _name, property(lambda self: self._dataset_ids[_name] if _name in self._dataset_ids else None))
+    def find_roots(cls, root):
+        """
+        Recursively search for the directories to import from the root folder.
+        We're looking for folders with the same names as the
+        :param root: The root folder to search. Search is recursive.
+        :return:
+        """
+        actual_roots = {}
+        to_search = {root}
+        while len(to_search) > 0:
+            candidate_root = to_search.pop()
+            with os.scandir(candidate_root) as dir_iter:
+                for dir_entry in dir_iter:
+                    if dir_entry.is_dir():
+                        dir_name = dir_entry.name
+                        if dir_name in dataset_names:
+                            # this is a dataset folder, we're not going to search within it
+                            try:
+                                actual_root = tum_loader.find_files(dir_entry.path)
+                            except FileNotFoundError:
+                                continue
+                            # Only want the root path, ignore the other return values
+                            actual_roots[dir_name] = actual_root[0]
+                        else:
+                            to_search.add(dir_entry.path)
+        return actual_roots

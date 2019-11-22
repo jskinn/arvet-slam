@@ -63,13 +63,16 @@ def read_image_filenames(images_file_path: str) -> typing.Mapping[int, str]:
     filename_map = {}
     with open(images_file_path, 'r') as images_file:
         for line in images_file:
-            if line.startswith('#'):
-                # This line is a comment
-                continue
-            parts = line.split(',')
-            if len(parts) >= 2:
-                timestamp, relative_path = parts[0:2]
-                filename_map[int(timestamp)] = relative_path.rstrip()  # To remove trailing newlines
+            comment_idx = line.find('#')
+            if comment_idx >= 0:
+                # This line has a comment, ignore everything after it
+                line = line[:comment_idx]
+            line = line.strip()
+            if len(line) > 0:
+                parts = line.split(',')
+                if len(parts) >= 2:
+                    timestamp, relative_path = parts[0:2]
+                    filename_map[int(timestamp)] = relative_path.rstrip()  # To remove trailing newlines
     return filename_map
 
 

@@ -3,12 +3,13 @@ import unittest.mock as mock
 import numpy as np
 import cv2
 import transforms3d as tf3d
-import arvet_slam.dataset.euroc.euroc_loader as euroc_loader
+from arvet.util.test_helpers import ExtendedTestCase
 import arvet.util.transform as tf
-import arvet.metadata.camera_intrinsics as cam_intr
+from arvet.metadata.camera_intrinsics import CameraIntrinsics
+import arvet_slam.dataset.euroc.euroc_loader as euroc_loader
 
 
-class TestMakeCameraPose(unittest.TestCase):
+class TestMakeCameraPose(ExtendedTestCase):
 
     def test_location(self):
         forward = 51.2
@@ -50,12 +51,6 @@ class TestMakeCameraPose(unittest.TestCase):
             self.assertNPEqual(loc, pose.location)
             self.assertNPClose(tf3d.quaternions.axangle2quat(rot_axis, rot_angle, False), pose.rotation_quat(True))
 
-    def assertNPEqual(self, arr1, arr2):
-        self.assertTrue(np.array_equal(arr1, arr2), "Arrays {0} and {1} are not equal".format(str(arr1), str(arr2)))
-
-    def assertNPClose(self, arr1, arr2):
-        self.assertTrue(np.all(np.isclose(arr1, arr2)), "Arrays {0} and {1} are not close".format(str(arr1), str(arr2)))
-
 
 class TestReadImageFilenames(unittest.TestCase):
 
@@ -72,10 +67,56 @@ class TestReadImageFilenames(unittest.TestCase):
         extend_mock_open(mock_open)
         with mock.patch('arvet_slam.dataset.euroc.euroc_loader.open', mock_open, create=True):
             result = euroc_loader.read_image_filenames('test_filepath')
+        self.assertTrue(mock_open.called)
+        self.assertEqual('test_filepath', mock_open.call_args[0][0])
+        self.assertEqual('r', mock_open.call_args[0][1])
+        self.assertEqual(result, mapping)
+
+    def test_ignores_comments_and_empty_lines(self):
+        line_template = "{time},{time}.png\n"
+        data_text = ""
+        mapping = {}
+        data_text += """
+        # color images
+        # file: 'rgbd_dataset_freiburg3_structure_texture_far.bag'
+        # timestamp filename
+
+        """
+        for time in range(5):
+            # These lines should be ignored
+            timestamp = time * 4999936 + 1
+            data_text += "#" + line_template.format(time=timestamp)
+        for time in range(0, 10):
+            timestamp = time * 4999936 + 1403638128940097024
+            mapping[timestamp] = "{0}.png".format(timestamp)
+            data_text += line_template.format(time=timestamp)
+
+        mock_open = mock.mock_open(read_data=data_text)
+        extend_mock_open(mock_open)
+        with mock.patch('arvet_slam.dataset.euroc.euroc_loader.open', mock_open, create=True):
+            result = euroc_loader.read_image_filenames('test_filepath')
+        self.assertEqual(result, mapping)
+
+    def test_ignores_characters_after_comment(self):
+        line_template = "{time},rgb/{time}.png  # This is time {time}\n"
+        data_text = ""
+        mapping = {}
+        for time in range(0, 10):
+            timestamp = time * 4999936 + 1403638128940097024
+            mapping[timestamp] = "rgb/{0}.png".format(timestamp)
+            data_text += line_template.format(time=timestamp)
+
+        mock_open = mock.mock_open(read_data=data_text)
+        extend_mock_open(mock_open)
+        with mock.patch('arvet_slam.dataset.euroc.euroc_loader.open', mock_open, create=True):
+            result = euroc_loader.read_image_filenames('test_filepath')
+        self.assertTrue(mock_open.called)
+        self.assertEqual('test_filepath', mock_open.call_args[0][0])
+        self.assertEqual('r', mock_open.call_args[0][1])
         self.assertEqual(result, mapping)
 
 
-class TestReadTrajectory(unittest.TestCase):
+class TestReadTrajectory(ExtendedTestCase):
 
     def test_reads_relative_to_first_pose(self):
         first_pose = tf.Transform(location=(15.2, -1167.9, -1.2), rotation=(0.535, 0.2525, 0.11, 0.2876))
@@ -148,13 +189,6 @@ class TestReadTrajectory(unittest.TestCase):
             self.assertNPClose(pose.location, trajectory[time].location)
             self.assertNPClose(pose.rotation_quat(True), trajectory[time].rotation_quat(True))
 
-    def assertNPEqual(self, arr1, arr2):
-        self.assertTrue(np.array_equal(arr1, arr2), "Arrays {0} and {1} are not equal".format(
-            str([repr(f) for f in arr1]), str([repr(f) for f in arr2])))
-
-    def assertNPClose(self, arr1, arr2):
-        self.assertTrue(np.all(np.isclose(arr1, arr2)), "Arrays {0} and {1} are not close".format(str(arr1), str(arr2)))
-
 
 class TestAssociateData(unittest.TestCase):
 
@@ -197,7 +231,7 @@ class TestAssociateData(unittest.TestCase):
         self.assertEqual(expected_result, result)
 
 
-class TestGetCameraCalibration(unittest.TestCase):
+class TestGetCameraCalibration(ExtendedTestCase):
 
     def test_reads_filenames_to_mapping(self):
         # This is a genuine yaml file from MH_01_easy, cam0
@@ -244,15 +278,12 @@ class TestGetCameraCalibration(unittest.TestCase):
         self.assertEqual(0.00019359, intrinsics.p1)
         self.assertEqual(1.76187114e-05, intrinsics.p2)
 
-    def assertNPClose(self, arr1, arr2):
-        self.assertTrue(np.all(np.isclose(arr1, arr2)), "Arrays {0} and {1} are not close".format(str(arr1), str(arr2)))
 
-
-class TestRectify(unittest.TestCase):
+class TestRectify(ExtendedTestCase):
 
     def test_trivial(self):
         # Some arbitrary intrinsics, with distortion
-        intrinsics = cam_intr.CameraIntrinsics(
+        intrinsics = CameraIntrinsics(
             width=320,
             height=240,
             fx=160,
@@ -270,7 +301,7 @@ class TestRectify(unittest.TestCase):
 
     def test_undistorts_left_image(self):
         # Some arbitrary intrinsics, with distortion
-        intrinsics = cam_intr.CameraIntrinsics(
+        intrinsics = CameraIntrinsics(
             width=100,
             height=100,
             fx=123,
@@ -334,7 +365,7 @@ class TestRectify(unittest.TestCase):
 
     def test_undistorts_right_image(self):
         # Some arbitrary intrinsics, with distortion
-        intrinsics = cam_intr.CameraIntrinsics(
+        intrinsics = CameraIntrinsics(
             width=100,
             height=100,
             fx=123,
@@ -404,7 +435,7 @@ class TestRectify(unittest.TestCase):
             [-0.0257744366974, 0.00375618835797, 0.999660727178, 0.00981073058949],
             [0, 0, 0, 1]
         ]))
-        left_intrinsics = cam_intr.CameraIntrinsics(
+        left_intrinsics = CameraIntrinsics(
             width=752,
             height=480,
             fx=458.654,
@@ -423,7 +454,7 @@ class TestRectify(unittest.TestCase):
             [-0.0253898008918, 0.0179005838253, 0.999517347078, 0.00786212447038],
             [0, 0, 0, 1]
         ]))
-        right_intrinsics = cam_intr.CameraIntrinsics(
+        right_intrinsics = CameraIntrinsics(
             width=752,
             height=480,
             fx=457.587,
@@ -469,10 +500,6 @@ class TestRectify(unittest.TestCase):
         self.assertLess(np.max(np.abs(orbslam_m2l - left_v)), 0.06)
         self.assertLess(np.max(np.abs(orbslam_m1r - right_u)), 0.06)
         self.assertLess(np.max(np.abs(orbslam_m2r - right_v)), 0.06)
-
-    def assertNPEqual(self, arr1, arr2):
-        self.assertTrue(np.array_equal(arr1, arr2), "Arrays {0} and {1} are not equal".format(
-            str([repr(f) for f in arr1]), str([repr(f) for f in arr2])))
 
 
 def create_distortion_map(intr):
