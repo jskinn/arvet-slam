@@ -31,22 +31,27 @@ class TestRunOrbslamMono(unittest.TestCase):
 
     def test_simple_trial_run(self):
         # Actually run the system using mocked images
-        num_frames = 50
+        num_frames = 100
         max_time = 50
         speed = 0.1
         path_manager = PathManager([Path(__file__).parent], self.temp_folder)
         image_builder = DemoImageBuilder(
             mode=ImageMode.MONOCULAR,
-            width=160, height=120, num_stars=2000,
+            width=640, height=480, num_stars=150,
             length=max_time * speed, speed=speed,
-            close_ratio=0.4, min_size=1, max_size=5
+            close_ratio=0.6, min_size=10, max_size=100
         )
+        # image_builder.visualise_sequence(max_time, frame_interval=0.5)
+        # return
+
         subject = OrbSlam2(
             vocabulary_file=self.vocab_path,
             mode=SensorMode.MONOCULAR,
+            orb_num_features=1000,
             orb_num_levels=8,
-            orb_ini_threshold_fast=3,
-            orb_min_threshold_fast=3
+            orb_scale_factor=1.2,
+            orb_ini_threshold_fast=7,
+            orb_min_threshold_fast=12
         )
         subject.resolve_paths(path_manager)
         subject.set_camera_intrinsics(image_builder.get_camera_intrinsics(), max_time / num_frames)

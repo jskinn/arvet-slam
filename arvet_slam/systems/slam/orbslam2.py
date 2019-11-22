@@ -678,23 +678,12 @@ def run_orbslam(output_queue, input_queue, vocab_file, settings_file, mode):
 
     # Get the trajectory from orbslam
     trajectory = orbslam_system.get_trajectory_points()
-    for est in trajectory:
-        # Manually reshape the pose matrix into arrays
-        pose_mat = [
-            [est.r00, est.r01, est.r02, est.t0],
-            [est.r10, est.r11, est.r12, est.t1],
-            [est.r20, est.r21, est.r22, est.t2]
-        ]
-        if est.timestamp in frame_statistics:
-            frame_statistics[est.timestamp][4] = pose_mat
-        else:
-            frame_statistics[est.timestamp] = [
-                None,
-                None,
-                None,
-                None,
-                pose_mat
-            ]
+
+    # Associate the trajectory with the collected frame statistics
+    trajectory = {est.timestamp: make_pose_mat(est) for est in trajectory}
+    matches = associate(frame_statistics, trajectory, 0, max_difference=0.1)
+    for frame_stamp, traj_stamp in matches:
+        frame_statistics[frame_stamp][4] = trajectory[traj_stamp]
 
     # send the final trajectory to the parent
     output_queue.put(frame_statistics)
@@ -702,3 +691,16 @@ def run_orbslam(output_queue, input_queue, vocab_file, settings_file, mode):
     # shut down the system. This is going to crash it, but that's ok, because it's a subprocess
     orbslam_system.shutdown()
     logging.getLogger(__name__).info("Finished running ORBSLAM2")
+
+
+def make_pose_mat(est):
+    """
+    From the orbslam output, build a matrix
+    :param est:
+    :return:
+    """
+    return [
+        [est.r00, est.r01, est.r02, est.t0],
+        [est.r10, est.r11, est.r12, est.t1],
+        [est.r20, est.r21, est.r22, est.t2]
+    ]
