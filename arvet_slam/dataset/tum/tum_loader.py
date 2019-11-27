@@ -1,4 +1,5 @@
 # Copyright (c) 2017, John Skinner
+import typing
 import os.path
 import arvet.util.image_utils as image_utils
 from arvet.util.associate import associate
@@ -8,6 +9,7 @@ import arvet.util.transform as tf
 from arvet.core.sequence_type import ImageSequenceType
 from arvet.core.image import Image
 from arvet.core.image_collection import ImageCollection
+from arvet_slam.util.trajectory_builder import TrajectoryBuilder
 
 
 def make_camera_pose(tx: float, ty: float, tz: float, qw: float, qx: float, qy: float, qz: float) -> tf.Transform:
@@ -33,7 +35,7 @@ def make_camera_pose(tx: float, ty: float, tz: float, qw: float, qx: float, qy: 
     )
 
 
-def read_image_filenames(images_file_path):
+def read_image_filenames(images_file_path: typing.Union[str, bytes, os.PathLike]):
     """
     Read image filenames from a file
     :param images_file_path:
@@ -55,14 +57,18 @@ def read_image_filenames(images_file_path):
     return filename_map
 
 
-def read_trajectory(trajectory_filepath):
+def read_trajectory(trajectory_filepath: typing.Union[str, bytes, os.PathLike], timestamps: typing.Iterable[float]) -> \
+        typing.Mapping[float, tf.Transform]:
     """
-    Read the ground-truth camera trajectory from file
-    :param trajectory_filepath:
+    Read the ground-truth camera trajectory from file.
+    Needs the list of
+
+    :param trajectory_filepath: The path to the trajectory file
+    :param timestamps: A list of desired camera timestamps to match against.
+    Ground truth timestamps will be interpolated to these times.
     :return: A map of timestamp to camera pose.
     """
-    trajectory = {}
-    first_pose = None
+    builder = TrajectoryBuilder(timestamps)
     with open(trajectory_filepath, 'r') as trajectory_file:
         for line in trajectory_file:
             comment_idx = line.find('#')
@@ -74,15 +80,11 @@ def read_trajectory(trajectory_filepath):
                 parts = line.split(' ')
                 if len(parts) >= 8:
                     timestamp, tx, ty, tz, qx, qy, qz, qw = parts[0:8]
+                    timestamp = float(timestamp)
                     pose = make_camera_pose(float(tx), float(ty), float(tz),
                                             float(qw), float(qx), float(qy), float(qz))
-                    # Find the pose relative to the first frame, which we fix as 0,0,0
-                    if first_pose is None:
-                        first_pose = pose
-                        trajectory[float(timestamp)] = tf.Transform()
-                    else:
-                        trajectory[float(timestamp)] = first_pose.find_relative(pose)
-    return trajectory
+                    builder.add_trajectory_point(timestamp, pose)
+    return builder.get_interpolated_trajectory()
 
 
 def associate_data(root_map, *args):
@@ -124,7 +126,7 @@ def associate_data(root_map, *args):
                       for key in root_keys)
 
 
-def get_camera_intrinsics(folder_path):
+def get_camera_intrinsics(folder_path: typing.Union[str, bytes, os.PathLike]):
     folder_path = folder_path.lower()
     if 'freiburg1' in folder_path:
         return CameraIntrinsics(
@@ -232,7 +234,7 @@ def import_dataset(root_folder, dataset_name, **_):
 
     # Step 2: Read the metadata from them
     image_files = read_image_filenames(rgb_path)
-    trajectory = read_trajectory(trajectory_path)
+    trajectory = read_trajectory(trajectory_path, image_files.keys())
     depth_files = read_image_filenames(depth_path)
 
     # Step 3: Associate the different data types by timestamp
