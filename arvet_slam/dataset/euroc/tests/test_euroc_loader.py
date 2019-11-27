@@ -117,12 +117,51 @@ class TestReadImageFilenames(unittest.TestCase):
 
 
 class TestReadTrajectory(ExtendedTestCase):
+    line_template = "{time},{x},{y},{z},{qw},{qx},{qy},{qz},-0.005923,-0.002323,-0.002133," \
+                        "0.021059,0.076659,-0.026895,0.136910,0.059287\n"
+
+    def format_line(self, timestamp, pose, line_template=None):
+        """
+        Produce a pose encoded as a line, to be read from the trajectory file.
+        Provides consistent handling of axis reordering to the expected axis order.
+        :param timestamp:
+        :param pose:
+        :param line_template: The string template for the line to encode
+        :return:
+        """
+        quat = pose.rotation_quat(w_first=True)
+        if line_template is None:
+            line_template = self.line_template
+        return line_template.format(
+            time=int(timestamp),
+            x=repr(-1 * pose.location[1]),
+            y=repr(-1 * pose.location[2]),
+            z=repr(pose.location[0]),
+            qw=repr(quat[0]), qx=repr(-1 * quat[2]), qy=repr(-1 * quat[3]), qz=repr(quat[1])
+        )
+
+    def test_reads_from_given_file(self):
+        trajectory_text = ""
+        timestamps = []
+        for time in range(0, 10):
+            timestamp = time * 101 + 10000
+            pose = tf.Transform(location=(0.122 * time, -0.53112 * time, 1.893 * time),
+                                rotation=(0.772 * time, -0.8627 * time, -0.68782 * time))
+            trajectory_text += self.format_line(timestamp, pose)
+            timestamps.append(timestamp)
+
+        mock_open = mock.mock_open(read_data=trajectory_text)
+        extend_mock_open(mock_open)
+        with mock.patch('arvet_slam.dataset.euroc.euroc_loader.open', mock_open, create=True):
+            trajectory = euroc_loader.read_trajectory('test_filepath', timestamps)
+        self.assertTrue(mock_open.called)
+        self.assertEqual('test_filepath', mock_open.call_args[0][0])
+        self.assertEqual('r', mock_open.call_args[0][1])
+        self.assertEqual(len(trajectory), len(timestamps))
 
     def test_reads_relative_to_first_pose(self):
         first_pose = tf.Transform(location=(15.2, -1167.9, -1.2), rotation=(0.535, 0.2525, 0.11, 0.2876))
         relative_trajectory = {}
-        line_template = "{time},{x},{y},{z},{qw},{qx},{qy},{qz},-0.005923,-0.002323,-0.002133," \
-                        "0.021059,0.076659,-0.026895,0.136910,0.059287\n"
         trajectory_text = ""
         for time in range(0, 10):
             timestamp = time * 4999936 + 1403638128940097024
@@ -130,64 +169,130 @@ class TestReadTrajectory(ExtendedTestCase):
                                 rotation=(0.772 * time, -0.8627 * time, -0.68782 * time))
             relative_trajectory[timestamp] = pose
             absolute_pose = first_pose.find_independent(pose)
-            quat = absolute_pose.rotation_quat(w_first=True)
-            trajectory_text += line_template.format(
-                time=timestamp,
-                x=repr(-1 * absolute_pose.location[1]),
-                y=repr(-1 * absolute_pose.location[2]),
-                z=repr(absolute_pose.location[0]),
-                qw=repr(quat[0]), qx=repr(-1 * quat[2]), qy=repr(-1 * quat[3]), qz=repr(quat[1])
-            )
+            trajectory_text += self.format_line(timestamp, absolute_pose)
 
         mock_open = mock.mock_open(read_data=trajectory_text)
         extend_mock_open(mock_open)
         with mock.patch('arvet_slam.dataset.euroc.euroc_loader.open', mock_open, create=True):
-            trajectory = euroc_loader.read_trajectory('test_filepath')
+            trajectory = euroc_loader.read_trajectory('test_filepath', relative_trajectory.keys())
         self.assertEqual(len(trajectory), len(relative_trajectory))
         for time, pose in relative_trajectory.items():
             self.assertIn(time, trajectory)
             self.assertNPClose(pose.location, trajectory[time].location)
             self.assertNPClose(pose.rotation_quat(True), trajectory[time].rotation_quat(True))
 
-    def test_skips_comment_lines(self):
+    def test_skips_comments_and_blank_lines(self):
         first_pose = tf.Transform(location=(15.2, -1167.9, -1.2), rotation=(0.535, 0.2525, 0.11, 0.2876))
         relative_trajectory = {}
-        trajectory_text = ""
-        line_template = "{time},{x},{y},{z},{qw},{qx},{qy},{qz},-0.005923,-0.002323,-0.002133," \
-                        "0.021059,0.076659,-0.026895,0.136910,0.059287\n"
+        trajectory_text = "# Starting with a comment\n    # Another comment\n\n"
         for time in range(0, 10):
             timestamp = time * 4999936 + 1403638128940097024
             pose = tf.Transform(location=(0.122 * time, -0.53112 * time, 1.893 * time),
                                 rotation=(0.772 * time, -0.8627 * time, -0.68782 * time))
             relative_trajectory[timestamp] = pose
             absolute_pose = first_pose.find_independent(pose)
-            quat = absolute_pose.rotation_quat(w_first=True)
-            trajectory_text += line_template.format(
-                time=timestamp,
-                x=repr(-1 * absolute_pose.location[1]),
-                y=repr(-1 * absolute_pose.location[2]),
-                z=repr(absolute_pose.location[0]),
-                qw=repr(quat[0]), qx=repr(-1 * quat[2]), qy=repr(-1 * quat[3]), qz=repr(quat[1])
-            )
+            trajectory_text += self.format_line(timestamp, absolute_pose)
             # Add incorrect trajectory data, preceeded by a hash to indicate it's a comment
-            quat = pose.rotation_quat(w_first=True)
-            trajectory_text += "# " + line_template.format(
-                time=repr(time),
-                x=repr(-1 * pose.location[1]),
-                y=repr(-1 * pose.location[2]),
-                z=repr(pose.location[0]),
-                qw=repr(quat[0]), qx=repr(-1 * quat[2]), qy=repr(-1 * quat[3]), qz=repr(quat[1])
-            )
+            trajectory_text += "# " + self.format_line(timestamp, pose)
 
         mock_open = mock.mock_open(read_data=trajectory_text)
         extend_mock_open(mock_open)
         with mock.patch('arvet_slam.dataset.euroc.euroc_loader.open', mock_open, create=True):
-            trajectory = euroc_loader.read_trajectory('test_filepath')
+            trajectory = euroc_loader.read_trajectory('test_filepath', relative_trajectory.keys())
         self.assertEqual(len(trajectory), len(relative_trajectory))
         for time, pose in relative_trajectory.items():
             self.assertIn(time, trajectory)
             self.assertNPClose(pose.location, trajectory[time].location)
             self.assertNPClose(pose.rotation_quat(True), trajectory[time].rotation_quat(True))
+
+    def test_removes_comments_from_the_end_of_lines(self):
+        first_pose = tf.Transform(location=(15.2, -1167.9, -1.2), rotation=(0.535, 0.2525, 0.11, 0.2876))
+        relative_trajectory = {}
+        trajectory_text = "# Starting with a comment\n    # Another comment\n\n"
+
+        line_template = "{time},{x},{y},{z},{qw},{qx},{qy},{qz} # This is a comment\n"
+        for time in range(0, 10):
+            timestamp = time * 4999936 + 1403638128940097024
+            pose = tf.Transform(location=(0.122 * time, -0.53112 * time, 1.893 * time),
+                                rotation=(0.772 * time, -0.8627 * time, -0.68782 * time))
+            relative_trajectory[timestamp] = pose
+            absolute_pose = first_pose.find_independent(pose)
+            trajectory_text += self.format_line(timestamp, absolute_pose, line_template)
+
+        mock_open = mock.mock_open(read_data=trajectory_text)
+        extend_mock_open(mock_open)
+        with mock.patch('arvet_slam.dataset.euroc.euroc_loader.open', mock_open, create=True):
+            trajectory = euroc_loader.read_trajectory('test_filepath', relative_trajectory.keys())
+        self.assertEqual(len(trajectory), len(relative_trajectory))
+        for time, pose in relative_trajectory.items():
+            self.assertIn(time, trajectory)
+            self.assertNPClose(pose.location, trajectory[time].location)
+            self.assertNPClose(pose.rotation_quat(True), trajectory[time].rotation_quat(True))
+
+    def test_interpolates_trajectory_to_desired_times(self):
+        def make_pose(time):
+            return tf.Transform(
+                location=(time, -10 * time, 0),
+                rotation=tf3d.quaternions.axangle2quat((1, 2, 3), (time / 10) * np.pi / 2),
+                w_first=True
+            )
+
+        time_scale = 10000
+        encoded_trajectory = {
+            time_scale * time: make_pose(time)
+            for time in range(0, 11, 2)
+        }
+        trajectory_text = ""
+        for time, pose in encoded_trajectory.items():
+            trajectory_text += self.format_line(time, pose)
+
+        desired_times = [int(time_scale * (time + 0.1)) for time in range(1, 11, 2)]
+        first_pose = make_pose(min(desired_times) / time_scale)
+
+        mock_open = mock.mock_open(read_data=trajectory_text)
+        extend_mock_open(mock_open)
+        with mock.patch('arvet_slam.dataset.euroc.euroc_loader.open', mock_open, create=True):
+            trajectory = euroc_loader.read_trajectory('test_filepath', desired_times)
+        self.assertEqual(set(desired_times), set(trajectory.keys()))
+        for time in desired_times:
+            expected_pose = first_pose.find_relative(make_pose(time / time_scale))
+            self.assertIn(time, trajectory)
+            self.assertNPClose(expected_pose.location, trajectory[time].location, atol=1e-14, rtol=0)
+            self.assertNPClose(expected_pose.rotation_quat(True), trajectory[time].rotation_quat(True),
+                               atol=1e-14, rtol=0)
+
+    def test_interpolates_multiple_times_within_the_same_interval(self):
+        def make_pose(time):
+            return tf.Transform(
+                location=(time, -10 * time, 0),
+                rotation=tf3d.quaternions.axangle2quat((1, 2, 3), (time / 10) * np.pi / 2),
+                w_first=True
+            )
+
+        time_scale = 10000
+        encoded_trajectory = {
+            time_scale * time: make_pose(time)
+            for time in range(0, 11, 2)
+        }
+        trajectory_text = ""
+        for time, pose in encoded_trajectory.items():
+            trajectory_text += self.format_line(time, pose)
+
+        # Lots of desired times for widely spaced samples
+        desired_times = [int(t) for t in np.linspace(0, 10 * time_scale - 1, num=47, endpoint=True)]
+        first_pose = make_pose(min(desired_times) / time_scale)
+
+        mock_open = mock.mock_open(read_data=trajectory_text)
+        extend_mock_open(mock_open)
+        with mock.patch('arvet_slam.dataset.euroc.euroc_loader.open', mock_open, create=True):
+            trajectory = euroc_loader.read_trajectory('test_filepath', desired_times)
+        self.assertEqual(set(desired_times), set(trajectory.keys()))
+        for time in desired_times:
+            expected_pose = first_pose.find_relative(make_pose(time / time_scale))
+            self.assertIn(time, trajectory)
+            self.assertNPClose(expected_pose.location, trajectory[time].location, atol=1e-13, rtol=0)
+            self.assertNPClose(expected_pose.rotation_quat(True), trajectory[time].rotation_quat(True),
+                               atol=1e-14, rtol=0)
 
 
 class TestAssociateData(unittest.TestCase):

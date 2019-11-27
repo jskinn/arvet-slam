@@ -18,6 +18,7 @@ from arvet.metadata.camera_intrinsics import CameraIntrinsics
 from arvet.core.sequence_type import ImageSequenceType
 from arvet.core.image import StereoImage
 from arvet.core.image_collection import ImageCollection
+from arvet_slam.util.trajectory_builder import TrajectoryBuilder
 
 
 def make_camera_pose(tx: float, ty: float, tz: float, qw: float, qx: float, qy: float, qz: float) -> tf.Transform:
@@ -76,7 +77,8 @@ def read_image_filenames(images_file_path: str) -> typing.Mapping[int, str]:
     return filename_map
 
 
-def read_trajectory(trajectory_filepath: str) -> typing.Mapping[int, tf.Transform]:
+def read_trajectory(trajectory_filepath: str, desired_times: typing.Iterable[float])\
+        -> typing.Mapping[float, tf.Transform]:
     """
     Read the ground-truth camera trajectory from file.
     The raw pose information is relative to some world frame, we adjust it to be relative to the initial pose
@@ -87,25 +89,21 @@ def read_trajectory(trajectory_filepath: str) -> typing.Mapping[int, tf.Transfor
     :param trajectory_filepath:
     :return: A map of timestamp to camera pose.
     """
-    trajectory = {}
-    first_pose = None
+    builder = TrajectoryBuilder(desired_times)
     with open(trajectory_filepath, 'r') as trajectory_file:
         for line in trajectory_file:
-            if line.startswith('#'):
-                # This line is a comment, skip and continue
-                continue
+            comment_idx = line.find('#')
+            if comment_idx >= 0:
+                # This line contains a comment, remove everything after it
+                line = line[:comment_idx]
+            line = line.strip()
             parts = line.split(',')
             if len(parts) >= 8:
                 timestamp, tx, ty, tz, qw, qx, qy, qz = parts[0:8]
                 pose = make_camera_pose(float(tx), float(ty), float(tz),
                                         float(qw), float(qx), float(qy), float(qz))
-                # Find the pose relative to the first frame, which we fix as 0,0,0
-                if first_pose is None:
-                    first_pose = pose
-                    trajectory[int(timestamp)] = tf.Transform()
-                else:
-                    trajectory[int(timestamp)] = first_pose.find_relative(pose)
-    return trajectory
+                builder.add_trajectory_point(int(timestamp), pose)
+    return builder.get_interpolated_trajectory()
 
 
 def associate_data(root_map: typing.Mapping, *args: typing.Mapping) -> typing.List[typing.List]:
@@ -334,7 +332,7 @@ def import_dataset(root_folder, dataset_name, **_):
     left_extrinsics, left_intrinsics = get_camera_calibration(left_camera_intrinsics_path)
     right_image_files = read_image_filenames(left_rgb_path)
     right_extrinsics, right_intrinsics = get_camera_calibration(right_camera_intrinsics_path)
-    trajectory = read_trajectory(trajectory_path)
+    trajectory = read_trajectory(trajectory_path, left_image_files.keys())
 
     # Step 3: Create stereo rectification matrices from the intrinsics
     left_x, left_y, left_intrinsics, right_x, right_y, right_intrinsics = rectify(
