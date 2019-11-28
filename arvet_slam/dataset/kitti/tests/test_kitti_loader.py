@@ -1,15 +1,12 @@
 # Copyright (c) 2017, John Skinner
-import unittest
-import unittest.mock as mock
 import numpy as np
-import pymongo.collection
 import transforms3d as tf3d
 import arvet.util.transform as tf
-import arvet.database.client
+from arvet.util.test_helpers import ExtendedTestCase
 import arvet_slam.dataset.kitti.kitti_loader as kitti
 
 
-class TestKITTILoader(unittest.TestCase):
+class TestKITTILoader(ExtendedTestCase):
 
     def test_make_camera_pose_returns_transform_object(self):
         frame_delta = np.array([[1, 0, 0, 10],
@@ -59,18 +56,3 @@ class TestKITTILoader(unittest.TestCase):
             pose = kitti.make_camera_pose(frame_delta)
             self.assertNPEqual(loc, pose.location)
             self.assertNPClose(tf3d.quaternions.axangle2quat(rot_axis, rot_angle, False), pose.rotation_quat(True))
-
-    def test_import_dataset_concrete(self):
-        # TODO: Mock pykitti
-        self.skipTest('Incomplete')
-        mock_db_client = mock.create_autospec(arvet.database.client.DatabaseClient)
-        mock_db_client.image_collection = mock.create_autospec(pymongo.collection.Collection)
-        mock_db_client.image_collection.find_one.return_value = None
-        mock_db_client.image_source_collection = mock.create_autospec(pymongo.collection.Collection)
-        result = kitti.import_dataset('/notafolder/KITTI/dataset', mock_db_client)
-
-    def assertNPEqual(self, arr1, arr2):
-        self.assertTrue(np.array_equal(arr1, arr2), "Arrays {0} and {1} are not equal".format(str(arr1), str(arr2)))
-
-    def assertNPClose(self, arr1, arr2):
-        self.assertTrue(np.all(np.isclose(arr1, arr2)), "Arrays {0} and {1} are not close".format(str(arr1), str(arr2)))
