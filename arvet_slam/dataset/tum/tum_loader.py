@@ -127,7 +127,7 @@ def associate_data(root_map, *args):
 
 
 def get_camera_intrinsics(folder_path: typing.Union[str, bytes, os.PathLike]):
-    folder_path = folder_path.lower()
+    folder_path = str(folder_path).lower()
     if 'freiburg1' in folder_path:
         return CameraIntrinsics(
             width=640,
@@ -230,7 +230,7 @@ def import_dataset(root_folder, dataset_name, **_):
         raise NotADirectoryError("'{0}' is not a directory".format(root_folder))
 
     # Step 1: Find the relevant metadata files
-    root_folder, rgb_path, trajectory_path, depth_path = find_files(root_folder)
+    root_folder, rgb_path, depth_path, trajectory_path = find_files(root_folder)
 
     # Step 2: Read the metadata from them
     image_files = read_image_filenames(rgb_path)
