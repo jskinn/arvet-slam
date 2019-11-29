@@ -29,15 +29,52 @@ def make_camera_pose(pose):
     return Transform(pose)
 
 
+def find_root(base_root, sequence_name):
+    """
+    Search the given base directory for the actual dataset root.
+    This makes it a little easier for the dataset manager
+    :param base_root:
+    :param sequence_name:
+    :return:
+    """
+    # These are folders we expect within the dataset folder structure. If we hit them, we've gone too far
+    excluded_folders = {
+        'sequences', 'poses', '__MACOSX'
+    }
+    to_search = {base_root}
+    while len(to_search) > 0:
+        candidate_root = to_search.pop()
+
+        # Make the derivative paths we're looking for. All of these must exist.
+        # This comes from the pykitti constructor
+        image_2_dir = os.path.join(candidate_root, 'sequences', sequence_name, 'image_2')
+        image_3_dir = os.path.join(candidate_root, 'sequences', sequence_name, 'image_3')
+        calib_file = os.path.join(candidate_root, 'sequences', sequence_name, 'calib.txt')
+        timestamps_file = os.path.join(candidate_root, 'sequences', sequence_name, 'times.txt')
+        pose_path = os.path.join(candidate_root, 'poses', sequence_name + '.txt')
+
+        # If all the required files are present, return that root and the file paths.
+        if (os.path.isdir(image_2_dir) and os.path.isdir(image_3_dir) and
+                os.path.isfile(pose_path) and os.path.isfile(calib_file) and os.path.isfile(timestamps_file)):
+            return candidate_root
+
+        # This was not the directory we were looking for, search the subdirectories
+        with os.scandir(candidate_root) as dir_iter:
+            for dir_entry in dir_iter:
+                if dir_entry.is_dir() and dir_entry.name not in excluded_folders:
+                    to_search.add(dir_entry.path)
+
+    # Could not find the necessary files to import, raise an exception.
+    raise FileNotFoundError("Could not find a valid root directory within '{0}'".format(base_root))
+
+
 def import_dataset(root_folder, sequence_number, **_):
     """
     Load a KITTI image sequences into the database.
     :return:
     """
-    sequence_name = "{0:02}".format(sequence_number)
-    if not os.path.isdir(root_folder) and os.path.isdir(os.path.join(root_folder, sequence_name)):
-        return None
-
+    sequence_name = "{0:06}".format(sequence_number)
+    root_folder = find_root(root_folder, sequence_name)
     data = pykitti.odometry(root_folder, sequence=sequence_name)
 
     # dataset.calib:      Calibration data are accessible as a named tuple
