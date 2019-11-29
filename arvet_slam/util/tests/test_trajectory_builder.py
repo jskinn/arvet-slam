@@ -127,19 +127,58 @@ class TestTrajectoryLoader(ExtendedTestCase):
             self.assertNPClose(expected_pose.rotation_quat(True), interpolated_pose.rotation_quat(True),
                                atol=1e-14, rtol=0)
 
-    def test_raises_exception_if_not_enough_data_for_time(self):
+    def test_extrapolates_if_not_bounded_below(self):
+        def make_pose(time):
+            # Make times that depend non-linearly on time so that linear interpolation is inaccurate
+            return Transform(
+                location=(10 * time - 0.1 * time * time, 10 * np.cos(time * np.pi / 50), 0),
+                rotation=tf3d.quaternions.axangle2quat((-2, -3, 2), np.log(time + 1) * np.pi / (4 * np.log(10))),
+                w_first=True
+            )
+
         builder = TrajectoryBuilder(time + 0.4311 for time in range(0, 10))
         for time in range(0, 10):   # No times before 0.5, but min desired timestamp is 0.4331
-            builder.add_trajectory_point(time + 0.5, Transform((time * 10, -time, 0)))
+            builder.add_trajectory_point(time + 0.5, make_pose(time + 0.5))
+        result = builder.get_interpolated_trajectory()
+        self.assertEqual({time + 0.4311 for time in range(0, 10)}, set(result.keys()))
+
+        # Because this is the first pose, we expect it to be the origin, and all the other poses to be relative to it
+        self.assertEqual(Transform(), result[0.4311])
+        first_pose = linear_interpolate(make_pose(0.5), make_pose(1.5), (0.4311 - 0.5) / (1.5 - 0.5))
+        for time in range(1, 10):
+            expected_pose = linear_interpolate(make_pose(time - 0.5), make_pose(time + 0.5),
+                                               (time + 0.4311 - (time - 0.5)) / (0.5 + 0.5))
+            expected_pose = first_pose.find_relative(expected_pose)
+            self.assertNPClose(expected_pose.location, result[time + 0.4311].location, atol=1e-13, rtol=0)
+            self.assertNPClose(expected_pose.rotation_quat(True), result[time + 0.4311].rotation_quat(True),
+                               atol=1e-13, rtol=0)
+
+    def test_extrapolates_if_not_bounded_above(self):
+        def make_pose(time):
+            # Make times that depend non-linearly on time so that linear interpolation is inaccurate
+            return Transform(
+                location=(10 * time - 0.1 * time * time, 10 * np.cos(time * np.pi / 50), 0),
+                rotation=tf3d.quaternions.axangle2quat((-2, -3, 2), np.log(time + 1) * np.pi / (4 * np.log(10))),
+                w_first=True
+            )
+
+        builder = TrajectoryBuilder(time + 0.229 for time in range(0, 10))
+        for time in range(0, 10):   # No times after 8.5, but max desired time is 9.229
+            builder.add_trajectory_point(time - 0.5, make_pose(time - 0.5))
+        result = builder.get_interpolated_trajectory()
+
+        # Pose at 9.229 should be the extrapolation of the 7.5 and 8.5 poses, relative to the interpolated 0.229 pose
+        first_pose = linear_interpolate(make_pose(-0.5), make_pose(0.5), (0.229 + 0.5) / (0.5 + 0.5))
+        expected_pose = linear_interpolate(make_pose(7.5), make_pose(8.5), (9.229 - 7.5) / (8.5 - 7.5))
+        expected_pose = first_pose.find_relative(expected_pose)
+        self.assertEqual({time + 0.229 for time in range(0, 10)}, set(result.keys()))
+        self.assertNPClose(expected_pose.location, result[9.229].location, atol=1e-13, rtol=0)
+        self.assertNPClose(expected_pose.rotation_quat(True), result[9.229].rotation_quat(True), atol=1e-13, rtol=0)
+
+    def test_raises_exception_if_only_one_sample_point(self):
+        builder = TrajectoryBuilder(time + 0.4311 for time in range(0, 10))
+        builder.add_trajectory_point(5 + 0.5, Transform((5 * 10, -5, 0)))
         with self.assertRaises(RuntimeError) as ctx:
             builder.get_interpolated_trajectory()
         message = str(ctx.exception)
         self.assertIn('0.4311', message)  # Check includes the timestamp in the error message
-
-        builder = TrajectoryBuilder(time + 0.229 for time in range(0, 10))
-        for time in range(0, 10):   # No times after 8.5, but max desired time is 9.229
-            builder.add_trajectory_point(time - 0.5, Transform((time * 10, -time, 0)))
-        with self.assertRaises(RuntimeError) as ctx:
-            builder.get_interpolated_trajectory()
-        message = str(ctx.exception)
-        self.assertIn('9.229', message)  # Check includes the timestamp in the error message

@@ -65,12 +65,12 @@ class PointEstimate:
 
     def __init__(self, timestamp: float):
         self.timestamp = timestamp
-        self._lesser_time = None
-        self._lesser_pose = None
-        self._lesser_diff = None
-        self._greater_time = None
-        self._greater_pose = None
-        self._greater_diff = None
+        self._best_time = None
+        self._best_pose = None
+        self._best_diff = None
+        self._second_best_time = None
+        self._second_best_pose = None
+        self._second_best_diff = None
 
     def add_sample(self, timestamp: float, pose: Transform) -> None:
         """
@@ -81,14 +81,17 @@ class PointEstimate:
         :return:
         """
         diff = abs(timestamp - self.timestamp)
-        if timestamp <= self.timestamp and (self._lesser_diff is None or diff < self._lesser_diff):
-            self._lesser_time = timestamp
-            self._lesser_pose = pose
-            self._lesser_diff = diff
-        if timestamp >= self.timestamp and (self._greater_diff is None or diff < self._greater_diff):
-            self._greater_time = timestamp
-            self._greater_pose = pose
-            self._greater_diff = diff
+        if self._best_diff is None or diff < self._best_diff:
+            self._second_best_time = self._best_time
+            self._second_best_pose = self._best_pose
+            self._second_best_diff = self._best_diff
+            self._best_time = timestamp
+            self._best_pose = pose
+            self._best_diff = diff
+        elif self._second_best_diff is None or diff < self._second_best_diff:
+            self._second_best_time = timestamp
+            self._second_best_pose = pose
+            self._second_best_diff = diff
 
     def can_estimate(self) -> bool:
         """
@@ -96,17 +99,17 @@ class PointEstimate:
         If not, get_estimate may error
         :return:
         """
-        return self._lesser_pose is not None and self._greater_pose is not None
+        return self._best_pose is not None and self._second_best_pose is not None
 
     def get_estimate(self) -> Transform:
         """
         Get the current best estimate for the pose at the given time.
         :return:
         """
-        if self._lesser_diff == 0:
+        if self._best_diff == 0:
             # Got the desired timestamp exactly, return it
-            return self._lesser_pose
-        alpha = (self.timestamp - self._lesser_time) / (self._greater_time - self._lesser_time)
-        return linear_interpolate(self._lesser_pose, self._greater_pose, alpha)
+            return self._best_pose
+        alpha = (self.timestamp - self._second_best_time) / (self._best_time - self._second_best_time)
+        return linear_interpolate(self._second_best_pose, self._best_pose, alpha)
 
 
