@@ -14,7 +14,7 @@ sequence_ids = list(range(11))
 
 class KITTIManager:
 
-    def __init__(self, root: str):
+    def __init__(self, root: typing.Union[str, bytes, os.PathLike]):
         self._full_paths = self.find_roots(root)
 
     def __getattr__(self, item):

@@ -1,5 +1,6 @@
 # Copyright (c) 2017, John Skinner
 import os
+import typing
 import arvet.batch_analysis.task_manager as task_manager
 import arvet_slam.dataset.tum.tum_loader as tum_loader
 
@@ -57,7 +58,7 @@ dataset_names = [
 
 class TUMManager:
 
-    def __init__(self, root: str):
+    def __init__(self, root: typing.Union[str, bytes, os.PathLike]):
         self._full_paths = self.find_roots(root)
 
     def __getattr__(self, item):
@@ -89,35 +90,8 @@ class TUMManager:
                 return None
         raise NotADirectoryError("No root folder for {0}, did you download it?".format(name))
 
-    def do_imports(self, root_folder, task_manager):
-        to_import = {dataset_name for dataset_name, do_import in self._config.items()
-                     if bool(do_import) and (dataset_name not in self._dataset_ids or
-                                             self._dataset_ids[dataset_name] is None)}
-
-        # Recursively search for the directories to import from the root folder
-        full_paths = set()
-        for dirpath, subdirs, _ in os.walk(root_folder):
-            for subdir in subdirs:
-                if subdir in to_import:
-                    full_paths.add((subdir, os.path.join(dirpath, subdir)))
-
-        # Create tasks for tall the paths we found
-        for dataset_folder, full_path in full_paths:
-            import_dataset_task = task_manager.get_import_dataset_task(
-                module_name='arvet_slam.dataset.tum.tum_loader',
-                path=full_path,
-                num_cpus=1,
-                num_gpus=0,
-                memory_requirements='3GB',
-                expected_duration='8:00:00'
-            )
-            if import_dataset_task.is_finished:
-                self._dataset_ids[dataset_folder] = import_dataset_task.result
-            else:
-                task_manager.do_task(import_dataset_task)
-
     @classmethod
-    def find_roots(cls, root):
+    def find_roots(cls, root: typing.Union[str, bytes, os.PathLike]):
         """
         Recursively search for the directories to import from the root folder.
         We're looking for folders with the same names as the
