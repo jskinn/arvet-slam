@@ -104,6 +104,7 @@ class OrbSlam2(VisionSystem):
         Is the dataset appropriate for testing this vision system.
         This will depend on which sensor mode ORB_SLAM is configured in,
         stereo mode will require stereo to be available, while RGB-D mode will require depth to be available.
+        Also checks the ORB feature pyramid settings against the
 
         :param image_source: The source for images that this system will potentially be run with.
         :return: True iff the particular dataset is appropriate for this vision system.
@@ -112,7 +113,13 @@ class OrbSlam2(VisionSystem):
         return (image_source.sequence_type == ImageSequenceType.SEQUENTIAL and (
             self.mode == SensorMode.MONOCULAR or
             (self.mode == SensorMode.STEREO and image_source.is_stereo_available) or
-            (self.mode == SensorMode.RGBD and image_source.is_depth_available)))
+            (self.mode == SensorMode.RGBD and image_source.is_depth_available)
+        ) and check_feature_pyramid_settings(
+            img_width=image_source.camera_intrinsics.width,
+            img_height=image_source.camera_intrinsics.height,
+            orb_scale_factor=self.orb_scale_factor,
+            orb_num_levels=self.orb_num_levels
+        ))
 
     def get_columns(self) -> typing.Set[str]:
         """
@@ -597,6 +604,62 @@ def _find_closest(value, options):
         return None
     idx = (np.abs(options - value)).argmin()
     return options[idx]
+
+
+def check_feature_pyramid_settings(img_width: int, img_height: int, orb_scale_factor: float, orb_num_levels: int) \
+        -> bool:
+    """
+    Check that the ORB feature pyramid settings support the given image resolution.
+    If the images are too small, or the settings wrong, the feature pyramid will produce levels that are
+    either 0 or negative, resulting in crashes or undefined behaviour.
+
+    This is reverse-engineered from the ORBSLAM2 source, particularly ORBextractor::ComputeKeyPointsOctTree
+    in ORBExtractor.cc
+
+    :param img_width: The width of the input image
+    :param img_height: The height of the input image
+    :param orb_scale_factor: The scale factor between layers of the feature pyramid
+    :param orb_num_levels: The number of levels in the feature pyramid
+    :return: True
+    """
+    # First, find the scale factor of the smallest level in the pyramid
+    max_pyramid_scale = orb_scale_factor ** (orb_num_levels - 1)
+    if img_width / max_pyramid_scale < 0.5 or img_height / max_pyramid_scale < 0.5:
+        # First, this will definitely crash if any of the feature pyramid levels have a resolution < 1
+        return False
+
+    # ORBSLAM2 uses a 16 pixel edge margin on all sides (32 from width/height), and then splits into grids of 30px
+    # If a feature pyramid level has dimension less than or equal to 0, the system will crash.
+    # The 32 comes from EDGE_THRESHOLD (19), as EDGE_THRESHOLD-3 is added/subtracted from the min/max dimensions in
+    # void ORBextractor::ComputeKeyPointsOctTree(vector<vector<KeyPoint> >& allKeypoints) in ORBExtractor.cc
+    # Thus, these are the width/height of the lowest resolution level in the feature pyramid
+    smallest_layer_width = np.round(img_width / max_pyramid_scale) - 32
+    smallest_layer_height = np.round(img_height / max_pyramid_scale) - 32
+    if smallest_layer_width <= 0 or smallest_layer_height <= 0:
+        # If either of these dimensions are less than or equal to 0, the ORB extraction will behave undefined
+        return False
+
+    # Next, check each level individually for bad values
+    # There is an odd dependency to the aspect ratio in DistributeOctTree, so some layer width/height combinations
+    # will cause problems.
+    for level in range(orb_num_levels - 1, -1, -1):
+        layer_width = np.round(img_width / (orb_scale_factor ** level))
+        layer_height = np.round(img_height / (orb_scale_factor ** level))
+
+        # This is initial number of nodes used in ORBextractor::DistributeOctTree
+        # if it happens to be 0, then a derivative value hX will be inf, and things will break unpredictably
+        # Negative values at least run, but will cause strange behaviour.
+        n_ini = np.round(layer_width / layer_height)
+        if n_ini <= 0:
+            return False
+        # A derivative value of n_ini, which is part of why 0 is not allowed
+        # I don't know if it is possible to still hit this after passing previous checks, but it's bad if it happens
+        hx = layer_width / n_ini
+        if hx <= 0:
+            return False
+
+    # everything seems ok, proceed.
+    return True
 
 
 def run_orbslam(output_queue, input_queue, vocab_file, settings_file, mode):

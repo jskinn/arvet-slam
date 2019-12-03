@@ -437,6 +437,7 @@ class TestOrbSlam2(unittest.TestCase):
     def test_is_image_source_appropriate_returns_true_for_monocular_systems_and_sequential_image_sources(self):
         subject = OrbSlam2(mode=SensorMode.MONOCULAR)
         mock_image_source = mock.create_autospec(ImageSource)
+        mock_image_source.camera_intrinsics = CameraIntrinsics(width=640, height=480)
 
         mock_image_source.sequence_type = ImageSequenceType.SEQUENTIAL
         self.assertTrue(subject.is_image_source_appropriate(mock_image_source))
@@ -450,6 +451,7 @@ class TestOrbSlam2(unittest.TestCase):
     def test_is_image_source_appropriate_returns_true_for_stereo_systems_if_stereo_is_available(self):
         subject = OrbSlam2(mode=SensorMode.STEREO)
         mock_image_source = mock.create_autospec(ImageSource)
+        mock_image_source.camera_intrinsics = CameraIntrinsics(width=640, height=480)
 
         mock_image_source.sequence_type = ImageSequenceType.SEQUENTIAL
         mock_image_source.is_stereo_available = True
@@ -469,6 +471,7 @@ class TestOrbSlam2(unittest.TestCase):
     def test_is_image_source_appropriate_returns_true_for_rgbd_systems_if_depth_is_available(self):
         subject = OrbSlam2(mode=SensorMode.RGBD)
         mock_image_source = mock.create_autospec(ImageSource)
+        mock_image_source.camera_intrinsics = CameraIntrinsics(width=640, height=480)
 
         mock_image_source.sequence_type = ImageSequenceType.SEQUENTIAL
         mock_image_source.is_depth_available = True
@@ -484,6 +487,46 @@ class TestOrbSlam2(unittest.TestCase):
         mock_image_source = mock.create_autospec(ImageSource)
         mock_image_source.sequence_type = ImageSequenceType.INTERACTIVE
         self.assertFalse(subject.is_image_source_appropriate(mock_image_source))
+
+    def test_is_image_source_appropriate_returns_false_if_the_feature_pyramid_scales_a_dimension_to_zero(self):
+        num_levels = 4
+        for scale_factor in [1.2, 2.0]:     # Try for different scale factors, to make sure it's not a constant
+            subject = OrbSlam2(mode=SensorMode.RGBD, orb_scale_factor=scale_factor, orb_num_levels=num_levels)
+            mock_image_source = mock.create_autospec(ImageSource)
+            mock_image_source.sequence_type = ImageSequenceType.SEQUENTIAL
+
+            # The feature pyramid will reduce this to 0 exactly on the lowest dimension, but 1 more is still 1
+            zero_dim = np.floor(32.5 * (scale_factor ** (num_levels - 1)))
+            # The feature pyramid will reduce this to a negative number (roughly -15)
+            negative_dim = np.floor(17 * scale_factor ** (num_levels - 1))
+
+            mock_image_source.camera_intrinsics = CameraIntrinsics(width=zero_dim, height=zero_dim + 1)
+            self.assertFalse(subject.is_image_source_appropriate(mock_image_source))
+
+            mock_image_source.camera_intrinsics = CameraIntrinsics(width=negative_dim, height=zero_dim + 1)
+            self.assertFalse(subject.is_image_source_appropriate(mock_image_source))
+
+            mock_image_source.camera_intrinsics = CameraIntrinsics(width=zero_dim + 1, height=zero_dim)
+            self.assertFalse(subject.is_image_source_appropriate(mock_image_source))
+
+            mock_image_source.camera_intrinsics = CameraIntrinsics(width=zero_dim + 1, height=negative_dim)
+            self.assertFalse(subject.is_image_source_appropriate(mock_image_source))
+
+            mock_image_source.camera_intrinsics = CameraIntrinsics(width=zero_dim + 1, height=zero_dim + 1)
+            self.assertTrue(subject.is_image_source_appropriate(mock_image_source))
+
+    def test_is_image_source_appropriate_returns_false_if_the_aspect_ratios_are_wrong(self):
+        subject = OrbSlam2(mode=SensorMode.RGBD, orb_scale_factor=2, orb_num_levels=2)
+        mock_image_source = mock.create_autospec(ImageSource)
+        mock_image_source.sequence_type = ImageSequenceType.SEQUENTIAL
+
+        # This image source has width/height < 0.5, which will round to 0, ruining nIni
+        mock_image_source.camera_intrinsics = CameraIntrinsics(width=256, height=1024)
+        self.assertFalse(subject.is_image_source_appropriate(mock_image_source))
+
+        # This is fine.
+        mock_image_source.camera_intrinsics = CameraIntrinsics(width=1024, height=256)
+        self.assertTrue(subject.is_image_source_appropriate(mock_image_source))
 
     def test_save_settings_raises_error_without_paths_configured(self):
         intrinsics = CameraIntrinsics(
