@@ -643,8 +643,8 @@ def check_feature_pyramid_settings(img_width: int, img_height: int, orb_scale_fa
     # There is an odd dependency to the aspect ratio in DistributeOctTree, so some layer width/height combinations
     # will cause problems.
     for level in range(orb_num_levels - 1, -1, -1):
-        layer_width = np.round(img_width / (orb_scale_factor ** level))
-        layer_height = np.round(img_height / (orb_scale_factor ** level))
+        layer_width = np.round(img_width / (orb_scale_factor ** level)) - 32
+        layer_height = np.round(img_height / (orb_scale_factor ** level)) - 32
 
         # This is initial number of nodes used in ORBextractor::DistributeOctTree
         # if it happens to be 0, then a derivative value hX will be inf, and things will break unpredictably
