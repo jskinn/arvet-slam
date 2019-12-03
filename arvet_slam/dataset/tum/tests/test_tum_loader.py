@@ -288,7 +288,7 @@ class TestReadTrajectory(ExtendedTestCase):
         for time in desired_times:
             expected_pose = first_pose.find_relative(make_pose(time))
             self.assertIn(time, trajectory)
-            self.assertNPEqual(expected_pose.location, trajectory[time].location)
+            self.assertNPClose(expected_pose.location, trajectory[time].location, atol=1e-14, rtol=0)
             self.assertNPClose(expected_pose.rotation_quat(True), trajectory[time].rotation_quat(True),
                                atol=1e-14, rtol=0)
 
@@ -350,12 +350,12 @@ class TestFindFiles(unittest.TestCase):
         for filename in self.required_files:
             (root_path / filename).touch()
 
-        result = tum_loader.find_files(str(root_path))
+        result = tum_loader.find_files(root_path)
         self.assertEqual((
-            str(root_path),
-            str(root_path / 'rgb.txt'),
-            str(root_path / 'depth.txt'),
-            str(root_path / 'groundtruth.txt'),
+            root_path,
+            root_path / 'rgb.txt',
+            root_path / 'depth.txt',
+            root_path / 'groundtruth.txt',
         ), result)
 
         # Clean up after ourselves
@@ -381,12 +381,12 @@ class TestFindFiles(unittest.TestCase):
                         (path / 'decoy.txt').touch()
 
         # Search that structure for the one folder that has all we need
-        result = tum_loader.find_files(str(base_root))
+        result = tum_loader.find_files(base_root)
         self.assertEqual((
-            str(true_path),
-            str(true_path / 'rgb.txt'),
-            str(true_path / 'depth.txt'),
-            str(true_path / 'groundtruth.txt'),
+            true_path,
+            true_path / 'rgb.txt',
+            true_path / 'depth.txt',
+            true_path / 'groundtruth.txt',
         ), result)
 
         # Clean up after ourselves
@@ -406,7 +406,7 @@ class TestFindFiles(unittest.TestCase):
                     file_path.unlink()
 
             with self.assertRaises(FileNotFoundError):
-                tum_loader.find_files(str(root_path))
+                tum_loader.find_files(root_path)
 
         # Clean up after ourselves
         shutil.rmtree(root_path)

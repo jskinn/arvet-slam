@@ -1,6 +1,9 @@
 # Copyright (c) 2017, John Skinner
 import typing
 import os.path
+import tarfile
+from pathlib import Path
+import shutil
 import arvet.util.image_utils as image_utils
 from arvet.util.associate import associate
 from arvet.metadata.camera_intrinsics import CameraIntrinsics
@@ -10,6 +13,16 @@ from arvet.core.sequence_type import ImageSequenceType
 from arvet.core.image import Image
 from arvet.core.image_collection import ImageCollection
 from arvet_slam.util.trajectory_builder import TrajectoryBuilder
+
+
+# Different environment types for different datasets
+# Determined manually by looking at the sequences
+environment_types = {
+    'rgbd_dataset_freiburg1_360': imeta.EnvironmentType.INDOOR_CLOSE,
+    'rgbd_dataset_freiburg1_desk': imeta.EnvironmentType.INDOOR_CLOSE,
+    'rgbd_dataset_freiburg2_dishes': imeta.EnvironmentType.INDOOR,
+    'rgbd_dataset_freiburg3_structure_texture_far': imeta.EnvironmentType.INDOOR,
+}
 
 
 def make_camera_pose(tx: float, ty: float, tz: float, qw: float, qx: float, qy: float, qz: float) -> tf.Transform:
@@ -177,7 +190,7 @@ def get_camera_intrinsics(folder_path: typing.Union[str, bytes, os.PathLike]):
         )
 
 
-def find_files(base_root):
+def find_files(base_root: Path):
     """
     Search the given base directory for the actual dataset root.
     This makes it a little easier for the dataset manager
@@ -186,37 +199,26 @@ def find_files(base_root):
     """
     # These are folders we expect within the dataset folder structure. If we hit them, we've gone too far
     excluded_folders = {'depth', 'rgb', '__MACOSX'}
-    to_search = {base_root}
+    to_search = {Path(base_root)}
     while len(to_search) > 0:
         candidate_root = to_search.pop()
 
         # Make the derivative paths we're looking for. All of these must exist.
-        rgb_path = os.path.join(candidate_root, 'rgb.txt')
-        trajectory_path = os.path.join(candidate_root, 'groundtruth.txt')
-        depth_path = os.path.join(candidate_root, 'depth.txt')
+        rgb_path = candidate_root / 'rgb.txt'
+        trajectory_path = candidate_root / 'groundtruth.txt'
+        depth_path = candidate_root / 'depth.txt'
 
         # If all the required files are present, return that root and the file paths.
-        if os.path.isfile(rgb_path) and os.path.isfile(trajectory_path) and os.path.isfile(depth_path):
+        if rgb_path.is_file() and trajectory_path.is_file() and depth_path.is_file():
             return candidate_root, rgb_path, depth_path, trajectory_path
 
         # This was not the directory we were looking for, search the subdirectories
-        with os.scandir(candidate_root) as dir_iter:
-            for dir_entry in dir_iter:
-                if dir_entry.is_dir() and dir_entry.name not in excluded_folders:
-                    to_search.add(dir_entry.path)
+        for child_path in candidate_root.iterdir():
+            if child_path.is_dir() and child_path.name not in excluded_folders:
+                to_search.add(child_path)
 
     # Could not find the necessary files to import, raise an exception.
     raise FileNotFoundError("Could not find a valid root directory within '{0}'".format(base_root))
-
-
-# Different environment types for different datasets
-# Determined manually by looking at the sequences
-environment_types = {
-    'rgbd_dataset_freiburg1_360': imeta.EnvironmentType.INDOOR_CLOSE,
-    'rgbd_dataset_freiburg1_desk': imeta.EnvironmentType.INDOOR_CLOSE,
-    'rgbd_dataset_freiburg2_dishes': imeta.EnvironmentType.INDOOR,
-    'rgbd_dataset_freiburg3_structure_texture_far': imeta.EnvironmentType.INDOOR,
-}
 
 
 def import_dataset(root_folder, dataset_name, **_):
@@ -226,8 +228,23 @@ def import_dataset(root_folder, dataset_name, **_):
 
     :return:
     """
-    if not os.path.isdir(root_folder):
-        raise NotADirectoryError("'{0}' is not a directory".format(root_folder))
+    root_folder = Path(root_folder)
+
+    # Step 0: Check the root folder to see if it needs to be extracted from a tarfile
+    delete_when_done = None
+    if not root_folder.is_dir():
+        if (root_folder.parent / dataset_name).is_dir():
+            # The root was a tarball, but the extracted data already exists, just use that as the root
+            root_folder = root_folder.parent / dataset_name
+        elif tarfile.is_tarfile(root_folder):
+            # Root is actually a tarfile, extract it. find_roots with handle folder structures
+            with tarfile.open(root_folder) as tar_fp:
+                tar_fp.extractall(root_folder.parent / dataset_name)
+            root_folder = root_folder.parent / dataset_name
+            delete_when_done = root_folder
+        else:
+            # Could find neither a dir nor a tarfile to extract from
+            raise NotADirectoryError("'{0}' is not a directory".format(root_folder))
 
     # Step 1: Find the relevant metadata files
     root_folder, rgb_path, depth_path, trajectory_path = find_files(root_folder)
@@ -284,4 +301,9 @@ def import_dataset(root_folder, dataset_name, **_):
         trajectory_id=dataset_name
     )
     collection.save()
+
+    if delete_when_done.exists():
+        # We're done and need to clean up after ourselves
+        shutil.rmtree(delete_when_done)
+
     return collection

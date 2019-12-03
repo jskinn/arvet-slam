@@ -1,6 +1,8 @@
 # Copyright (c) 2017, John Skinner
-import os
 import typing
+from os import PathLike
+from pathlib import Path
+import tarfile
 import arvet.batch_analysis.task_manager as task_manager
 import arvet_slam.dataset.tum.tum_loader as tum_loader
 
@@ -58,7 +60,7 @@ dataset_names = [
 
 class TUMManager:
 
-    def __init__(self, root: typing.Union[str, bytes, os.PathLike]):
+    def __init__(self, root: typing.Union[str, bytes, PathLike]):
         self._full_paths = self.find_roots(root)
 
     def __getattr__(self, item):
@@ -91,7 +93,7 @@ class TUMManager:
         raise NotADirectoryError("No root folder for {0}, did you download it?".format(name))
 
     @classmethod
-    def find_roots(cls, root: typing.Union[str, bytes, os.PathLike]):
+    def find_roots(cls, root: typing.Union[str, bytes, PathLike]):
         """
         Recursively search for the directories to import from the root folder.
         We're looking for folders with the same names as the
@@ -99,21 +101,34 @@ class TUMManager:
         :return:
         """
         actual_roots = {}
-        to_search = {root}
+        tarball_roots = {}
+        to_search = {Path(root).resolve()}
         while len(to_search) > 0:
             candidate_root = to_search.pop()
-            with os.scandir(candidate_root) as dir_iter:
-                for dir_entry in dir_iter:
-                    if dir_entry.is_dir():
-                        dir_name = dir_entry.name
-                        if dir_name in dataset_names:
-                            # this is a dataset folder, we're not going to search within it
-                            try:
-                                actual_root = tum_loader.find_files(dir_entry.path)
-                            except FileNotFoundError:
-                                continue
-                            # Only want the root path, ignore the other return values
-                            actual_roots[dir_name] = actual_root[0]
-                        else:
-                            to_search.add(dir_entry.path)
+            for child_path in candidate_root.iterdir():
+                if child_path.is_dir():
+                    if child_path.name in dataset_names:
+                        # this is could be a dataset folder, look for roots
+                        try:
+                            actual_root = tum_loader.find_files(child_path)
+                        except FileNotFoundError:
+                            continue
+                        # Only want the root path, ignore the other return values
+                        actual_roots[child_path.name] = actual_root[0]
+                    else:
+                        # Recursively search this path for more files
+                        to_search.add(child_path)
+                elif child_path.is_file() and tarfile.is_tarfile(child_path):
+                    # the file is a tarball, check if it matches a dataset name
+                    file_name = child_path.name
+                    period_index = file_name.find('.')
+                    if period_index > 0:
+                        file_name = file_name[:period_index]    # strip all extensions.
+                    if file_name in dataset_names:
+                        tarball_roots[file_name] = child_path
+
+        # for each dataset we found a tarball for, but not a root folder, store the tarball as the root
+        for dataset_name in set(tarball_roots.keys()) - set(actual_roots.keys()):
+            actual_roots[dataset_name] = tarball_roots[dataset_name]
+
         return actual_roots

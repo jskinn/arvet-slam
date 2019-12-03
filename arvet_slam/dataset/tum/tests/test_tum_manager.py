@@ -2,6 +2,8 @@
 import unittest
 import unittest.mock as mock
 import os.path
+import tarfile
+from pathlib import Path
 from shutil import rmtree
 from arvet_slam.dataset.tum.tum_manager import TUMManager, dataset_names
 
@@ -10,26 +12,26 @@ class TestTUMManager(unittest.TestCase):
 
     @mock.patch('arvet_slam.dataset.tum.tum_manager.tum_loader', autospec=True)
     def test_find_roots_finds_folders_with_the_names_of_datasets(self, mock_tum_loader):
-        mock_dataset_root = os.path.join(os.path.dirname(__file__), 'mock_tum_dataset')
-        teddy_root = os.path.join(mock_dataset_root, 'rgbd_dataset_freiburg1_teddy')
+        mock_dataset_root = Path(os.path.dirname(__file__)) / 'mock_tum_dataset'
+        teddy_root = mock_dataset_root / 'rgbd_dataset_freiburg1_teddy'
         os.makedirs(teddy_root, exist_ok=True)
 
-        marker = "/foobar"
-        mock_tum_loader.find_files.side_effect = lambda x: (x + marker, None, None, None, None, None)
+        marker = "foobar"
+        mock_tum_loader.find_files.side_effect = lambda x: (x / marker, None, None, None, None, None)
 
         root_dirs = TUMManager.find_roots(mock_dataset_root)
         self.assertTrue(mock_tum_loader.find_files.called)
         self.assertEqual(mock.call(teddy_root), mock_tum_loader.find_files.call_args)
 
-        self.assertEqual({'rgbd_dataset_freiburg1_teddy': teddy_root + marker}, root_dirs)
+        self.assertEqual({'rgbd_dataset_freiburg1_teddy': teddy_root / marker}, root_dirs)
 
         # Clean up
         rmtree(mock_dataset_root)
 
     @mock.patch('arvet_slam.dataset.tum.tum_manager.tum_loader', autospec=True)
     def test_find_roots_skips_roots_that_file_files_raises_exception(self, mock_tum_manager):
-        mock_dataset_root = os.path.join(os.path.dirname(__file__), 'mock_tum_dataset')
-        teddy_root = os.path.join(mock_dataset_root, 'rgbd_dataset_freiburg1_teddy')
+        mock_dataset_root = Path(os.path.dirname(__file__)) / 'mock_tum_dataset'
+        teddy_root = mock_dataset_root / 'rgbd_dataset_freiburg1_teddy'
         os.makedirs(teddy_root, exist_ok=True)
 
         mock_tum_manager.find_files.side_effect = FileNotFoundError()
@@ -45,17 +47,58 @@ class TestTUMManager(unittest.TestCase):
 
     @mock.patch('arvet_slam.dataset.tum.tum_manager.tum_loader', autospec=True)
     def test_find_roots_finds_multiple_folders(self, mock_tum_manager):
-        mock_dataset_root = os.path.join(os.path.dirname(__file__), 'mock_tum_dataset')
-        marker = "/foobar"
+        mock_dataset_root = Path(os.path.dirname(__file__)) / 'mock_tum_dataset'
+        marker = "foobar"
         expected_find_files_call_args = []
         expected_root_dirs = {}
         for name in dataset_names:
-            dataset_root = os.path.join(mock_dataset_root, name)
+            dataset_root = mock_dataset_root / name
             expected_find_files_call_args.append(dataset_root)
-            expected_root_dirs[name] = dataset_root + marker
-            os.makedirs(dataset_root, exist_ok=True)
+            expected_root_dirs[name] = dataset_root / marker
+            dataset_root.mkdir(parents=True, exist_ok=True)
 
-        mock_tum_manager.find_files.side_effect = lambda x: (x + marker, None, None, None, None, None)
+        mock_tum_manager.find_files.side_effect = lambda x: (x / marker, None, None, None, None, None)
+
+        root_dirs = TUMManager.find_roots(mock_dataset_root)
+        self.assertEqual(expected_root_dirs, root_dirs)
+        self.assertTrue(mock_tum_manager.find_files.called)
+        for dataset_root in expected_find_files_call_args:
+            self.assertIn(mock.call(dataset_root), mock_tum_manager.find_files.call_args_list)
+
+        # Clean up
+        rmtree(mock_dataset_root)
+
+    @mock.patch('arvet_slam.dataset.tum.tum_manager.tum_loader', autospec=True)
+    def test_find_roots_finds_tar_files_where_roots_are_unavailable(self, mock_tum_manager):
+        mock_dataset_root = Path(os.path.dirname(__file__)) / 'mock_tum_dataset'
+        marker = "foobar"
+        tiny_file = mock_dataset_root / 'tmp'
+        expected_find_files_call_args = []
+        expected_root_dirs = {}
+        split1 = len(dataset_names) // 3
+        split2 = split1 * 2
+        folder_only_names = dataset_names[:split1]
+        both_names = dataset_names[split1:split2]
+        only_tarball_names = dataset_names[split2:]
+
+        for name in dataset_names:
+            if name in folder_only_names or name in both_names:
+                dataset_root = mock_dataset_root / name
+                expected_find_files_call_args.append(dataset_root)
+                expected_root_dirs[name] = dataset_root / marker
+                dataset_root.mkdir(parents=True, exist_ok=True)
+            if name in only_tarball_names or name in both_names:
+                tarball_file = mock_dataset_root / (name + '.tar.tgz')
+                if not tiny_file.exists():
+                    tiny_file.parent.mkdir(parents=True, exist_ok=True)
+                    tiny_file.touch(exist_ok=True)
+                with tarfile.open(tarball_file, 'w') as tfp:
+                    tfp.add(tiny_file)   # add something to the file, so that it's a valid, non-empty tarball.
+                if name in only_tarball_names:
+                    # Where both the tarball and root folder are available, prefer the tarball
+                    expected_root_dirs[name] = tarball_file
+
+        mock_tum_manager.find_files.side_effect = lambda x: (x / marker, None, None, None, None, None)
 
         root_dirs = TUMManager.find_roots(mock_dataset_root)
         self.assertEqual(expected_root_dirs, root_dirs)
@@ -82,8 +125,8 @@ class TestTUMManager(unittest.TestCase):
     @mock.patch('arvet_slam.dataset.tum.tum_manager.task_manager', autospec=True)
     @mock.patch('arvet_slam.dataset.tum.tum_manager.tum_loader', autospec=True)
     def test_get_dataset_makes_tasks_for_roots_from_find_roots(self, mock_tum_manager, mock_task_manager):
-        mock_dataset_root = os.path.join(os.path.dirname(__file__), 'mock_tum_dataset')
-        teddy_root = os.path.join(mock_dataset_root, 'rgbd_dataset_freiburg1_teddy')
+        mock_dataset_root = Path(os.path.dirname(__file__)) / 'mock_tum_dataset'
+        teddy_root = mock_dataset_root / 'rgbd_dataset_freiburg1_teddy'
         os.makedirs(teddy_root, exist_ok=True)
 
         module_name = 'mymodulename'
