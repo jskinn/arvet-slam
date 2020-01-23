@@ -107,3 +107,7 @@ jrs_auto_task*
 
 # ORBSLAM vocabulary (test)
 arvet_slam/systems/slam/tests/ORBvoc-synth.txt
+
+# config for tests
+arvet_slam/dataset/euroc/tests/euroc_location.json
+

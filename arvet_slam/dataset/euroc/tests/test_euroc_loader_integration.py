@@ -1,6 +1,7 @@
 import unittest
 import os.path
 import logging
+from json import load as json_load
 from pathlib import Path
 import arvet.database.tests.database_connection as dbconn
 import arvet.database.image_manager as im_manager
@@ -8,14 +9,23 @@ from arvet.core.image_collection import ImageCollection
 from arvet.core.image import StereoImage
 import arvet_slam.dataset.euroc.euroc_loader as euroc_loader
 
-# The hard-coded path to where some of the TUM dataset is stored, for testing.
-dataset_root = Path('/media/john/Disk4/phd_data/datasets/EuRoC')
+
+def load_dataset_location():
+    conf_json = Path(__file__).parent / 'euroc_location.json'
+    if conf_json.is_file():
+        with conf_json.open('r') as fp:
+            son = json_load(fp)
+            return Path(son['location'])
+    return None
+
+
+dataset_root = load_dataset_location()
 
 
 class TestEuRoCLoaderIntegration(unittest.TestCase):
 
     @unittest.skipIf(
-        not (dataset_root / 'V1_02_medium').exists(),
+        dataset_root is None or not (dataset_root / 'V1_02_medium').exists(),
         "Could not find the EuRoC dataset to load, cannot run integration test"
     )
     def test_load_V1_02_medium(self):
