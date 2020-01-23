@@ -12,7 +12,7 @@ dependencies:
   - pip
   - py-opencv
   - pymongo
-  - python>=3.7
+  - python
   - pyyaml
   - seaborn
   - setuptools
@@ -24,3 +24,4 @@ dependencies:
     - pymodm
     - transforms3d
     - xxhash
+    - pykitti
