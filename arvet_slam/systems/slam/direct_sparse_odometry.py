@@ -14,7 +14,7 @@ import arvet.util.image_utils as image_utils
 from arvet.util.column_list import ColumnList
 from arvet.database.enum_field import EnumField
 from arvet.metadata.camera_intrinsics import CameraIntrinsics
-from arvet.core.system import VisionSystem
+from arvet.core.system import VisionSystem, StochasticBehaviour
 from arvet.core.image_source import ImageSource
 from arvet.core.image import Image
 from arvet.core.sequence_type import ImageSequenceType
@@ -64,19 +64,15 @@ class DSO(VisionSystem):
         self._frame_results = None
         self._processing_start_times = None
 
-    @property
-    def is_deterministic(self) -> bool:
+    @classmethod
+    def is_deterministic(cls) -> StochasticBehaviour:
         """
-        Is the visual system deterministic.
+        I don't think DSO is deterministic, LSD-SLAM apparently wasn't.
+        This may change in response to testing or reading the source.
 
-        If this is false, it will have to be tested multiple times, because the performance will be inconsistent
-        between runs.
-        I don't think DSO is deterministic, LSD-SLAM apparently wasn't
-
-        :return: True iff the algorithm will produce the same results each time.
-        :rtype: bool
+        :return: StochasticBehaviour.NON_DETERMINISTIC
         """
-        return False
+        return StochasticBehaviour.NON_DETERMINISTIC
 
     def is_image_source_appropriate(self, image_source: ImageSource) -> bool:
         """
@@ -122,12 +118,13 @@ class DSO(VisionSystem):
             self._intrinsics = camera_intrinsics
             self._framerate = 1 / average_timestep
 
-    def start_trial(self, sequence_type: ImageSequenceType) -> None:
+    def start_trial(self, sequence_type: ImageSequenceType, seed: int = 0) -> None:
         """
         Start a trial with this system.
         After calling this, we can feed images to the system.
         When the trial is complete, call finish_trial to get the result.
         :param sequence_type: Are the provided images part of a sequence, or just unassociated pictures.
+        :param seed: A random seed. Not used, but may be given.
         :return: void
         """
         if sequence_type is not ImageSequenceType.SEQUENTIAL:

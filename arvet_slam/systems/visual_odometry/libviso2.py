@@ -18,7 +18,7 @@ from arvet.database.pymodm_abc import ABCModelMeta
 from arvet.core.image import Image
 from arvet.core.image_source import ImageSource
 from arvet.core.sequence_type import ImageSequenceType
-from arvet.core.system import VisionSystem
+from arvet.core.system import VisionSystem, StochasticBehaviour
 import arvet.util.transform as tf
 from arvet_slam.trials.slam.tracking_state import TrackingState
 from arvet_slam.trials.slam.visual_slam import FrameResult, SLAMTrialResult
@@ -83,8 +83,13 @@ class LibVisOSystem(VisionSystem, metaclass=ABCModelMeta):
         self._has_chosen_origin = False
         self._frame_results = []
 
-    def is_deterministic(self) -> bool:
-        return True
+    @classmethod
+    def is_deterministic(cls) -> StochasticBehaviour:
+        """
+        LibVisO2 is controlled with a seed
+        :return: StochasticBehaviour.SEEDED
+        """
+        return StochasticBehaviour.SEEDED
 
     def is_image_source_appropriate(self, image_source: ImageSource) -> bool:
         return image_source.sequence_type == ImageSequenceType.SEQUENTIAL
@@ -101,13 +106,14 @@ class LibVisOSystem(VisionSystem, metaclass=ABCModelMeta):
         self._cu = float(camera_intrinsics.cx)
         self._cv = float(camera_intrinsics.cy)
 
-    def start_trial(self, sequence_type: ImageSequenceType) -> None:
+    def start_trial(self, sequence_type: ImageSequenceType, seed: int = 0) -> None:
         logging.getLogger(__name__).debug("Starting LibVisO trial...")
         self._start_time = time.time()
         if not sequence_type == ImageSequenceType.SEQUENTIAL:
             return
 
         self._viso = self.make_viso_instance()
+        self._viso.seed(seed)
         self._has_chosen_origin = False
         self._frame_results = []
         logging.getLogger(__name__).debug("    Started LibVisO trial.")

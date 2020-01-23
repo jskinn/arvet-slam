@@ -21,7 +21,7 @@ from arvet.util.column_list import ColumnList
 from arvet.config.path_manager import PathManager
 from arvet.database.enum_field import EnumField
 from arvet.metadata.camera_intrinsics import CameraIntrinsics
-from arvet.core.system import VisionSystem
+from arvet.core.system import VisionSystem, StochasticBehaviour
 from arvet.core.image_source import ImageSource
 from arvet.core.image import Image
 from arvet.core.sequence_type import ImageSequenceType
@@ -85,19 +85,13 @@ class OrbSlam2(VisionSystem):
         self._start_time = None
         self._partial_frame_results = None
 
-    @property
-    def is_deterministic(self) -> bool:
+    @classmethod
+    def is_deterministic(cls) -> StochasticBehaviour:
         """
-        Is the visual system deterministic.
-
-        If this is false, it will have to be tested multiple times, because the performance will be inconsistent
-        between runs.
-        ORB_SLAM is not deterministic.
-
-        :return: True iff the algorithm will produce the same results each time.
-        :rtype: bool
+        ORB_SLAM2 is non-deterministic, it will always give different results.
+        :return: StochasticBehaviour.NON_DETERMINISTIC
         """
-        return False
+        return StochasticBehaviour.NON_DETERMINISTIC
 
     def is_image_source_appropriate(self, image_source: ImageSource) -> bool:
         """
@@ -166,12 +160,13 @@ class OrbSlam2(VisionSystem):
         self._temp_folder = path_manager.get_temp_folder()
         self._actual_vocab_file = path_manager.find_file(self.vocabulary_file)
 
-    def start_trial(self, sequence_type: ImageSequenceType) -> None:
+    def start_trial(self, sequence_type: ImageSequenceType, seed: int = 0) -> None:
         """
         Start a trial with this system.
         After calling this, we can feed images to the system.
         When the trial is complete, call finish_trial to get the result.
         :param sequence_type: Are the provided images part of a sequence, or just unassociated pictures.
+        :pram seed: A random seed. Ignored.
         :return: void
         """
         if sequence_type is not ImageSequenceType.SEQUENTIAL:
