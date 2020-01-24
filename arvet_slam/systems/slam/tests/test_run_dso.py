@@ -11,7 +11,7 @@ from arvet.metadata.camera_intrinsics import CameraIntrinsics
 from arvet_slam.trials.slam.tracking_state import TrackingState
 from arvet_slam.trials.slam.visual_slam import SLAMTrialResult
 from arvet_slam.systems.slam.direct_sparse_odometry import DSO, RectificationMode
-from arvet_slam.systems.slam.tests.demo_image_builder import DemoImageBuilder, ImageMode
+from arvet_slam.systems.test_helpers.demo_image_builder import DemoImageBuilder, ImageMode
 from arvet_slam.systems.slam.tests.create_vocabulary import create_vocab
 
 

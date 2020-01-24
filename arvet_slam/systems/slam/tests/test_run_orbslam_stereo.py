@@ -10,7 +10,7 @@ from arvet.core.sequence_type import ImageSequenceType
 from arvet_slam.trials.slam.tracking_state import TrackingState
 from arvet_slam.trials.slam.visual_slam import SLAMTrialResult
 from arvet_slam.systems.slam.orbslam2 import OrbSlam2, SensorMode
-from arvet_slam.systems.slam.tests.demo_image_builder import DemoImageBuilder, ImageMode
+from arvet_slam.systems.test_helpers.demo_image_builder import DemoImageBuilder, ImageMode
 from arvet_slam.systems.slam.tests.create_vocabulary import create_vocab
 
 

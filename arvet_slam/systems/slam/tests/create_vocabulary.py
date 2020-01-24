@@ -1,6 +1,6 @@
 from tqdm import tqdm
 from orbslam2 import VocabularyBuilder
-from arvet_slam.systems.slam.tests.demo_image_builder import DemoImageBuilder, ImageMode
+from arvet_slam.systems.test_helpers.demo_image_builder import DemoImageBuilder, ImageMode
 
 
 def create_vocab(vocab_path='ORBvoc-synth.txt'):

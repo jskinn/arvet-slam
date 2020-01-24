@@ -5,15 +5,14 @@ import numpy as np
 import arvet.database.tests.database_connection as dbconn
 import arvet.database.image_manager as im_manager
 
-import arvet.util.transform as tf
-import arvet.metadata.image_metadata as imeta
-from arvet.metadata.camera_intrinsics import CameraIntrinsics
+from arvet.util.test_helpers import ExtendedTestCase
 from arvet.core.system import VisionSystem
 from arvet.core.sequence_type import ImageSequenceType
 from arvet.core.image import StereoImage
 from arvet.core.image_collection import ImageCollection
 
 from arvet_slam.systems.visual_odometry.libviso2 import LibVisOStereoSystem, MatcherRefinement
+from arvet_slam.systems.test_helpers.demo_image_builder import DemoImageBuilder, ImageMode
 from arvet_slam.trials.slam.tracking_state import TrackingState
 from arvet_slam.trials.slam.visual_slam import SLAMTrialResult
 
@@ -69,9 +68,10 @@ class TestLibVisOStereoDatabase(unittest.TestCase):
 
         # Make an image collection with some number of images
         images = []
+        image_builder = DemoImageBuilder(mode=ImageMode.STEREO, stereo_offset=0.15, width=160, height=120)
         num_images = 10
         for time in range(num_images):
-            image = create_frame(time / num_images)
+            image = image_builder.create_frame(time / num_images)
             image.save()
             images.append(image)
         image_collection = ImageCollection(
@@ -85,15 +85,8 @@ class TestLibVisOStereoDatabase(unittest.TestCase):
         subject.save()
 
         # Actually run the system using mocked images
-        subject.set_camera_intrinsics(CameraIntrinsics(
-            width=320,
-            height=240,
-            fx=120,
-            fy=120,
-            cx=160,
-            cy=120
-        ), 1 / 10)
-        subject.set_stereo_offset(tf.Transform([0, -25, 0]))
+        subject.set_camera_intrinsics(image_builder.get_camera_intrinsics(), 1 / 10)
+        subject.set_stereo_offset(image_builder.get_stereo_offset())
         subject.start_trial(ImageSequenceType.SEQUENTIAL)
         for time, image in enumerate(images):
             subject.process_image(image, time)
@@ -386,25 +379,29 @@ class TestLibVisOStereo(unittest.TestCase):
         }))
 
 
-class TestLibVisOStereoExecution(unittest.TestCase):
+class TestLibVisOStereoExecution(ExtendedTestCase):
 
     def test_simple_trial_run(self):
         # Actually run the system using mocked images
+        num_frames = 100
+        max_time = 50
+        speed = 0.1
+        image_builder = DemoImageBuilder(
+            mode=ImageMode.STEREO, stereo_offset=0.15,
+            width=640, height=480, num_stars=150,
+            length=max_time * speed, speed=speed,
+            close_ratio=0.6, min_size=10, max_size=100
+        )
+
         subject = LibVisOStereoSystem()
-        subject.set_camera_intrinsics(CameraIntrinsics(
-            width=320,
-            height=240,
-            fx=120,
-            fy=120,
-            cx=160,
-            cy=120
-        ), 1 / 10)
-        subject.set_stereo_offset(tf.Transform([0, -25, 0]))
-        subject.start_trial(ImageSequenceType.SEQUENTIAL)
-        num_frames = 50
-        for time in range(num_frames):
-            image = create_frame(time / num_frames)
-            subject.process_image(image, 4 * time / num_frames)
+        subject.set_camera_intrinsics(image_builder.get_camera_intrinsics(), max_time / num_frames)
+        subject.set_stereo_offset(image_builder.get_stereo_offset())
+
+        subject.start_trial(ImageSequenceType.SEQUENTIAL, seed=0)
+        for idx in range(num_frames):
+            time = max_time * idx / num_frames
+            image = image_builder.create_frame(time)
+            subject.process_image(image, time)
         result = subject.finish_trial()
 
         self.assertIsInstance(result, SLAMTrialResult)
@@ -413,17 +410,17 @@ class TestLibVisOStereoExecution(unittest.TestCase):
         self.assertTrue(result.has_scale)
         self.assertIsNotNone(result.run_time)
         self.assertEqual({
-            'focal_distance': 120,
-            'cu': 160,
-            'cv': 120,
-            'base': 25
+            'focal_distance': image_builder.focal_length,
+            'cu': image_builder.width / 2,
+            'cv': image_builder.height / 2,
+            'base': image_builder.stereo_offset
         }, result.settings)
         self.assertEqual(num_frames, len(result.results))
 
         has_been_found = False
         has_been_lost = False
-        for time, frame_result in enumerate(result.results):
-            self.assertEqual(4 * time / num_frames, frame_result.timestamp)
+        for idx, frame_result in enumerate(result.results):
+            self.assertEqual(max_time * idx / num_frames, frame_result.timestamp)
             self.assertIsNotNone(frame_result.pose)
             self.assertIsNotNone(frame_result.motion)
 
@@ -451,87 +448,99 @@ class TestLibVisOStereoExecution(unittest.TestCase):
             else:
                 self.assertIsNotNone(frame_result.estimated_pose)
 
+        # Make sure there is at least 1 frame where the tracking worked
+        self.assertTrue(has_been_found)
 
-def create_frame(time):
-    frame = np.zeros((240, 320), dtype=np.uint8)
-    right_frame = np.zeros((240, 320), dtype=np.uint8)
-    speed = 200
-    baseline = 25
-    f = frame.shape[1] / 2
-    cx = frame.shape[1] / 2
-    cy = frame.shape[0] / 2
-    num_stars = 300
-    z_values = [600 - idx * 2 - speed * time for idx in range(num_stars)]
-    stars = [{
-        'pos': (
-            (127 * idx + 34 * idx * idx) % 400 - 200,
-            (320 - 17 * idx + 7 * idx * idx) % 400 - 200,
-            z_value
-        ),
-        'width': idx % 31 + 1,
-        'height': idx % 27 + 1,
-        'colour': 50 + (idx * 7 % 206)
-    } for idx, z_value in enumerate(z_values) if z_value > 0]
-
-    for star in stars:
-        x, y, z = star['pos']
-
-        left = int(np.round(f * ((x - star['width'] / 2) / z) + cx))
-        right = int(np.round(f * ((x + star['width'] / 2) / z) + cx))
-
-        top = int(np.round(f * ((y - star['height'] / 2) / z) + cy))
-        bottom = int(np.round(f * ((y + star['height'] / 2) / z) + cy))
-
-        left = max(0, min(frame.shape[1], left))
-        right = max(0, min(frame.shape[1], right))
-        top = max(0, min(frame.shape[0], top))
-        bottom = max(0, min(frame.shape[0], bottom))
-
-        frame[top:bottom, left:right] = star['colour']
-
-        left = int(np.round(f * ((x + baseline - star['width'] / 2) / z) + cx))
-        right = int(np.round(f * ((x + baseline + star['width'] / 2) / z) + cx))
-
-        left = max(0, min(frame.shape[1], left))
-        right = max(0, min(frame.shape[1], right))
-
-        right_frame[top:bottom, left:right] = star['colour']
-
-    left_metadata = imeta.make_metadata(
-        pixels=frame,
-        source_type=imeta.ImageSourceType.SYNTHETIC,
-        camera_pose=tf.Transform(
-            location=[time * speed, 0, 0],
-            rotation=[0, 0, 0, 1]
-        ),
-        intrinsics=CameraIntrinsics(
-            width=frame.shape[1],
-            height=frame.shape[0],
-            fx=f,
-            fy=f,
-            cx=cx,
-            cy=cy
+    def test_is_consistent_with_fixed_seed(self):
+        # Actually run the system using mocked images
+        num_frames = 20
+        max_time = 50
+        speed = 0.1
+        image_builder = DemoImageBuilder(
+            mode=ImageMode.STEREO, stereo_offset=0.15,
+            width=640, height=480, num_stars=150,
+            length=max_time * speed, speed=speed,
+            close_ratio=0.6, min_size=10, max_size=100
         )
-    )
-    right_metadata = imeta.make_right_metadata(
-        pixels=right_frame,
-        left_metadata=left_metadata,
-        camera_pose=tf.Transform(
-            location=[time * speed, -baseline, 0],
-            rotation=[0, 0, 0, 1]
-        ),
-        intrinsics=CameraIntrinsics(
-            width=frame.shape[1],
-            height=frame.shape[0],
-            fx=f,
-            fy=f,
-            cx=cx,
-            cy=cy
+
+        subject = LibVisOStereoSystem()
+        subject.set_camera_intrinsics(image_builder.get_camera_intrinsics(), max_time / num_frames)
+        subject.set_stereo_offset(image_builder.get_stereo_offset())
+
+        subject.start_trial(ImageSequenceType.SEQUENTIAL, seed=0)
+        for idx in range(num_frames):
+            time = max_time * idx / num_frames
+            image = image_builder.create_frame(time)
+            subject.process_image(image, time)
+        result1 = subject.finish_trial()
+
+        subject.start_trial(ImageSequenceType.SEQUENTIAL, seed=0)
+        for idx in range(num_frames):
+            time = max_time * idx / num_frames
+            image = image_builder.create_frame(time)
+            subject.process_image(image, time)
+        result2 = subject.finish_trial()
+
+        self.assertEqual(len(result1.results), len(result2.results))
+        for frame_result_1, frame_result_2 in zip(result1.results, result2.results):
+            self.assertEqual(frame_result_1.timestamp, frame_result_2.timestamp)
+            self.assertEqual(frame_result_1.tracking_state, frame_result_2.tracking_state)
+            if frame_result_1.estimated_motion is None or frame_result_2.estimated_motion is None:
+                self.assertEqual(frame_result_1.estimated_motion, frame_result_2.estimated_motion)
+            else:
+                motion1 = frame_result_1.estimated_motion
+                motion2 = frame_result_2.estimated_motion
+
+                loc_diff = motion1.location - motion2.location
+                self.assertNPClose(loc_diff, np.zeros(3), rtol=0, atol=1e-14)
+                quat_diff = motion1.rotation_quat(True) - motion2.rotation_quat(True)
+                self.assertNPClose(quat_diff, np.zeros(4), rtol=0, atol=1e-14)
+
+    def test_is_different_with_changed_seed(self):
+        # Actually run the system using mocked images
+        num_frames = 20
+        max_time = 50
+        speed = 0.1
+        image_builder = DemoImageBuilder(
+            mode=ImageMode.STEREO, stereo_offset=0.15,
+            width=640, height=480, num_stars=150,
+            length=max_time * speed, speed=speed,
+            close_ratio=0.6, min_size=10, max_size=100
         )
-    )
-    return StereoImage(
-        pixels=frame,
-        right_pixels=right_frame,
-        metadata=left_metadata,
-        right_metadata=right_metadata
-    )
+
+        subject = LibVisOStereoSystem()
+        subject.set_camera_intrinsics(image_builder.get_camera_intrinsics(), max_time / num_frames)
+        subject.set_stereo_offset(image_builder.get_stereo_offset())
+
+        subject.start_trial(ImageSequenceType.SEQUENTIAL, seed=0)
+        for idx in range(num_frames):
+            time = max_time * idx / num_frames
+            image = image_builder.create_frame(time)
+            subject.process_image(image, time)
+        result1 = subject.finish_trial()
+
+        subject.start_trial(ImageSequenceType.SEQUENTIAL, seed=2)
+        for idx in range(num_frames):
+            time = max_time * idx / num_frames
+            image = image_builder.create_frame(time)
+            subject.process_image(image, time)
+        result2 = subject.finish_trial()
+
+        self.assertEqual(len(result1.results), len(result2.results))
+        different_tracking = 0
+        loc_diff = np.zeros(3)
+        quat_diff = np.zeros(4)
+        for frame_result_1, frame_result_2 in zip(result1.results, result2.results):
+            self.assertEqual(frame_result_1.timestamp, frame_result_2.timestamp)
+            if frame_result_1.tracking_state != frame_result_2.tracking_state:
+                different_tracking += 1
+            elif frame_result_1.estimated_motion is not None and frame_result_2.estimated_motion is not None:
+                motion1 = frame_result_1.estimated_motion
+                motion2 = frame_result_2.estimated_motion
+
+                loc_diff += np.abs(motion1.location - motion2.location)
+                quat_diff += np.abs(motion1.rotation_quat(True) - motion2.rotation_quat(True))
+        if different_tracking <= 0:
+            # If the tracking is the same, make sure the estimates are at least different
+            self.assertNotNPClose(loc_diff, np.zeros(3), rtol=0, atol=1e-10)
+            self.assertNotNPClose(quat_diff, np.zeros(4), rtol=0, atol=1e-10)

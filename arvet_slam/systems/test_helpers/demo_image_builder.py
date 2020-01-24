@@ -172,11 +172,9 @@ class DemoImageBuilder:
                 right_metadata=right_metadata
             )
 
-        return Image(
-            pixels=frame,
-            depth=depth,
-            metadata=metadata
-        )
+        if depth is not None:
+            return Image(pixels=frame, depth=depth, metadata=metadata)
+        return Image(pixels=frame, metadata=metadata)
 
     def visualise_sequence(self, max_time: float, frame_interval: float = 1):
         import matplotlib.pyplot as plt
