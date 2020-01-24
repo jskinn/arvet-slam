@@ -481,6 +481,7 @@ class TestLibVisOStereoExecution(ExtendedTestCase):
             subject.process_image(image, time)
         result2 = subject.finish_trial()
 
+        has_any_estimate = False
         self.assertEqual(len(result1.results), len(result2.results))
         for frame_result_1, frame_result_2 in zip(result1.results, result2.results):
             self.assertEqual(frame_result_1.timestamp, frame_result_2.timestamp)
@@ -488,6 +489,7 @@ class TestLibVisOStereoExecution(ExtendedTestCase):
             if frame_result_1.estimated_motion is None or frame_result_2.estimated_motion is None:
                 self.assertEqual(frame_result_1.estimated_motion, frame_result_2.estimated_motion)
             else:
+                has_any_estimate = True
                 motion1 = frame_result_1.estimated_motion
                 motion2 = frame_result_2.estimated_motion
 
@@ -495,6 +497,7 @@ class TestLibVisOStereoExecution(ExtendedTestCase):
                 self.assertNPClose(loc_diff, np.zeros(3), rtol=0, atol=1e-14)
                 quat_diff = motion1.rotation_quat(True) - motion2.rotation_quat(True)
                 self.assertNPClose(quat_diff, np.zeros(4), rtol=0, atol=1e-14)
+        self.assertTrue(has_any_estimate)
 
     def test_is_different_with_changed_seed(self):
         # Actually run the system using mocked images

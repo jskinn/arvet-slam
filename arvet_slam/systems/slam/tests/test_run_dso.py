@@ -1,41 +1,24 @@
 # Copyright (c) 2017, John Skinner
 import unittest
-import os.path
-import shutil
-from pathlib import Path
+import numpy as np
 from pymodm.context_managers import no_auto_dereference
 
-from arvet.config.path_manager import PathManager
+from arvet.util.test_helpers import ExtendedTestCase
 from arvet.core.sequence_type import ImageSequenceType
 from arvet.metadata.camera_intrinsics import CameraIntrinsics
 from arvet_slam.trials.slam.tracking_state import TrackingState
 from arvet_slam.trials.slam.visual_slam import SLAMTrialResult
 from arvet_slam.systems.slam.direct_sparse_odometry import DSO, RectificationMode
 from arvet_slam.systems.test_helpers.demo_image_builder import DemoImageBuilder, ImageMode
-from arvet_slam.systems.slam.tests.create_vocabulary import create_vocab
 
 
-class TestRunDSO(unittest.TestCase):
-    temp_folder = 'temp-test-orbslam2'
-    vocab_path = Path(__file__).parent / 'ORBvoc-synth.txt'
-
-    @classmethod
-    def setUpClass(cls):
-        os.makedirs(cls.temp_folder, exist_ok=True)
-        if not cls.vocab_path.exists():  # If there is no vocab file, make one
-            print("Creating vocab file, this may take a while...")
-            create_vocab(cls.vocab_path)
-
-    @classmethod
-    def tearDownClass(cls):
-        shutil.rmtree(cls.temp_folder)
+class TestRunDSO(ExtendedTestCase):
 
     def test_simple_trial_run_rect_none(self):
         # Actually run the system using mocked images
-        num_frames = 500
+        num_frames = 100
         max_time = 50
         speed = 0.1
-        path_manager = PathManager([Path(__file__).parent], self.temp_folder)
 
         image_builder = DemoImageBuilder(
             mode=ImageMode.MONOCULAR,
@@ -49,7 +32,6 @@ class TestRunDSO(unittest.TestCase):
             rectification_mode=RectificationMode.NONE,
             rectification_intrinsics=image_builder.get_camera_intrinsics()
         )
-        subject.resolve_paths(path_manager)
         subject.set_camera_intrinsics(image_builder.get_camera_intrinsics(), max_time / num_frames)
 
         subject.start_trial(ImageSequenceType.SEQUENTIAL)
@@ -79,10 +61,9 @@ class TestRunDSO(unittest.TestCase):
 
     def test_simple_trial_run_rect_calib(self):
         # Actually run the system using mocked images
-        num_frames = 500
+        num_frames = 100
         max_time = 50
         speed = 0.1
-        path_manager = PathManager([Path(__file__).parent], self.temp_folder)
 
         image_builder = DemoImageBuilder(
             mode=ImageMode.MONOCULAR,
@@ -103,7 +84,6 @@ class TestRunDSO(unittest.TestCase):
                 cy=120
             )
         )
-        subject.resolve_paths(path_manager)
         subject.set_camera_intrinsics(image_builder.get_camera_intrinsics(), max_time / num_frames)
 
         subject.start_trial(ImageSequenceType.SEQUENTIAL)
@@ -133,10 +113,9 @@ class TestRunDSO(unittest.TestCase):
 
     def test_simple_trial_run_rect_crop(self):
         # Actually run the system using mocked images
-        num_frames = 500
+        num_frames = 100
         max_time = 50
         speed = 0.1
-        path_manager = PathManager([Path(__file__).parent], self.temp_folder)
 
         image_builder = DemoImageBuilder(
             mode=ImageMode.MONOCULAR,
@@ -160,7 +139,6 @@ class TestRunDSO(unittest.TestCase):
                 cy=240
             )
         )
-        subject.resolve_paths(path_manager)
         subject.set_camera_intrinsics(image_builder.get_camera_intrinsics(), max_time / num_frames)
 
         subject.start_trial(ImageSequenceType.SEQUENTIAL)
@@ -187,3 +165,55 @@ class TestRunDSO(unittest.TestCase):
             if frame_result.tracking_state is TrackingState.OK:
                 has_been_found = True
         self.assertTrue(has_been_found)
+
+    def test_consistency(self):
+        # Actually run the system using mocked images
+        num_frames = 100
+        max_time = 50
+        speed = 0.1
+
+        image_builder = DemoImageBuilder(
+            mode=ImageMode.MONOCULAR,
+            seed=0,
+            width=640, height=480, num_stars=100,
+            length=max_time * speed, speed=speed,
+            close_ratio=0.5, min_size=10, max_size=200
+        )
+
+        subject = DSO(
+            rectification_mode=RectificationMode.NONE,
+            rectification_intrinsics=image_builder.get_camera_intrinsics()
+        )
+        subject.set_camera_intrinsics(image_builder.get_camera_intrinsics(), max_time / num_frames)
+
+        subject.start_trial(ImageSequenceType.SEQUENTIAL)
+        for idx in range(num_frames):
+            time = max_time * idx / num_frames
+            image = image_builder.create_frame(time)
+            subject.process_image(image, time)
+        result1 = subject.finish_trial()
+
+        subject.start_trial(ImageSequenceType.SEQUENTIAL)
+        for idx in range(num_frames):
+            time = max_time * idx / num_frames
+            image = image_builder.create_frame(time)
+            subject.process_image(image, time)
+        result2 = subject.finish_trial()
+
+        has_any_estimate = False
+        self.assertEqual(len(result1.results), len(result2.results))
+        for frame_result_1, frame_result_2 in zip(result1.results, result2.results):
+            self.assertEqual(frame_result_1.timestamp, frame_result_2.timestamp)
+            self.assertEqual(frame_result_1.tracking_state, frame_result_2.tracking_state)
+            if frame_result_1.estimated_motion is None or frame_result_2.estimated_motion is None:
+                self.assertEqual(frame_result_1.estimated_motion, frame_result_2.estimated_motion)
+            else:
+                has_any_estimate = True
+                motion1 = frame_result_1.estimated_motion
+                motion2 = frame_result_2.estimated_motion
+
+                loc_diff = motion1.location - motion2.location
+                self.assertNPClose(loc_diff, np.zeros(3), rtol=0, atol=0.1)     # Absolute tolerance of 10cm is awful
+                quat_diff = motion1.rotation_quat(True) - motion2.rotation_quat(True)
+                self.assertNPClose(quat_diff, np.zeros(4), rtol=0, atol=0.01)
+        self.assertTrue(has_any_estimate)
