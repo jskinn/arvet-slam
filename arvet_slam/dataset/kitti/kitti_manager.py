@@ -29,6 +29,14 @@ class KITTIManager:
             return self.get_dataset(item)
         raise KeyError("No dataset {0}".format(item))
 
+    def get_missing_datasets(self):
+        """
+        Get a list of all the datasets that we do not have known roots for.
+        Use for debugging
+        :return:
+        """
+        return [dataset_name for dataset_name in dataset_names if dataset_name not in self._full_paths]
+
     def get_dataset(self, sequence_id: typing.Union[str, int, float]):
         if isinstance(sequence_id, int):
             sequence_id_int = sequence_id
