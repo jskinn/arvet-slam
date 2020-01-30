@@ -5,6 +5,10 @@ import os.path
 import tarfile
 from pathlib import Path
 from shutil import rmtree
+import arvet.database.tests.database_connection as dbconn
+from arvet.batch_analysis.task import Task
+from arvet.batch_analysis.tasks.import_dataset_task import ImportDatasetTask
+import arvet_slam.dataset.tum.tum_loader as tum_loader
 from arvet_slam.dataset.tum.tum_manager import TUMManager, dataset_names
 
 
@@ -139,7 +143,7 @@ class TestTUMManager(unittest.TestCase):
 
         self.assertEqual(mock.call(
             module_name=module_name,
-            path=teddy_root,
+            path=str(teddy_root),
             additional_args={'dataset_name': 'rgbd_dataset_freiburg1_teddy'},
             num_cpus=mock.ANY,
             num_gpus=mock.ANY,
@@ -184,6 +188,45 @@ class TestTUMManager(unittest.TestCase):
         subject = TUMManager(mock_dataset_root)
         result = subject.get_dataset('rgbd_dataset_freiburg1_teddy')
         self.assertIsNone(result)
+
+        # Clean up
+        rmtree(mock_dataset_root)
+
+
+class TestTUMManagerDatabase(unittest.TestCase):
+    path_manager = None
+
+    @classmethod
+    def setUpClass(cls):
+        dbconn.connect_to_test_db()
+
+    def setUp(self):
+        # Remove the collection as the start of the test, so that we're sure it's empty
+        Task.objects.all().delete()
+
+    @classmethod
+    def tearDownClass(cls):
+        # Clean up after ourselves by dropping the collection for this model
+        Task._mongometa.collection.drop()
+
+    def test_get_dataset_creates_and_saves_task(self):
+        # Really mock this dataset path
+        mock_dataset_root = Path(os.path.dirname(__file__)) / 'mock_tum_dataset'
+        teddy_root = mock_dataset_root /'rgbd_dataset_freiburg1_teddy'
+        teddy_root.mkdir(exist_ok=True, parents=True)
+        (teddy_root / 'rgb.txt').touch()
+        (teddy_root / 'groundtruth.txt').touch()
+        (teddy_root / 'depth.txt').touch()
+
+        subject = TUMManager(mock_dataset_root)
+        result = subject.get_dataset('rgbd_dataset_freiburg1_teddy')
+        self.assertIsNone(result)
+
+        all_tasks = list(ImportDatasetTask.objects.all())
+        self.assertEqual(1, len(all_tasks))
+        task = all_tasks[0]
+        self.assertEqual(tum_loader.__name__, task.module_name)
+        self.assertEqual(str(teddy_root), task.path)
 
         # Clean up
         rmtree(mock_dataset_root)

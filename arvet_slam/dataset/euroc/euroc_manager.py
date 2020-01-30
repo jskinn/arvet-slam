@@ -39,7 +39,7 @@ class EuRoCManager:
         if name in self._full_paths:
             import_dataset_task = task_manager.get_import_dataset_task(
                 module_name=euroc_loader.__name__,
-                path=self._full_paths[name],
+                path=str(self._full_paths[name]),
                 additional_args={'dataset_name': name},
                 num_cpus=1,
                 num_gpus=0,

@@ -2,6 +2,10 @@ import unittest
 import unittest.mock as mock
 from pathlib import Path
 from shutil import rmtree
+import arvet.database.tests.database_connection as dbconn
+from arvet.batch_analysis.task import Task
+from arvet.batch_analysis.tasks.import_dataset_task import ImportDatasetTask
+import arvet_slam.dataset.kitti.kitti_loader as kitti_loader
 from arvet_slam.dataset.kitti.kitti_manager import KITTIManager, to_sequence_id, sequence_ids
 
 
@@ -103,6 +107,14 @@ class TestKITTIManager(unittest.TestCase):
 
     @mock.patch('arvet_slam.dataset.kitti.kitti_manager.task_manager', autospec=True)
     @mock.patch('arvet_slam.dataset.kitti.kitti_manager.kitti_loader', autospec=True)
+    def test_get_dataset_raises_value_error_for_sequence_ids_that_are_invalid(self, *_):
+        self.temp_folder.mkdir(parents=True, exist_ok=True)
+        subject = KITTIManager(self.temp_folder)
+        with self.assertRaises(ValueError):
+            subject.get_dataset('my_sequence_name')
+
+    @mock.patch('arvet_slam.dataset.kitti.kitti_manager.task_manager', autospec=True)
+    @mock.patch('arvet_slam.dataset.kitti.kitti_manager.kitti_loader', autospec=True)
     def test_get_dataset_makes_tasks_for_roots_from_find_roots(self, mock_kitti_loader, mock_task_manager):
         sequence_name = '000001'
         sequence_01_root = self.temp_folder / sequence_name
@@ -179,6 +191,49 @@ class TestKITTIManager(unittest.TestCase):
         self.assertEqual(mock_task.result, result)
 
 
+class TestKITTIManagerDatabase(unittest.TestCase):
+    path_manager = None
+
+    @classmethod
+    def setUpClass(cls):
+        dbconn.connect_to_test_db()
+
+    def setUp(self):
+        # Remove the collection as the start of the test, so that we're sure it's empty
+        Task.objects.all().delete()
+
+    @classmethod
+    def tearDownClass(cls):
+        # Clean up after ourselves by dropping the collection for this model
+        Task._mongometa.collection.drop()
+
+    def test_get_dataset_creates_and_saves_task(self):
+        # Really mock this dataset path
+        sequence_name = "{0:06}".format(3)
+        mock_dataset_root = Path(__file__).parent / 'mock_kitti_dataset'
+        teddy_root = mock_dataset_root / sequence_name
+        teddy_root.mkdir(exist_ok=True, parents=True)
+        (teddy_root / 'sequences' / sequence_name / 'image_2').mkdir(parents=True, exist_ok=True)
+        (teddy_root / 'sequences' / sequence_name / 'image_3').mkdir(parents=True, exist_ok=True)
+        (teddy_root / 'sequences' / sequence_name / 'calib.txt').touch()
+        (teddy_root / 'sequences' / sequence_name / 'times.txt').touch()
+        (teddy_root / 'poses').mkdir(parents=True, exist_ok=True)
+        (teddy_root / 'poses' / (sequence_name + '.txt')).touch()
+
+        subject = KITTIManager(mock_dataset_root)
+        result = subject.get_dataset(sequence_name)
+        self.assertIsNone(result)
+
+        all_tasks = list(ImportDatasetTask.objects.all())
+        self.assertEqual(1, len(all_tasks))
+        task = all_tasks[0]
+        self.assertEqual(kitti_loader.__name__, task.module_name)
+        self.assertEqual(str(teddy_root), task.path)
+
+        # Clean up
+        rmtree(mock_dataset_root)
+
+
 class TestToSequenceId(unittest.TestCase):
 
     def test_handles_correct_ids(self):
@@ -189,7 +244,7 @@ class TestToSequenceId(unittest.TestCase):
         for idx in range(11):
             self.assertEqual(idx, to_sequence_id(str(idx)))
 
-    def test_returns_negative_one_for_ints_outside_range(self):
+    def test_raises_value_for_ints_outside_range(self):
         for idx in range(50):
             if 0 <= idx < 11:
                 self.assertEqual(idx, to_sequence_id(idx))

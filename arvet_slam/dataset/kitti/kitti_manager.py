@@ -30,13 +30,16 @@ class KITTIManager:
         raise KeyError("No dataset {0}".format(item))
 
     def get_dataset(self, sequence_id: typing.Union[str, int, float]):
-        if not isinstance(sequence_id, int):
-            sequence_id = to_sequence_id(sequence_id)
-        if sequence_id in self._full_paths:
+        if isinstance(sequence_id, int):
+            sequence_id_int = sequence_id
+        else:
+            sequence_id_int = to_sequence_id(sequence_id)
+
+        if sequence_id_int in self._full_paths:
             import_dataset_task = task_manager.get_import_dataset_task(
                 module_name=kitti_loader.__name__,
-                path=self._full_paths[sequence_id],
-                additional_args={'sequence_number': sequence_id},
+                path=str(self._full_paths[sequence_id_int]),
+                additional_args={'sequence_number': sequence_id_int},
                 num_cpus=1,
                 num_gpus=0,
                 memory_requirements='3GB',

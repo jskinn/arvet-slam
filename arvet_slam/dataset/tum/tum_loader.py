@@ -302,7 +302,7 @@ def import_dataset(root_folder, dataset_name, **_):
     )
     collection.save()
 
-    if delete_when_done.exists():
+    if delete_when_done is not None and delete_when_done.exists():
         # We're done and need to clean up after ourselves
         shutil.rmtree(delete_when_done)
 
