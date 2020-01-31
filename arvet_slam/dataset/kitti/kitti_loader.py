@@ -73,7 +73,8 @@ def import_dataset(root_folder, sequence_number, **_):
     Load a KITTI image sequences into the database.
     :return:
     """
-    sequence_name = "{0:06}".format(sequence_number)
+    sequence_number = int(sequence_number)
+    sequence_name = "{0:02}".format(sequence_number)
     root_folder = find_root(root_folder, sequence_name)
     data = pykitti.odometry(root_folder, sequence=sequence_name)
 
@@ -87,6 +88,8 @@ def import_dataset(root_folder, sequence_number, **_):
     images = []
     timestamps = []
     for left_image, right_image, timestamp, pose in zip(data.cam2, data.cam3, data.timestamps, data.poses):
+        left_image = np.array(left_image)
+        right_image = np.array(right_image)
         camera_pose = make_camera_pose(pose)
         # camera pose is for cam0, we want cam2, which is 6cm (0.06m) to the left
         # Except that we don't need to control for that, since we want to be relative to the first pose anyway
@@ -132,7 +135,7 @@ def import_dataset(root_folder, sequence_number, **_):
         )
         image.save()
         images.append(image)
-        timestamps.append(timestamp)
+        timestamps.append(timestamp.total_seconds())
 
     # Create and save the image collection
     collection = ImageCollection(
