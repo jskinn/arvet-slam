@@ -358,6 +358,14 @@ def import_dataset(root_folder, dataset_name, **_):
         left_data = image_utils.read_colour(os.path.join(root_folder, 'cam0', 'data', left_image_file))
         right_data = image_utils.read_colour(os.path.join(root_folder, 'cam1', 'data', right_image_file))
 
+        # Error check the loaded image data
+        if left_data is None or left_data.size is 0:
+            raise ValueError("Could not read left image \"{0}\", result is empty.".format(
+                os.path.join(root_folder, 'cam0', 'data', left_image_file)))
+        if right_data is None or right_data.size is 0:
+            raise ValueError("Could not read right image \"{0}\", result is empty.".format(
+                os.path.join(root_folder, 'cam1', 'data', right_image_file)))
+
         left_data = cv2.remap(left_data, left_x, left_y, cv2.INTER_LINEAR)
         right_data = cv2.remap(right_data, right_x, right_y, cv2.INTER_LINEAR)
 
