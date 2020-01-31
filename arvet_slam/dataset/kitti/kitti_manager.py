@@ -1,6 +1,7 @@
 # Copyright (c) 2017, John Skinner
-import os
+from os import PathLike
 import typing
+from pathlib import Path
 import arvet.batch_analysis.task_manager as task_manager
 import arvet_slam.dataset.kitti.kitti_loader as kitti_loader
 
@@ -14,7 +15,7 @@ sequence_ids = list(range(11))
 
 class KITTIManager:
 
-    def __init__(self, root: typing.Union[str, bytes, os.PathLike]):
+    def __init__(self, root: typing.Union[str, bytes, PathLike, Path]):
         self._full_paths = self.find_roots(root)
 
     def __getattr__(self, item):
@@ -66,30 +67,20 @@ class KITTIManager:
                 "No root folder for sequence {0}, are you sure it's a sequence?".format(sequence_id))
 
     @classmethod
-    def find_roots(cls, root):
+    def find_roots(cls, root: typing.Union[str, bytes, PathLike, Path]):
         """
         Recursively search for the directories to import from the root folder.
         We're looking for folders with the same names as the
         :param root:
         :return:
         """
+        root = Path(root)
         actual_roots = {}
-        to_search = {root}
-        while len(to_search) > 0:
-            candidate_root = to_search.pop()
-            with os.scandir(candidate_root) as dir_iter:
-                for dir_entry in dir_iter:
-                    if dir_entry.is_dir():
-                        dir_name = dir_entry.name
-                        if dir_name in dataset_names:
-                            # this is a dataset folder, we're not going to search within it
-                            try:
-                                actual_root = kitti_loader.find_root(dir_entry.path, dir_name)
-                            except FileNotFoundError:
-                                continue
-                            actual_roots[int(dir_name)] = actual_root
-                        else:
-                            to_search.add(dir_entry.path)
+        for sequence_number in range(11):
+            try:
+                actual_roots[sequence_number] = kitti_loader.find_root(root, sequence_number)
+            except FileNotFoundError:
+                continue
         return actual_roots
 
 

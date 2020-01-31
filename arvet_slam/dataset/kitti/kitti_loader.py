@@ -1,6 +1,6 @@
 # Copyright (c) 2017, John Skinner
-import os.path
 import numpy as np
+from pathlib import Path
 import pykitti
 import arvet.metadata.image_metadata as imeta
 from arvet.util.transform import Transform
@@ -29,43 +29,67 @@ def make_camera_pose(pose):
     return Transform(pose)
 
 
-def find_root(base_root, sequence_name):
+def find_root(base_root: Path, sequence_number: int):
     """
     Search the given base directory for the actual dataset root.
     This makes it a little easier for the dataset manager
-    :param base_root:
-    :param sequence_name:
+    :param base_root: The root to start searching at
+    :param sequence_number: The index of the
     :return:
     """
     # These are folders we expect within the dataset folder structure. If we hit them, we've gone too far
+    sequence_number = int(sequence_number)
     excluded_folders = {
         'sequences', 'poses', '__MACOSX'
     }
-    to_search = {base_root}
+    to_search = {Path(base_root)}
     while len(to_search) > 0:
         candidate_root = to_search.pop()
 
         # Make the derivative paths we're looking for. All of these must exist.
         # This comes from the pykitti constructor
-        image_2_dir = os.path.join(candidate_root, 'sequences', sequence_name, 'image_2')
-        image_3_dir = os.path.join(candidate_root, 'sequences', sequence_name, 'image_3')
-        calib_file = os.path.join(candidate_root, 'sequences', sequence_name, 'calib.txt')
-        timestamps_file = os.path.join(candidate_root, 'sequences', sequence_name, 'times.txt')
-        pose_path = os.path.join(candidate_root, 'poses', sequence_name + '.txt')
 
-        # If all the required files are present, return that root and the file paths.
-        if (os.path.isdir(image_2_dir) and os.path.isdir(image_3_dir) and
-                os.path.isfile(pose_path) and os.path.isfile(calib_file) and os.path.isfile(timestamps_file)):
-            return candidate_root
+        if (candidate_root / 'sequences').exists() and (candidate_root / 'poses').exists():
+            found_sequences = sum(
+                1
+                for path in (candidate_root / 'sequences').iterdir()
+                if (path / 'image_2').exists()
+                and (path / 'image_3').exists()
+                and (path / 'calib.txt').exists()
+                and (path / 'times.txt').exists()
+                and _safe_toint(path.name) == sequence_number
+            )
+            found_poses = sum(
+                1
+                for pose_file in (candidate_root / 'poses').iterdir()
+                if pose_file.suffix == '.txt' and
+                _safe_toint(pose_file.name.rstrip('.txt')) == sequence_number
+            )
+
+            # If all the required files are present, return that root
+            if found_sequences > 0 and found_poses > 0:
+                return candidate_root
 
         # This was not the directory we were looking for, search the subdirectories
-        with os.scandir(candidate_root) as dir_iter:
-            for dir_entry in dir_iter:
-                if dir_entry.is_dir() and dir_entry.name not in excluded_folders:
-                    to_search.add(dir_entry.path)
+        for subfolder in candidate_root.iterdir():
+            if subfolder.is_dir() and subfolder.name not in excluded_folders:
+                to_search.add(subfolder)
 
     # Could not find the necessary files to import, raise an exception.
     raise FileNotFoundError("Could not find a valid root directory within '{0}'".format(base_root))
+
+
+def _safe_toint(val):
+    """
+    Try and turn a string into a number, returning -1 if
+    In this case, I know that valid values will never be -1, so returning that is forcing a failure
+    :param val:
+    :return:
+    """
+    try:
+        return int(val)
+    except ValueError:
+        return -1
 
 
 def import_dataset(root_folder, sequence_number, **_):
@@ -74,9 +98,10 @@ def import_dataset(root_folder, sequence_number, **_):
     :return:
     """
     sequence_number = int(sequence_number)
-    sequence_name = "{0:02}".format(sequence_number)
-    root_folder = find_root(root_folder, sequence_name)
-    data = pykitti.odometry(root_folder, sequence=sequence_name)
+    if not 0 <= sequence_number < 11:
+        raise ValueError("Cannot import sequence {0}, it is invalid".format(sequence_number))
+    root_folder = find_root(root_folder, sequence_number)
+    data = pykitti.odometry(root_folder, sequence=sequence_number)
 
     # dataset.calib:      Calibration data are accessible as a named tuple
     # dataset.timestamps: Timestamps are parsed into a list of timedelta objects
@@ -143,8 +168,8 @@ def import_dataset(root_folder, sequence_number, **_):
         timestamps=timestamps,
         sequence_type=ImageSequenceType.SEQUENTIAL,
         dataset='KITTI',
-        sequence_name=sequence_name,
-        trajectory_id='KITTI_' + sequence_name
+        sequence_name="{0:02}".format(sequence_number),
+        trajectory_id="KITTI_{0:02}".format(sequence_number)
     )
     collection.save()
     return collection

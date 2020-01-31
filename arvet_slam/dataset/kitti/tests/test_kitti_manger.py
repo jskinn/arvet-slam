@@ -193,7 +193,7 @@ class TestKITTIManager(unittest.TestCase):
 
 
 class TestKITTIManagerDatabase(unittest.TestCase):
-    path_manager = None
+    mock_dataset_root = Path(__file__).parent / 'mock_kitti_dataset'
 
     @classmethod
     def setUpClass(cls):
@@ -207,21 +207,25 @@ class TestKITTIManagerDatabase(unittest.TestCase):
     def tearDownClass(cls):
         # Clean up after ourselves by dropping the collection for this model
         Task._mongometa.collection.drop()
+        if cls.mock_dataset_root.exists():
+            rmtree(cls.mock_dataset_root)
 
     def test_get_dataset_creates_and_saves_task(self):
         # Really mock this dataset path
-        sequence_name = "{0:06}".format(3)
-        mock_dataset_root = Path(__file__).parent / 'mock_kitti_dataset'
-        teddy_root = mock_dataset_root / sequence_name
-        teddy_root.mkdir(exist_ok=True, parents=True)
-        (teddy_root / 'sequences' / sequence_name / 'image_2').mkdir(parents=True, exist_ok=True)
-        (teddy_root / 'sequences' / sequence_name / 'image_3').mkdir(parents=True, exist_ok=True)
-        (teddy_root / 'sequences' / sequence_name / 'calib.txt').touch()
-        (teddy_root / 'sequences' / sequence_name / 'times.txt').touch()
-        (teddy_root / 'poses').mkdir(parents=True, exist_ok=True)
-        (teddy_root / 'poses' / (sequence_name + '.txt')).touch()
+        sequence_idx = 3
+        sequence_name = "{0:06}".format(sequence_idx)
+        short_name = "{0:02}".format(sequence_idx)
 
-        subject = KITTIManager(mock_dataset_root)
+        sequence_root = self.mock_dataset_root / 'dataset'
+        sequence_root.mkdir(exist_ok=True, parents=True)
+        (sequence_root / 'sequences' / short_name / 'image_2').mkdir(parents=True, exist_ok=True)
+        (sequence_root / 'sequences' / short_name / 'image_3').mkdir(parents=True, exist_ok=True)
+        (sequence_root / 'sequences' / short_name / 'calib.txt').touch()
+        (sequence_root / 'sequences' / short_name / 'times.txt').touch()
+        (sequence_root / 'poses').mkdir(parents=True, exist_ok=True)
+        (sequence_root / 'poses' / ("{0:02}.txt".format(3))).touch()
+
+        subject = KITTIManager(self.mock_dataset_root)
         result = subject.get_dataset(sequence_name)
         self.assertIsNone(result)
 
@@ -229,10 +233,7 @@ class TestKITTIManagerDatabase(unittest.TestCase):
         self.assertEqual(1, len(all_tasks))
         task = all_tasks[0]
         self.assertEqual(kitti_loader.__name__, task.module_name)
-        self.assertEqual(str(teddy_root), task.path)
-
-        # Clean up
-        rmtree(mock_dataset_root)
+        self.assertEqual(str(sequence_root), task.path)
 
 
 class TestToSequenceId(unittest.TestCase):
