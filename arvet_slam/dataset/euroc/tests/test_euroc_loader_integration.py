@@ -15,37 +15,43 @@ def load_dataset_location():
     if conf_json.is_file():
         with conf_json.open('r') as fp:
             son = json_load(fp)
-            return Path(son['location'])
+            return Path(son['location']), str(son['sequence'])
     return None
 
 
-dataset_root = load_dataset_location()
+dataset_root, sequence = load_dataset_location()
 
 
 class TestEuRoCLoaderIntegration(unittest.TestCase):
 
     @unittest.skipIf(
-        dataset_root is None or not (dataset_root / 'V1_02_medium').exists(),
-        "Could not find the EuRoC dataset to load, cannot run integration test"
+        dataset_root is None or not (dataset_root / sequence).exists(),
+        "Could not find the EuRoC dataset {0}, cannot run integration test".format(sequence)
     )
-    def test_load_V1_02_medium(self):
+    def test_load_configured_sequence(self):
         dbconn.connect_to_test_db()
         image_manager = im_manager.DefaultImageManager(dbconn.image_file)
         im_manager.set_image_manager(image_manager)
         logging.disable(logging.CRITICAL)
+
+        # count the number of images we expect to import
+        cam0 = dataset_root / sequence / 'mav0' / 'cam0' / 'data'
+        cam1 = dataset_root / sequence / 'mav0' / 'cam1' / 'data'
+        num_images = sum(1 for file in cam0.iterdir()
+                         if file.is_file() and file.suffix == '.png' and (cam1 / file.name).exists())
 
         # Make sure there is nothing in the database
         ImageCollection.objects.all().delete()
         StereoImage.objects.all().delete()
 
         result = euroc_loader.import_dataset(
-            dataset_root / 'V1_02_medium',
-            'V1_02_medium'
+            dataset_root / sequence,
+            sequence
         )
         self.assertIsInstance(result, ImageCollection)
         self.assertIsNotNone(result.pk)
         self.assertEqual(1, ImageCollection.objects.all().count())
-        self.assertEqual(1710, StereoImage.objects.all().count())   # Make sure we got all the images
+        self.assertEqual(num_images, StereoImage.objects.all().count())   # Make sure we got all the images
 
         # Make sure we got the depth and position data
         for timestamp, image in result:

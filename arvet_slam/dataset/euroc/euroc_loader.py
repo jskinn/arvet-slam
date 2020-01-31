@@ -2,6 +2,7 @@
 import os.path
 import typing
 import numpy as np
+import logging
 import cv2
 import yaml
 try:
@@ -360,11 +361,13 @@ def import_dataset(root_folder, dataset_name, **_):
 
         # Error check the loaded image data
         if left_data is None or left_data.size is 0:
-            raise ValueError("Could not read left image \"{0}\", result is empty.".format(
+            logging.getLogger(__name__).warning("Could not read left image \"{0}\", result is empty. Skipping.".format(
                 os.path.join(root_folder, 'cam0', 'data', left_image_file)))
+            continue
         if right_data is None or right_data.size is 0:
-            raise ValueError("Could not read right image \"{0}\", result is empty.".format(
+            logging.getLogger(__name__).warning("Could not read right image \"{0}\", result is empty. Skipping.".format(
                 os.path.join(root_folder, 'cam1', 'data', right_image_file)))
+            continue
 
         left_data = cv2.remap(left_data, left_x, left_y, cv2.INTER_LINEAR)
         right_data = cv2.remap(right_data, right_x, right_y, cv2.INTER_LINEAR)
