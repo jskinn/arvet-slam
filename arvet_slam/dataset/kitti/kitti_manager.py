@@ -59,7 +59,11 @@ class KITTIManager:
                 # Make sure the import dataset task gets done
                 import_dataset_task.save()
                 return None
-        raise NotADirectoryError("No root folder for sequence {0:06}, did you download it?".format(sequence_id))
+        if 0 <= sequence_id_int < 11:
+            raise NotADirectoryError("No root folder for sequence {0:06}, did you download it?".format(sequence_id_int))
+        else:
+            raise NotADirectoryError(
+                "No root folder for sequence {0}, are you sure it's a sequence?".format(sequence_id))
 
     @classmethod
     def find_roots(cls, root):

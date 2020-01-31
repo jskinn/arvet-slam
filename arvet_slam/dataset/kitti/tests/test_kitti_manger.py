@@ -42,7 +42,7 @@ class TestKITTIManager(unittest.TestCase):
 
         root_dirs = KITTIManager.find_roots(self.temp_folder)
         self.assertTrue(mock_kitti_loader.find_root.called)
-        self.assertEqual(mock.call(str(sequence_01_root), sequence_name), mock_kitti_loader.find_root.call_args)
+        self.assertIn(mock.call(str(sequence_01_root), sequence_name), mock_kitti_loader.find_root.call_args_list)
 
         self.assertEqual({}, root_dirs)
 
@@ -107,11 +107,12 @@ class TestKITTIManager(unittest.TestCase):
 
     @mock.patch('arvet_slam.dataset.kitti.kitti_manager.task_manager', autospec=True)
     @mock.patch('arvet_slam.dataset.kitti.kitti_manager.kitti_loader', autospec=True)
-    def test_get_dataset_raises_value_error_for_sequence_ids_that_are_invalid(self, *_):
+    def test_get_dataset_raises_error_for_sequence_ids_that_are_invalid(self, *_):
         self.temp_folder.mkdir(parents=True, exist_ok=True)
         subject = KITTIManager(self.temp_folder)
-        with self.assertRaises(ValueError):
+        with self.assertRaises(NotADirectoryError) as ex:
             subject.get_dataset('my_sequence_name')
+        self.assertIn('my_sequence_name', str(ex.exception))
 
     @mock.patch('arvet_slam.dataset.kitti.kitti_manager.task_manager', autospec=True)
     @mock.patch('arvet_slam.dataset.kitti.kitti_manager.kitti_loader', autospec=True)
