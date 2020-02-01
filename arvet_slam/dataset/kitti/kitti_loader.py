@@ -29,7 +29,7 @@ def make_camera_pose(pose):
     return Transform(pose)
 
 
-def find_root(base_root: Path, sequence_number: int):
+def find_root(base_root: Path, sequence_number: int) -> Path:
     """
     Search the given base directory for the actual dataset root.
     This makes it a little easier for the dataset manager
@@ -101,7 +101,7 @@ def import_dataset(root_folder, sequence_number, **_):
     if not 0 <= sequence_number < 11:
         raise ValueError("Cannot import sequence {0}, it is invalid".format(sequence_number))
     root_folder = find_root(root_folder, sequence_number)
-    data = pykitti.odometry(root_folder, sequence=sequence_number)
+    data = pykitti.odometry(root_folder, sequence="{0:02}".format(sequence_number))
 
     # dataset.calib:      Calibration data are accessible as a named tuple
     # dataset.timestamps: Timestamps are parsed into a list of timedelta objects

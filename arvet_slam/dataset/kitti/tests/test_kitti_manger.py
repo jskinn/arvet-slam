@@ -6,84 +6,57 @@ import arvet.database.tests.database_connection as dbconn
 from arvet.batch_analysis.task import Task
 from arvet.batch_analysis.tasks.import_dataset_task import ImportDatasetTask
 import arvet_slam.dataset.kitti.kitti_loader as kitti_loader
-from arvet_slam.dataset.kitti.kitti_manager import KITTIManager, to_sequence_id, sequence_ids
+from arvet_slam.dataset.kitti.kitti_manager import KITTIManager, to_sequence_id
 
 
 class TestKITTIManager(unittest.TestCase):
-    temp_folder = Path(__file__).parent / 'mock_kitti_dataset'
-
-    @classmethod
-    def tearDownClass(cls) -> None:
-        if cls.temp_folder.exists():
-            rmtree(cls.temp_folder)
 
     @mock.patch('arvet_slam.dataset.kitti.kitti_manager.kitti_loader', autospec=True)
-    def test_find_roots_finds_folders_with_the_names_of_datasets(self, mock_kitti_loader):
-        sequence_name = '000001'
-        sequence_01_root = self.temp_folder / sequence_name
-        sequence_01_root.mkdir(parents=True, exist_ok=True)
-
+    def test_find_roots_uses_root_found_by_the_loader_for_each_sequence(self, mock_kitti_loader):
         marker = "foobar"
-        mock_kitti_loader.find_root.side_effect = lambda x, seq: str(Path(x) / marker)
+        root_folder = Path(__file__).parent
+        mock_kitti_loader.find_root.side_effect = lambda x, seq: x / "{0:03}".format(seq) / marker
 
-        root_dirs = KITTIManager.find_roots(str(self.temp_folder))
+        root_dirs = KITTIManager.find_roots(root_folder)
         self.assertTrue(mock_kitti_loader.find_root.called)
-        self.assertEqual(mock.call(str(sequence_01_root), sequence_name), mock_kitti_loader.find_root.call_args)
+        for sequence_id in range(11):
+            self.assertIn(mock.call(root_folder, sequence_id), mock_kitti_loader.find_root.call_args_list)
 
-        self.assertEqual({1: str(sequence_01_root / marker)}, root_dirs)
+        self.assertEqual({
+            sequence_id: root_folder / "{0:03}".format(sequence_id) / marker
+            for sequence_id in range(11)
+        }, root_dirs)
 
     @mock.patch('arvet_slam.dataset.kitti.kitti_manager.kitti_loader', autospec=True)
-    def test_find_roots_skips_roots_that_file_files_raises_exception(self, mock_kitti_loader):
-        sequence_name = '000001'
-        sequence_01_root = self.temp_folder / sequence_name
-        sequence_01_root.mkdir(parents=True, exist_ok=True)
+    def test_find_roots_skips_roots_that_find_files_raises_exception(self, mock_kitti_loader):
+        def mock_find_root(path, sequence_id):
+            if sequence_id % 2 == 0:
+                raise FileNotFoundError
+            return path / "{0:03}".format(sequence_id)
 
-        mock_kitti_loader.find_root.side_effect = FileNotFoundError()
+        mock_kitti_loader.find_root.side_effect = mock_find_root
 
-        root_dirs = KITTIManager.find_roots(self.temp_folder)
-        self.assertTrue(mock_kitti_loader.find_root.called)
-        self.assertIn(mock.call(str(sequence_01_root), sequence_name), mock_kitti_loader.find_root.call_args_list)
-
-        self.assertEqual({}, root_dirs)
-
-    @mock.patch('arvet_slam.dataset.kitti.kitti_manager.kitti_loader', autospec=True)
-    def test_find_roots_finds_multiple_folders(self, mock_kitti_loader):
-        marker = "foobar"
-        expected_find_root_call_args = []
-        expected_root_dirs = {}
-        for sequence_id in sequence_ids:
-            sequence_name = '{0:06}'.format(sequence_id)
-            dataset_root = self.temp_folder / sequence_name
-            expected_find_root_call_args.append((str(dataset_root), sequence_name))
-            expected_root_dirs[sequence_id] = str(dataset_root / marker)
-            dataset_root.mkdir(parents=True, exist_ok=True)
-
-        mock_kitti_loader.find_root.side_effect = lambda x, seq: str(Path(x) / marker)
-
-        root_dirs = KITTIManager.find_roots(self.temp_folder)
-        self.assertEqual(expected_root_dirs, root_dirs)
-        self.assertTrue(mock_kitti_loader.find_root.called)
-        for dataset_root, sequence_name in expected_find_root_call_args:
-            self.assertIn(mock.call(dataset_root, sequence_name), mock_kitti_loader.find_root.call_args_list)
+        root_folder = Path(__file__).parent
+        root_dirs = KITTIManager.find_roots(root_folder)
+        self.assertEqual({
+            sequence_id: root_folder / "{0:03}".format(sequence_id)
+            for sequence_id in range(11)
+            if sequence_id % 2 != 0
+        }, root_dirs)
 
     @mock.patch('arvet_slam.dataset.kitti.kitti_manager.task_manager', autospec=True)
     @mock.patch('arvet_slam.dataset.kitti.kitti_manager.kitti_loader', autospec=True)
     def test_get_dataset_raises_not_found_for_missing_datasets(self, mock_kitti_loader, _):
         existing_ids = {2, 5, 9}
-        self.temp_folder.mkdir(parents=True, exist_ok=True)
-        for sequence_id in existing_ids:
-            (self.temp_folder / '{0:06}'.format(sequence_id)).mkdir(parents=True, exist_ok=True)
-        mock_kitti_loader.find_root.side_effect = lambda x, seq: x
 
-        # Add any other sequence ids that happen to exist
-        for sequence_id in sequence_ids:
-            if (self.temp_folder / '{0:06}'.format(sequence_id)).exists():
-                existing_ids.add(sequence_id)
-        if existing_ids == set(range(11)):
-            rmtree(self.temp_folder / '000008')
-            existing_ids.remove(8)
+        def mock_find_root(path, seq):
+            if seq not in existing_ids:
+                raise FileNotFoundError
+            return path / "{0:03}".format(seq)
 
-        subject = KITTIManager(self.temp_folder)
+        mock_kitti_loader.find_root.side_effect = mock_find_root
+
+        subject = KITTIManager(Path(__file__).parent)
         for sequence_id in range(11):
             if sequence_id in existing_ids:
                 # No exception
@@ -95,21 +68,21 @@ class TestKITTIManager(unittest.TestCase):
     @mock.patch('arvet_slam.dataset.kitti.kitti_manager.task_manager', autospec=True)
     @mock.patch('arvet_slam.dataset.kitti.kitti_manager.kitti_loader', autospec=True)
     def test_get_dataset_raises_not_found_for_indexes_outside_range(self, mock_kitti_loader, _):
-        self.temp_folder.mkdir(parents=True, exist_ok=True)
-        (self.temp_folder / '000001').mkdir(parents=True, exist_ok=True)
         mock_kitti_loader.find_root.side_effect = lambda x, seq: x
-
-        subject = KITTIManager(self.temp_folder)
+        subject = KITTIManager(Path(__file__).parent)
         for sequence_idx in range(-20, 20):
-            if not 0 <= sequence_idx < 11:
+            if 0 <= sequence_idx < 11:
+                # No exception
+                subject.get_dataset(sequence_idx)
+            else:
                 with self.assertRaises(NotADirectoryError):
                     subject.get_dataset(sequence_idx)
 
     @mock.patch('arvet_slam.dataset.kitti.kitti_manager.task_manager', autospec=True)
     @mock.patch('arvet_slam.dataset.kitti.kitti_manager.kitti_loader', autospec=True)
-    def test_get_dataset_raises_error_for_sequence_ids_that_are_invalid(self, *_):
-        self.temp_folder.mkdir(parents=True, exist_ok=True)
-        subject = KITTIManager(self.temp_folder)
+    def test_get_dataset_raises_error_for_sequence_ids_that_are_invalid(self, mock_kitti_loader, _):
+        mock_kitti_loader.find_root.side_effect = lambda x, seq: x
+        subject = KITTIManager(Path(__file__).parent)
         with self.assertRaises(NotADirectoryError) as ex:
             subject.get_dataset('my_sequence_name')
         self.assertIn('my_sequence_name', str(ex.exception))
@@ -117,22 +90,19 @@ class TestKITTIManager(unittest.TestCase):
     @mock.patch('arvet_slam.dataset.kitti.kitti_manager.task_manager', autospec=True)
     @mock.patch('arvet_slam.dataset.kitti.kitti_manager.kitti_loader', autospec=True)
     def test_get_dataset_makes_tasks_for_roots_from_find_roots(self, mock_kitti_loader, mock_task_manager):
-        sequence_name = '000001'
-        sequence_01_root = self.temp_folder / sequence_name
-        sequence_01_root.mkdir(parents=True, exist_ok=True)
-
+        root_folder = Path(__file__).parent
         module_name = 'mymodulename'
         marker = 'foobar'
-        mock_kitti_loader.find_root.side_effect = lambda x, seq: str(Path(x) / marker)
+        mock_kitti_loader.find_root.side_effect = lambda x, seq: x / marker
         mock_kitti_loader.__name__ = module_name
         mock_task_manager.get_import_dataset_task.return_value = mock.Mock()
 
-        subject = KITTIManager(self.temp_folder)
+        subject = KITTIManager(root_folder)
         subject.get_dataset(1)
 
         self.assertEqual(mock.call(
             module_name=module_name,
-            path=str(sequence_01_root / marker),
+            path=str(root_folder / marker),
             additional_args={'sequence_number': 1},
             num_cpus=mock.ANY,
             num_gpus=mock.ANY,
@@ -143,52 +113,43 @@ class TestKITTIManager(unittest.TestCase):
     @mock.patch('arvet_slam.dataset.kitti.kitti_manager.task_manager', autospec=True)
     @mock.patch('arvet_slam.dataset.kitti.kitti_manager.kitti_loader', autospec=True)
     def test_get_dataset_returns_result_from_complete_tasks(self, mock_kitti_loader, mock_task_manager):
-        sequence_name = '000002'
-        (self.temp_folder / sequence_name).mkdir(parents=True, exist_ok=True)
-
         mock_kitti_loader.find_root.side_effect = lambda x, seq: x
         mock_task = mock.Mock()
         mock_task.is_finished = True
         mock_task_manager.get_import_dataset_task.return_value = mock_task
 
-        subject = KITTIManager(self.temp_folder)
+        subject = KITTIManager(Path(__file__).parent)
         result = subject.get_dataset(2)
         self.assertEqual(mock_task.result, result)
 
     @mock.patch('arvet_slam.dataset.kitti.kitti_manager.task_manager', autospec=True)
     @mock.patch('arvet_slam.dataset.kitti.kitti_manager.kitti_loader', autospec=True)
     def test_get_dataset_returns_none_for_incomplete_tasks(self, mock_kitti_loader, mock_task_manager):
-        sequence_name = '000005'
-        (self.temp_folder / sequence_name).mkdir(parents=True, exist_ok=True)
-
         mock_kitti_loader.find_root.side_effect = lambda x, seq: x
         mock_task = mock.Mock()
         mock_task.is_finished = False
         mock_task_manager.get_import_dataset_task.return_value = mock_task
 
-        subject = KITTIManager(self.temp_folder)
+        subject = KITTIManager(Path(__file__).parent)
         result = subject.get_dataset(4)
         self.assertIsNone(result)
 
     @mock.patch('arvet_slam.dataset.kitti.kitti_manager.task_manager', autospec=True)
     @mock.patch('arvet_slam.dataset.kitti.kitti_manager.kitti_loader', autospec=True)
     def test_get_dataset_works_with_string_names(self, mock_kitti_loader, mock_task_manager):
-        sequence_name = '000002'
-        (self.temp_folder / sequence_name).mkdir(parents=True, exist_ok=True)
-
         mock_kitti_loader.find_root.side_effect = lambda x, seq: x
         mock_task = mock.Mock()
         mock_task.is_finished = True
         mock_task_manager.get_import_dataset_task.return_value = mock_task
 
-        subject = KITTIManager(self.temp_folder)
+        subject = KITTIManager(Path(__file__).parent)
         result = subject.get_dataset('2')
         self.assertEqual(mock_task.result, result)
 
         result = subject.get_dataset('00002')
         self.assertEqual(mock_task.result, result)
 
-        result = subject.get_dataset(sequence_name)
+        result = subject.get_dataset('000002')
         self.assertEqual(mock_task.result, result)
 
 

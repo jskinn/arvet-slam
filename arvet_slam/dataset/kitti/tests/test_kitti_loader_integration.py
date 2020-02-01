@@ -22,7 +22,7 @@ def load_dataset_location():
 dataset_root, sequence = load_dataset_location()
 
 
-class TestEuRoCLoaderIntegration(unittest.TestCase):
+class TestKITTILoaderIntegration(unittest.TestCase):
 
     @unittest.skipIf(
         dataset_root is None or

@@ -63,12 +63,11 @@ class TestMakeCameraPose(ExtendedTestCase):
 
 
 class TestFindRoot(unittest.TestCase):
-    temp_folder = 'temp_test_kitti_loader_find_files'
-    # these are the files find_root looks for
-    required_files = ['rgb.txt', 'groundtruth.txt', 'depth.txt']
+    temp_folder = Path(__file__).parent / 'mock_kitti_dataset'
 
     @staticmethod
-    def make_required_files(root_path, sequence_name):
+    def make_required_files(root_path: Path, sequence_id: int):
+        sequence_name = "{0:02}".format(sequence_id)
         (root_path / 'sequences' / sequence_name / 'image_2').mkdir(parents=True, exist_ok=True)
         (root_path / 'sequences' / sequence_name / 'image_3').mkdir(parents=True, exist_ok=True)
         (root_path / 'sequences' / sequence_name / 'calib.txt').touch()
@@ -81,51 +80,51 @@ class TestFindRoot(unittest.TestCase):
         if os.path.isdir(cls.temp_folder):
             shutil.rmtree(cls.temp_folder)
 
-    def test_finds_root_with_required_directories(self):
-        sequence_name = "000007"
-        root_path = Path(self.temp_folder) / 'root'
-        self.make_required_files(root_path, sequence_name)
+    def test_finds_root_with_required_files(self):
+        sequence_id = 7
+        root_path = self.temp_folder / 'test_root'
+        self.make_required_files(root_path, sequence_id)
 
-        result = kitti_loader.find_root(str(root_path), sequence_name)
-        self.assertEqual(str(root_path), result)
+        result = kitti_loader.find_root(root_path, sequence_id)
+        self.assertEqual(root_path, result)
 
         # Clean up after ourselves
         shutil.rmtree(root_path)
 
     def test_raises_exception_if_a_required_file_is_not_found(self):
-        sequence_name = "000005"
-        root_path = Path(self.temp_folder) / 'root'
-        self.make_required_files(root_path, sequence_name)
-        shutil.rmtree(root_path / 'sequences' / sequence_name / 'image_2')
+        sequence_id = 5
+        root_path = self.temp_folder / 'root'
+        self.make_required_files(root_path, sequence_id)
+        shutil.rmtree(root_path / 'sequences' / "{0:02}".format(sequence_id) / 'image_2')
         with self.assertRaises(FileNotFoundError):
-            kitti_loader.find_root(str(root_path), sequence_name)
+            kitti_loader.find_root(root_path, sequence_id)
 
-        self.make_required_files(root_path, sequence_name)
-        shutil.rmtree(root_path / 'sequences' / sequence_name / 'image_3')
+        self.make_required_files(root_path, sequence_id)
+        shutil.rmtree(root_path / 'sequences' / "{0:02}".format(sequence_id) / 'image_3')
         with self.assertRaises(FileNotFoundError):
-            kitti_loader.find_root(str(root_path), sequence_name)
+            kitti_loader.find_root(root_path, sequence_id)
 
-        self.make_required_files(root_path, sequence_name)
-        (root_path / 'sequences' / sequence_name / 'calib.txt').unlink()
+        self.make_required_files(root_path, sequence_id)
+        (root_path / 'sequences' / "{0:02}".format(sequence_id) / 'calib.txt').unlink()
         with self.assertRaises(FileNotFoundError):
-            kitti_loader.find_root(str(root_path), sequence_name)
+            kitti_loader.find_root(root_path, sequence_id)
 
-        self.make_required_files(root_path, sequence_name)
-        (root_path / 'sequences' / sequence_name / 'times.txt').unlink()
+        self.make_required_files(root_path, sequence_id)
+        (root_path / 'sequences' / "{0:02}".format(sequence_id) / 'times.txt').unlink()
         with self.assertRaises(FileNotFoundError):
-            kitti_loader.find_root(str(root_path), sequence_name)
+            kitti_loader.find_root(root_path, sequence_id)
 
-        self.make_required_files(root_path, sequence_name)
-        (root_path / 'poses' / (sequence_name + '.txt')).unlink()
+        self.make_required_files(root_path, sequence_id)
+        (root_path / 'poses' / ('{0:02}.txt'.format(sequence_id))).unlink()
         with self.assertRaises(FileNotFoundError):
-            kitti_loader.find_root(str(root_path), sequence_name)
+            kitti_loader.find_root(root_path, sequence_id)
 
         # Clean up after ourselves
         shutil.rmtree(root_path)
 
     def test_searches_recursively(self):
         # Create a deeply nested folder structure
-        sequence_name = "000003"
+        sequence_num = 3
         base_root = Path(self.temp_folder)
         true_sequence = 3, 0, 2
         decoy_sequence = 2, 1, 1
@@ -139,15 +138,15 @@ class TestFindRoot(unittest.TestCase):
                     path.mkdir(parents=True, exist_ok=True)
                     if (lvl1, lvl2, lvl3) == true_sequence:
                         true_path = path
-                        self.make_required_files(true_path, sequence_name)
+                        self.make_required_files(true_path, sequence_num)
                     elif (lvl1, lvl2, lvl3) == decoy_sequence:
-                        self.make_required_files(path, '000002')
+                        self.make_required_files(path, 2)
                     else:
                         (path / 'decoy.txt').touch()
 
         # Search that structure for the one folder that has all we need
-        result = kitti_loader.find_root(str(base_root), sequence_name)
-        self.assertEqual(str(true_path), result)
+        result = kitti_loader.find_root(base_root, sequence_num)
+        self.assertEqual(true_path, result)
 
         # Clean up after ourselves
         shutil.rmtree(base_root)
