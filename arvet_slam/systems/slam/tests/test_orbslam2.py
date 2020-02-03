@@ -686,7 +686,7 @@ class TestOrbSlam2(unittest.TestCase):
         k3 = np.random.uniform(0, 1)
         p1 = np.random.uniform(0, 1)
         p2 = np.random.uniform(0, 1)
-        framerate = float(np.random.randint(200, 600) / 10)
+        framerate = float(np.random.randint(200, 600) / 128)
         stereo_offset = Transform(np.random.uniform(-1, 1, size=3))
 
         mock_tempfile.mkstemp.return_value = (12, 'my_temp_file.yml')
