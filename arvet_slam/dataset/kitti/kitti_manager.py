@@ -36,7 +36,7 @@ class KITTIManager:
         Use for debugging
         :return:
         """
-        return [dataset_name for dataset_name in dataset_names if dataset_name not in self._full_paths]
+        return [dataset_name for dataset_name in dataset_names if int(dataset_name) not in self._full_paths]
 
     def get_dataset(self, sequence_id: typing.Union[str, int, float]):
         if isinstance(sequence_id, int):

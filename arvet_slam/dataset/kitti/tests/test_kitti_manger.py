@@ -6,7 +6,7 @@ import arvet.database.tests.database_connection as dbconn
 from arvet.batch_analysis.task import Task
 from arvet.batch_analysis.tasks.import_dataset_task import ImportDatasetTask
 import arvet_slam.dataset.kitti.kitti_loader as kitti_loader
-from arvet_slam.dataset.kitti.kitti_manager import KITTIManager, to_sequence_id
+from arvet_slam.dataset.kitti.kitti_manager import KITTIManager, to_sequence_id, dataset_names
 
 
 class TestKITTIManager(unittest.TestCase):
@@ -151,6 +151,25 @@ class TestKITTIManager(unittest.TestCase):
 
         result = subject.get_dataset('000002')
         self.assertEqual(mock_task.result, result)
+
+    @mock.patch('arvet_slam.dataset.kitti.kitti_manager.kitti_loader', autospec=True)
+    def test_get_missing_datasets_returns_dataset_names_not_in_found_roots(self, mock_kitti_loader):
+        def mock_find_root(x, seq):
+            if seq % 2 == 0:
+                return x / "{0:03}".format(seq)
+            raise FileNotFoundError
+
+        root_folder = Path(__file__).parent
+        mock_kitti_loader.find_root.side_effect = mock_find_root
+
+        manager = KITTIManager(root_folder)
+        self.assertTrue(mock_kitti_loader.find_root.called)
+        for sequence_id in range(11):
+            self.assertIn(mock.call(root_folder, sequence_id), mock_kitti_loader.find_root.call_args_list)
+
+        self.assertEqual([
+            dataset_name for dataset_name in dataset_names if int(dataset_name) % 2 == 1
+        ], manager.get_missing_datasets())
 
 
 class TestKITTIManagerDatabase(unittest.TestCase):
