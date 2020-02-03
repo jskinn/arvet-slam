@@ -88,7 +88,7 @@ class PointEstimate:
             self._best_time = timestamp
             self._best_pose = pose
             self._best_diff = diff
-        elif self._second_best_diff is None or diff < self._second_best_diff:
+        elif timestamp != self._best_time and (self._second_best_diff is None or diff < self._second_best_diff):
             self._second_best_time = timestamp
             self._second_best_pose = pose
             self._second_best_diff = diff

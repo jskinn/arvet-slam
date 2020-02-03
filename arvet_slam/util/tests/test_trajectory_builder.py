@@ -2,10 +2,10 @@ import numpy as np
 import transforms3d as tf3d
 from arvet.util.transform import Transform, linear_interpolate
 from arvet.util.test_helpers import ExtendedTestCase
-from arvet_slam.util.trajectory_builder import TrajectoryBuilder
+from arvet_slam.util.trajectory_builder import TrajectoryBuilder, PointEstimate
 
 
-class TestTrajectoryLoader(ExtendedTestCase):
+class TestTrajectoryBuilder(ExtendedTestCase):
 
     def test_normalises_to_first_pose(self):
         first_pose = Transform(location=(15.2, -1167.9, -1.2), rotation=(0.535, 0.2525, 0.11, 0.2876))
@@ -127,6 +127,65 @@ class TestTrajectoryLoader(ExtendedTestCase):
             self.assertNPClose(expected_pose.rotation_quat(True), interpolated_pose.rotation_quat(True),
                                atol=1e-14, rtol=0)
 
+    def test_works_if_poses_are_given_out_of_order(self):
+        def make_pose(time):
+            # Make times that depend non-linearly on time so that linear interpolation is inaccurate
+            return Transform(
+                location=(10 * time - 0.1 * time * time, 10 * np.cos(time * np.pi / 50), 0),
+                rotation=tf3d.quaternions.axangle2quat((-2, -3, 2), np.log(time + 1) * np.pi / (4 * np.log(10))),
+                w_first=True
+            )
+
+        time_offset = 0.332
+        times = [time + time_offset for time in range(0, 100, 5)]
+        builder = TrajectoryBuilder(times)
+        for time in range(0, 101):   # includes 100, to make sure we get either end of the range
+            # Create sample points at the given times, out of order.
+            # Will still hit every integer in [0-100]
+            skew_time = (time * 31) % 101
+            builder.add_trajectory_point(skew_time, make_pose(skew_time))
+        result = builder.get_interpolated_trajectory()
+        self.assertEqual(set(times), set(result.keys()))
+
+        first_pose = linear_interpolate(make_pose(0), make_pose(1), min(times))
+        for time in times:
+            expected_pose = first_pose.find_relative(linear_interpolate(
+                make_pose(np.floor(time)), make_pose(np.ceil(time)), time - np.floor(time)))
+            interpolated_pose = result[time]
+            self.assertNPClose(expected_pose.location, interpolated_pose.location, atol=1e-13, rtol=0)
+            self.assertNPClose(expected_pose.rotation_quat(True), interpolated_pose.rotation_quat(True),
+                               atol=1e-14, rtol=0)
+
+    def test_ignores_duplicate_poses(self):
+        def make_pose(time):
+            # Make times that depend non-linearly on time so that linear interpolation is inaccurate
+            return Transform(
+                location=(10 * time - 0.1 * time * time, 10 * np.cos(time * np.pi / 50), 0),
+                rotation=tf3d.quaternions.axangle2quat((-2, -3, 2), np.log(time + 1) * np.pi / (4 * np.log(10))),
+                w_first=True
+            )
+
+        time_offset = 0.332
+        times = [time + time_offset for time in range(0, 100, 5)]
+        builder = TrajectoryBuilder(times)
+        for time in range(0, 101):   # includes 100, to make sure we get either end of the range
+            # Create sample points at the given times, all integers so we can round
+            builder.add_trajectory_point(time, make_pose(time))
+        # add some times again, just to see what happens
+        builder.add_trajectory_point(23, make_pose(23))  # This should be in between times, and irrelevant
+        builder.add_trajectory_point(50, make_pose(50))  # This should be an existing best
+        result = builder.get_interpolated_trajectory()
+        self.assertEqual(set(times), set(result.keys()))
+
+        first_pose = linear_interpolate(make_pose(0), make_pose(1), min(times))
+        for time in times:
+            expected_pose = first_pose.find_relative(linear_interpolate(
+                make_pose(np.floor(time)), make_pose(np.ceil(time)), time - np.floor(time)))
+            interpolated_pose = result[time]
+            self.assertNPClose(expected_pose.location, interpolated_pose.location, atol=1e-13, rtol=0)
+            self.assertNPClose(expected_pose.rotation_quat(True), interpolated_pose.rotation_quat(True),
+                               atol=1e-14, rtol=0)
+
     def test_extrapolates_if_not_bounded_below(self):
         def make_pose(time):
             # Make times that depend non-linearly on time so that linear interpolation is inaccurate
@@ -182,3 +241,35 @@ class TestTrajectoryLoader(ExtendedTestCase):
             builder.get_interpolated_trajectory()
         message = str(ctx.exception)
         self.assertIn('0.4311', message)  # Check includes the timestamp in the error message
+
+
+class TestPointEstimate(ExtendedTestCase):
+
+    def test_raises_exception_if_only_given_one_estimate(self):
+        point = PointEstimate(0.5)
+        with self.assertRaises(TypeError):
+            point.get_estimate()
+        point.add_sample(0, Transform())
+        with self.assertRaises(TypeError):
+            point.get_estimate()
+        point.add_sample(1, Transform((1, 0, 0)))
+        result = point.get_estimate()
+        self.assertNPEqual((0.5, 0, 0), result.location)
+
+    def test_will_not_use_two_identical_timestamps(self):
+        point = PointEstimate(0.5)
+        point.add_sample(0, Transform())
+        point.add_sample(0, Transform())
+        with self.assertRaises(TypeError):
+            point.get_estimate()
+        # even though we have 2 estimates closer than this, they are identical
+        point.add_sample(10, Transform((10, -5, 0)))
+        result = point.get_estimate()
+        self.assertNPEqual((0.5, -0.25, 0), result.location)
+
+    def test_doesnt_ignore_other_timestamps_with_identical_diffs(self):
+        point = PointEstimate(0.5)
+        point.add_sample(0, Transform())
+        point.add_sample(1, Transform((1, -0.5, 0)))
+        result = point.get_estimate()
+        self.assertNPEqual((0.5, -0.25, 0), result.location)
