@@ -265,10 +265,14 @@ class DSO(VisionSystem):
 
     def make_settings(self):
         settings = {
-            'rectification_mode': self.rectification_mode.name,
-            'width': self.rectification_intrinsics.width,
-            'height': self.rectification_intrinsics.height
+            'rectification_mode': self.rectification_mode.name
         }
+        if self.rectification_mode is RectificationMode.NONE:
+            settings['width'] = self._intrinsics.width
+            settings['height'] = self._intrinsics.height
+        else:
+            settings['width'] = self.rectification_intrinsics.width
+            settings['height'] = self.rectification_intrinsics.height
         if self.rectification_mode is RectificationMode.CALIB:
             settings['out_fx'] = self.rectification_intrinsics.fx
             settings['out_fy'] = self.rectification_intrinsics.fy

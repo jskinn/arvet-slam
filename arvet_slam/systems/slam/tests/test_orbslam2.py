@@ -1002,14 +1002,14 @@ class TestOrbSlam2(unittest.TestCase):
                 'width': intrinsics.width,
                 'height': intrinsics.height
             },
+            'vocabulary_file': str(subject.vocabulary_file),
+            'mode': str(subject.mode.name),
             'depth_threshold': subject.depth_threshold,
-            'ORBextractor': {
-                'nFeatures': subject.orb_num_features,
-                'scaleFactor': subject.orb_scale_factor,
-                'nLevels': subject.orb_num_levels,
-                'iniThFAST': subject.orb_ini_threshold_fast,
-                'minThFAST': subject.orb_min_threshold_fast
-            }
+            'orb_num_features': subject.orb_num_features,
+            'orb_scale_factor': subject.orb_scale_factor,
+            'orb_num_levels': subject.orb_num_levels,
+            'orb_ini_threshold_fast': subject.orb_ini_threshold_fast,
+            'orb_min_threshold_fast': subject.orb_min_threshold_fast
         }, trial_result.settings)
         self.assertEqual(10, len(trial_result.results))
         for idx in range(10):

@@ -79,6 +79,7 @@ class LibVisOSystem(VisionSystem, metaclass=ABCModelMeta):
 
         # Ongoing state during a trial that is initialised in start_trial
         self._viso = None
+        self._seed = None
         self._start_time = None
         self._has_chosen_origin = False
         self._frame_results = []
@@ -113,6 +114,7 @@ class LibVisOSystem(VisionSystem, metaclass=ABCModelMeta):
             return
 
         self._viso = self.make_viso_instance()
+        self._seed = seed
         self._viso.seed(seed)
         self._has_chosen_origin = False
         self._frame_results = []
@@ -210,6 +212,7 @@ class LibVisOSystem(VisionSystem, metaclass=ABCModelMeta):
 
     def get_settings(self):
         return {
+            'seed': self._seed,
             'focal_distance': self._focal_distance,
             'cu': self._cu,
             'cv': self._cv

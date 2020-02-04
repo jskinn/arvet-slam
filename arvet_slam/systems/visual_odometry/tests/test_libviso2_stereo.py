@@ -410,6 +410,7 @@ class TestLibVisOStereoExecution(ExtendedTestCase):
         self.assertTrue(result.has_scale)
         self.assertIsNotNone(result.run_time)
         self.assertEqual({
+            'seed': 0,
             'focal_distance': image_builder.focal_length,
             'cu': image_builder.width / 2,
             'cv': image_builder.height / 2,

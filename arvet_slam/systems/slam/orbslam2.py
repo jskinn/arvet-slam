@@ -166,7 +166,7 @@ class OrbSlam2(VisionSystem):
         After calling this, we can feed images to the system.
         When the trial is complete, call finish_trial to get the result.
         :param sequence_type: Are the provided images part of a sequence, or just unassociated pictures.
-        :pram seed: A random seed. Ignored.
+        :param seed: A random seed. Ignored.
         :return: void
         """
         if sequence_type is not ImageSequenceType.SEQUENTIAL:
@@ -320,14 +320,14 @@ class OrbSlam2(VisionSystem):
                     'width': self._intrinsics.width,
                     'height': self._intrinsics.height
                 },
+                'vocabulary_file': str(self.vocabulary_file),
+                'mode': str(self.mode.name),
                 'depth_threshold': self.depth_threshold,
-                'ORBextractor': {
-                    'nFeatures': self.orb_num_features,
-                    'scaleFactor': self.orb_scale_factor,
-                    'nLevels': self.orb_num_levels,
-                    'iniThFAST': self.orb_ini_threshold_fast,
-                    'minThFAST': self.orb_min_threshold_fast
-                }
+                'orb_num_features': self.orb_num_features,
+                'orb_scale_factor': self.orb_scale_factor,
+                'orb_num_levels': self.orb_num_levels,
+                'orb_ini_threshold_fast': self.orb_ini_threshold_fast,
+                'orb_min_threshold_fast': self.orb_min_threshold_fast
             }
         )
         result.run_time = time.time() - self._start_time
