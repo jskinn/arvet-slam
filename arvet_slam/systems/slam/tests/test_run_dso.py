@@ -1,5 +1,4 @@
 # Copyright (c) 2017, John Skinner
-import unittest
 import numpy as np
 from pymodm.context_managers import no_auto_dereference
 
@@ -30,7 +29,15 @@ class TestRunDSO(ExtendedTestCase):
 
         subject = DSO(
             rectification_mode=RectificationMode.NONE,
-            rectification_intrinsics=image_builder.get_camera_intrinsics()
+            # These should be irrelevant
+            rectification_intrinsics=CameraIntrinsics(
+                width=320,
+                height=240,
+                fx=160,
+                fy=160,
+                cx=160,
+                cy=120
+            )
         )
         subject.set_camera_intrinsics(image_builder.get_camera_intrinsics(), max_time / num_frames)
 

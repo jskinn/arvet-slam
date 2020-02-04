@@ -25,7 +25,7 @@ class RectificationMode(enum.Enum):
     NONE = 0
     CALIB = 1
     CROP = 2
-    # FULL = 3  # I think FULL rectification mode is broken, from reading their code. The K Matrix is missing.
+    # FULL = 3 # I think FULL rectification mode is broken, from reading their code. The K Matrix is missing.
 
 
 class DSO(VisionSystem):
@@ -153,12 +153,19 @@ class DSO(VisionSystem):
         dso_configure(preset=preset, mode=mode, quiet=True, nolog=True)
 
         # Build the undistorter, this will preprocess images and remove distortion
-        if self.rectification_mode is RectificationMode.CALIB:
+        if self.rectification_mode is RectificationMode.NONE:
+            # For no undistortion, simply pass through, out resolution is always
+            self._undistorter = make_undistort_from_mode(
+                self._intrinsics, self.rectification_mode, self._intrinsics.width, self._intrinsics.height)
+        elif self.rectification_mode is RectificationMode.CALIB:
+            # CALIB rectification uses the full intrinsics
             self._undistorter = make_undistort_from_out_intrinsics(self._intrinsics, self.rectification_intrinsics)
         else:
-            self._undistorter = make_undistort_from_mode(self._intrinsics, self.rectification_mode,
-                                                         self.rectification_intrinsics.width,
-                                                         self.rectification_intrinsics.height)
+            # Otherwise, build an undistorter that crops to the configured fixed resolution
+            self._undistorter = make_undistort_from_mode(
+                self._intrinsics, self.rectification_mode,
+                self.rectification_intrinsics.width, self.rectification_intrinsics.height
+            )
         if mode is not 0:
             self._undistorter.setNoPhotometricCalibration()
         self._undistorter.applyGlobalConfig()   # Need to do this to set camera intrinsics
