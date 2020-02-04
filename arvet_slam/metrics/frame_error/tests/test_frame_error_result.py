@@ -376,6 +376,9 @@ class TestFrameErrorGetProperties(unittest.TestCase):
 
 
 class TestFrameErrorDatabase(unittest.TestCase):
+    system = None
+    image_source = None
+    trial_result = None
 
     @classmethod
     def setUpClass(cls):
@@ -383,10 +386,23 @@ class TestFrameErrorDatabase(unittest.TestCase):
         image_manager = im_manager.DefaultImageManager(dbconn.image_file)
         im_manager.set_image_manager(image_manager)
 
+        cls.system = mock_types.MockSystem()
+        cls.system.save()
+
+        cls.image_source = mock_types.MockImageSource()
+        cls.image_source.save()
+
+        cls.trial_result = mock_types.MockTrialResult(system=cls.system, image_source=cls.image_source, success=True)
+        cls.trial_result.save()
+
     @classmethod
     def tearDownClass(cls):
         # Clean up after ourselves by dropping the collection for this model
-        FrameError._mongometa.collection.drop()
+        mock_types.MockSystem.objects.all().delete()
+        mock_types.MockImageSource.objects.all().delete()
+        mock_types.MockMetric.objects.all().delete()
+        mock_types.MockTrialResult.objects.all().delete()
+        FrameError.objects.all().delete()
         Image._mongometa.collection.drop()
         if os.path.isfile(dbconn.image_file):
             os.remove(dbconn.image_file)
@@ -399,6 +415,7 @@ class TestFrameErrorDatabase(unittest.TestCase):
         )
         image.save()
         frame_error = FrameError(
+            trial_result=self.trial_result,
             repeat=1,
             timestamp=1.3,
             image=image,
@@ -1194,6 +1211,7 @@ class TestFrameErrorResultDatabase(unittest.TestCase):
                     w_first=True
                 )
                 frame_error = FrameError(
+                    trial_result=cls.trial_result,
                     repeat=repeat,
                     timestamp=1.3 * idx,
                     image=image,
@@ -1211,6 +1229,10 @@ class TestFrameErrorResultDatabase(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         # Clean up after ourselves by dropping the collection for this model
+        mock_types.MockSystem.objects.all().delete()
+        mock_types.MockImageSource.objects.all().delete()
+        mock_types.MockMetric.objects.all().delete()
+        mock_types.MockTrialResult.objects.all().delete()
         FrameError._mongometa.collection.drop()
         Image._mongometa.collection.drop()
         if os.path.isfile(dbconn.image_file):
@@ -1361,6 +1383,7 @@ class TestFrameErrorResultDatabase(unittest.TestCase):
                     w_first=True
                 )
                 frame_error = FrameError(
+                    trial_result=self.trial_result,
                     repeat=repeat,
                     timestamp=1.3 * idx,
                     image=image,

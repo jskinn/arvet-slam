@@ -48,6 +48,7 @@ class FrameError(pymodm.MongoModel):
     All the errors from a single frame
     One of these gets created for each frame for each trial
     """
+    trial_result = fields.ReferenceField(TrialResult, required=True)
     repeat = fields.IntegerField(required=True)
     timestamp = fields.FloatField(required=True)
     image = fields.ReferenceField(Image, required=True, on_delete=fields.ReferenceField.CASCADE)
@@ -174,12 +175,11 @@ class FrameErrorResult(MetricResult):
         :param columns:
         :return:
         """
-        from tqdm import tqdm
         system_properties = self.system.get_properties(columns)
         image_source_properties = self.image_source.get_properties(columns)
         metric_properties = self.metric.get_properties(columns)
         other_properties = {**system_properties, **image_source_properties, **metric_properties}
-        return [frame_error.get_properties(columns, other_properties) for frame_error in tqdm(self.errors)]
+        return [frame_error.get_properties(columns, other_properties) for frame_error in self.errors]
 
     @classmethod
     def get_available_plots(cls) -> typing.Set[str]:
@@ -313,6 +313,7 @@ class FrameErrorMetric(Metric):
                 # Collect together the error statistics for this frame result
                 image_columns |= frame_result.image.get_columns()
                 frame_error = FrameError(
+                    trial_result=trial_result,
                     repeat=repeat,
                     timestamp=frame_result.timestamp,
                     image=frame_result.image,
