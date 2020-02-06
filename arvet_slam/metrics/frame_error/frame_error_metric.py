@@ -106,22 +106,26 @@ class FrameError(pymodm.MongoModel):
         """
         Flatten the frame error to a dictionary.
         This is used to construct rows in a Pandas data frame, so the keys are column names
+        Handles pulling data from the linked system and linked image
         :return:
         """
+        system = self.trial_result.system
         if other_properties is None:
             other_properties = {}
-        image_properties = self.image.get_properties(columns)
         if columns is None:
-            columns = set(self.columns.keys())
+            columns = set(self.columns.keys()) | system.get_columns() | self.image.get_columns()
+        image_properties = self.image.get_properties(columns)
         error_properties = {
             column_name: self.columns.get_value(self, column_name)
             for column_name in columns
             if column_name in self.columns
         }
+        system_properties = system.get_properties(columns, self.trial_result.settings)
         return {
             **other_properties,
             **image_properties,
-            **error_properties
+            **error_properties,
+            **system_properties
         }
 
 
@@ -175,10 +179,9 @@ class FrameErrorResult(MetricResult):
         :param columns:
         :return:
         """
-        system_properties = self.system.get_properties(columns)
         image_source_properties = self.image_source.get_properties(columns)
         metric_properties = self.metric.get_properties(columns)
-        other_properties = {**system_properties, **image_source_properties, **metric_properties}
+        other_properties = {**image_source_properties, **metric_properties}
         return [frame_error.get_properties(columns, other_properties) for frame_error in self.errors]
 
     @classmethod
