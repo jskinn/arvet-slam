@@ -71,6 +71,8 @@ class OrbSlam2(VisionSystem):
         in_k1=None,
         in_k2=None,
         in_k3=None,
+        base=None,
+
         depth_threshold=attrgetter('depth_threshold'),
         orb_num_features=attrgetter('orb_num_features'),
         orb_scale_factor=attrgetter('orb_scale_factor'),
@@ -337,6 +339,7 @@ class OrbSlam2(VisionSystem):
                 'in_k3': self._intrinsics.k3,
                 'in_width': self._intrinsics.width,
                 'in_height': self._intrinsics.height,
+                'base': self._stereo_baseline if self._stereo_baseline is not None else float('nan'),
                 'vocabulary_file': str(self.vocabulary_file),
                 'mode': str(self.mode.name),
                 'depth_threshold': self.depth_threshold,

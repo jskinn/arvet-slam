@@ -1,4 +1,5 @@
 # Copyright (c) 2017, John Skinner
+import unittest
 import numpy as np
 import transforms3d as tf3d
 import arvet.util.transform as tf
@@ -56,3 +57,361 @@ class TestMakeRelativePose(ExtendedTestCase):
             pose = viso.make_relative_pose(frame_delta)
             self.assertNPEqual(loc, pose.location)
             self.assertNPClose(tf3d.quaternions.axangle2quat(rot_axis, rot_angle, False), pose.rotation_quat(True))
+
+
+class TestLibVisOStereo(unittest.TestCase):
+
+    def test_get_properties_is_overridden_by_settings(self):
+        settings = {
+            'seed': 9989,
+            'in_width': 860,
+            'in_height': 500,
+            'in_fx': 401.3,
+            'in_fy': 399.8,
+            'in_cx': 450.1,
+            'in_cy': 335.2,
+            'base': 22.3,
+            'matcher_nms_n': 4,
+            'matcher_nms_tau': 55,
+            'matcher_match_binsize': 103,
+            'matcher_match_radius': 5,
+            'matcher_match_disp_tolerance': 198,
+            'matcher_outlier_disp_tolerance': 22,
+            'matcher_outlier_flow_tolerance': 34,
+            'matcher_multi_stage': True,
+            'matcher_half_resolution': False,
+            'bucketing_max_features': 223,
+            'bucketing_bucket_width': 85,
+            'bucketing_bucket_height': 34
+        }
+        subject = viso.LibVisOStereoSystem(
+            matcher_nms_n=23.2,
+            matcher_nms_tau=16,
+            matcher_match_binsize=98,
+            matcher_match_radius=6,
+            matcher_match_disp_tolerance=53,
+            matcher_outlier_disp_tolerance=63,
+            matcher_outlier_flow_tolerance=98,
+            matcher_multi_stage=False,
+            matcher_half_resolution=True,
+            matcher_refinement=viso.MatcherRefinement.PIXEL,
+            bucketing_max_features=332,
+            bucketing_bucket_width=87,
+            bucketing_bucket_height=43,
+            ransac_iters=3004,
+            inlier_threshold=4.33,
+            reweighting=True
+        )
+        properties = subject.get_properties(settings=settings)
+        for column in settings.keys():
+            self.assertEqual(settings[column], properties[column])
+
+    def test_get_properties_reads_from_object_or_is_nan_when_not_in_settings(self):
+        subject = viso.LibVisOStereoSystem(
+            matcher_nms_n=23,
+            matcher_nms_tau=16,
+            matcher_match_binsize=98,
+            matcher_match_radius=6,
+            matcher_match_disp_tolerance=53,
+            matcher_outlier_disp_tolerance=63,
+            matcher_outlier_flow_tolerance=98,
+            matcher_multi_stage=False,
+            matcher_half_resolution=True,
+            matcher_refinement=viso.MatcherRefinement.PIXEL,
+            bucketing_max_features=332,
+            bucketing_bucket_width=87,
+            bucketing_bucket_height=43,
+            ransac_iters=3004,
+            inlier_threshold=4.33,
+            reweighting=True
+        )
+        properties = subject.get_properties()
+        for key, value in {
+            'matcher_nms_n': 23,
+            'matcher_nms_tau': 16,
+            'matcher_match_binsize': 98,
+            'matcher_match_radius': 6,
+            'matcher_match_disp_tolerance': 53,
+            'matcher_outlier_disp_tolerance': 63,
+            'matcher_outlier_flow_tolerance': 98,
+            'matcher_multi_stage': False,
+            'matcher_half_resolution': True,
+            'matcher_refinement': viso.MatcherRefinement.PIXEL,
+            'bucketing_max_features': 332,
+            'bucketing_bucket_width': 87,
+            'bucketing_bucket_height': 43,
+            'ransac_iters': 3004,
+            'inlier_threshold': 4.33,
+            'reweighting': True
+        }.items():
+            self.assertEqual(value, properties[key])
+        for column in [
+            'in_width',
+            'in_height',
+            'in_fx',
+            'in_fy',
+            'in_cx',
+            'in_cy',
+            'base',
+            'seed'
+        ]:
+            self.assertTrue(np.isnan(properties[column]))
+
+    def test_get_properties_only_returns_the_requested_properties(self):
+        settings = {
+            'seed': 42,
+            'in_width': 860,
+            'in_height': 500,
+            'in_fx': 401.3,
+            'in_fy': 399.8,
+            'in_cx': 450.1,
+            'in_cy': 335.2,
+            'base': 22.3
+        }
+        other_properties = {
+            'matcher_nms_n': 23,
+            'matcher_nms_tau': 16,
+            'matcher_match_binsize': 98,
+            'matcher_match_radius': 6,
+            'matcher_match_disp_tolerance': 53,
+            'matcher_outlier_disp_tolerance': 63,
+            'matcher_outlier_flow_tolerance': 98,
+            'matcher_multi_stage': False,
+            'matcher_half_resolution': True,
+            'matcher_refinement': viso.MatcherRefinement.PIXEL,
+            'bucketing_max_features': 332,
+            'bucketing_bucket_width': 87,
+            'bucketing_bucket_height': 43,
+            'ransac_iters': 3004,
+            'inlier_threshold': 4.33,
+            'reweighting': True
+        }
+        subject = viso.LibVisOStereoSystem(
+            matcher_nms_n=23.2,
+            matcher_nms_tau=16,
+            matcher_match_binsize=98,
+            matcher_match_radius=6,
+            matcher_match_disp_tolerance=53,
+            matcher_outlier_disp_tolerance=63,
+            matcher_outlier_flow_tolerance=98,
+            matcher_multi_stage=False,
+            matcher_half_resolution=True,
+            matcher_refinement=viso.MatcherRefinement.PIXEL,
+            bucketing_max_features=332,
+            bucketing_bucket_width=87,
+            bucketing_bucket_height=43,
+            ransac_iters=3004,
+            inlier_threshold=4.33,
+            reweighting=True
+        )
+        columns = list(subject.get_columns())
+        np.random.shuffle(columns)
+        columns1 = {column for idx, column in enumerate(columns) if idx % 2 == 0}
+        columns2 = set(columns) - columns1
+
+        properties = subject.get_properties(columns1, settings=settings)
+        for column in columns1:
+            self.assertIn(column, properties)
+            if column in settings:
+                self.assertEqual(settings[column], properties[column])
+            elif column in other_properties:
+                self.assertEqual(other_properties[column], properties[column])
+            else:
+                self.assertTrue(np.isnan(properties[column]))
+        for column in columns2:
+            self.assertNotIn(column, properties)
+
+        properties = subject.get_properties(columns2, settings=settings)
+        for column in columns2:
+            self.assertIn(column, properties)
+            if column in settings:
+                self.assertEqual(settings[column], properties[column])
+            elif column in other_properties:
+                self.assertEqual(other_properties[column], properties[column])
+            else:
+                self.assertTrue(np.isnan(properties[column]))
+        for column in columns1:
+            self.assertNotIn(column, properties)
+
+
+class TestLibVisOMono(unittest.TestCase):
+
+    def test_get_properties_is_overridden_by_settings(self):
+        settings = {
+            'seed': 9989,
+            'in_width': 860,
+            'in_height': 500,
+            'in_fx': 401.3,
+            'in_fy': 399.8,
+            'in_cx': 450.1,
+            'in_cy': 335.2,
+            'matcher_nms_n': 4,
+            'matcher_nms_tau': 55,
+            'matcher_match_binsize': 103,
+            'matcher_match_radius': 5,
+            'matcher_match_disp_tolerance': 198,
+            'matcher_outlier_disp_tolerance': 22,
+            'matcher_outlier_flow_tolerance': 34,
+            'matcher_multi_stage': True,
+            'matcher_half_resolution': False,
+            'bucketing_max_features': 223,
+            'bucketing_bucket_width': 85,
+            'bucketing_bucket_height': 34
+        }
+        subject = viso.LibVisOMonoSystem(
+            matcher_nms_n=23.2,
+            matcher_nms_tau=16,
+            matcher_match_binsize=98,
+            matcher_match_radius=6,
+            matcher_match_disp_tolerance=53,
+            matcher_outlier_disp_tolerance=63,
+            matcher_outlier_flow_tolerance=98,
+            matcher_multi_stage=False,
+            matcher_half_resolution=True,
+            matcher_refinement=viso.MatcherRefinement.PIXEL,
+            bucketing_max_features=332,
+            bucketing_bucket_width=87,
+            bucketing_bucket_height=43,
+            height=1.223,
+            pitch=np.pi / 32,
+            ransac_iters=3004,
+            inlier_threshold=4.33,
+            motion_threshold=332
+        )
+        properties = subject.get_properties(settings=settings)
+        for column in settings.keys():
+            self.assertEqual(settings[column], properties[column])
+
+    def test_get_properties_reads_from_object_or_is_nan_when_not_in_settings(self):
+        subject = viso.LibVisOMonoSystem(
+            matcher_nms_n=23,
+            matcher_nms_tau=16,
+            matcher_match_binsize=98,
+            matcher_match_radius=6,
+            matcher_match_disp_tolerance=53,
+            matcher_outlier_disp_tolerance=63,
+            matcher_outlier_flow_tolerance=98,
+            matcher_multi_stage=False,
+            matcher_half_resolution=True,
+            matcher_refinement=viso.MatcherRefinement.PIXEL,
+            bucketing_max_features=332,
+            bucketing_bucket_width=87,
+            bucketing_bucket_height=43,
+            height=1.223,
+            pitch=np.pi / 32,
+            ransac_iters=3004,
+            inlier_threshold=4.33,
+            motion_threshold=332
+        )
+        properties = subject.get_properties()
+        for key, value in {
+            'matcher_nms_n': 23,
+            'matcher_nms_tau': 16,
+            'matcher_match_binsize': 98,
+            'matcher_match_radius': 6,
+            'matcher_match_disp_tolerance': 53,
+            'matcher_outlier_disp_tolerance': 63,
+            'matcher_outlier_flow_tolerance': 98,
+            'matcher_multi_stage': False,
+            'matcher_half_resolution': True,
+            'matcher_refinement': viso.MatcherRefinement.PIXEL,
+            'bucketing_max_features': 332,
+            'bucketing_bucket_width': 87,
+            'bucketing_bucket_height': 43,
+            'height': 1.223,
+            'pitch': np.pi / 32,
+            'ransac_iters': 3004,
+            'inlier_threshold': 4.33,
+            'motion_threshold': 332
+        }.items():
+            self.assertEqual(value, properties[key])
+        for column in [
+            'in_width',
+            'in_height',
+            'in_fx',
+            'in_fy',
+            'in_cx',
+            'in_cy',
+            'seed'
+        ]:
+            self.assertTrue(np.isnan(properties[column]))
+
+    def test_get_properties_only_returns_the_requested_properties(self):
+        settings = {
+            'seed': 42,
+            'in_width': 860,
+            'in_height': 500,
+            'in_fx': 401.3,
+            'in_fy': 399.8,
+            'in_cx': 450.1,
+            'in_cy': 335.2,
+            'base': 22.3
+        }
+        other_properties = {
+            'matcher_nms_n': 23,
+            'matcher_nms_tau': 16,
+            'matcher_match_binsize': 98,
+            'matcher_match_radius': 6,
+            'matcher_match_disp_tolerance': 53,
+            'matcher_outlier_disp_tolerance': 63,
+            'matcher_outlier_flow_tolerance': 98,
+            'matcher_multi_stage': False,
+            'matcher_half_resolution': True,
+            'matcher_refinement': viso.MatcherRefinement.PIXEL,
+            'bucketing_max_features': 332,
+            'bucketing_bucket_width': 87,
+            'bucketing_bucket_height': 43,
+            'height': 1.223,
+            'pitch': np.pi / 32,
+            'ransac_iters': 3004,
+            'inlier_threshold': 4.33,
+            'motion_threshold': 332
+        }
+        subject = viso.LibVisOMonoSystem(
+            matcher_nms_n=23.2,
+            matcher_nms_tau=16,
+            matcher_match_binsize=98,
+            matcher_match_radius=6,
+            matcher_match_disp_tolerance=53,
+            matcher_outlier_disp_tolerance=63,
+            matcher_outlier_flow_tolerance=98,
+            matcher_multi_stage=False,
+            matcher_half_resolution=True,
+            matcher_refinement=viso.MatcherRefinement.PIXEL,
+            bucketing_max_features=332,
+            bucketing_bucket_width=87,
+            bucketing_bucket_height=43,
+            height=1.223,
+            pitch=np.pi / 32,
+            ransac_iters=3004,
+            inlier_threshold=4.33,
+            motion_threshold=332
+        )
+        columns = list(subject.get_columns())
+        np.random.shuffle(columns)
+        columns1 = {column for idx, column in enumerate(columns) if idx % 2 == 0}
+        columns2 = set(columns) - columns1
+
+        properties = subject.get_properties(columns1, settings=settings)
+        for column in columns1:
+            self.assertIn(column, properties)
+            if column in settings:
+                self.assertEqual(settings[column], properties[column])
+            elif column in other_properties:
+                self.assertEqual(other_properties[column], properties[column])
+            else:
+                self.assertTrue(np.isnan(properties[column]))
+        for column in columns2:
+            self.assertNotIn(column, properties)
+
+        properties = subject.get_properties(columns2, settings=settings)
+        for column in columns2:
+            self.assertIn(column, properties)
+            if column in settings:
+                self.assertEqual(settings[column], properties[column])
+            elif column in other_properties:
+                self.assertEqual(other_properties[column], properties[column])
+            else:
+                self.assertTrue(np.isnan(properties[column]))
+        for column in columns1:
+            self.assertNotIn(column, properties)

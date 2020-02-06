@@ -447,6 +447,7 @@ class TestOrbSlam2(unittest.TestCase):
             'in_k1': 0.11123,
             'in_k2': -0.00123,
             'in_k3': 0.01443,
+            'base': 15.223,
             'vocabulary_file': 'my_vocab_file',
             'mode': str(SensorMode.RGBD.name),
             'depth_threshold': 123,
@@ -502,6 +503,7 @@ class TestOrbSlam2(unittest.TestCase):
             'in_k1',
             'in_k2',
             'in_k3',
+            'base'
         ]:
             self.assertTrue(np.isnan(properties[column]))
 
@@ -518,6 +520,7 @@ class TestOrbSlam2(unittest.TestCase):
             'in_k1': 0.11123,
             'in_k2': -0.00123,
             'in_k3': 0.01443,
+            'base': 15.223,
             'vocabulary_file': 'my_vocab_file',
             'mode': str(SensorMode.RGBD.name),
             'depth_threshold': 123,
@@ -1118,7 +1121,7 @@ class TestOrbSlam2(unittest.TestCase):
         self.assertIsInstance(trial_result, SLAMTrialResult)
         self.assertTrue(trial_result.success)
         self.assertGreater(trial_result.run_time, 0)
-        self.assertEqual({
+        for key, value in {
             'in_fx': intrinsics.fx,
             'in_fy': intrinsics.fy,
             'in_cx': intrinsics.cx,
@@ -1130,6 +1133,7 @@ class TestOrbSlam2(unittest.TestCase):
             'in_k3': intrinsics.k3,
             'in_width': intrinsics.width,
             'in_height': intrinsics.height,
+            'base': float('nan'),
             'vocabulary_file': str(subject.vocabulary_file),
             'mode': str(subject.mode.name),
             'depth_threshold': subject.depth_threshold,
@@ -1138,7 +1142,11 @@ class TestOrbSlam2(unittest.TestCase):
             'orb_num_levels': subject.orb_num_levels,
             'orb_ini_threshold_fast': subject.orb_ini_threshold_fast,
             'orb_min_threshold_fast': subject.orb_min_threshold_fast
-        }, trial_result.settings)
+        }.items():
+            if isinstance(value, float) and np.isnan(value):
+                self.assertTrue(np.isnan(trial_result.settings[key]))
+            else:
+                self.assertEqual(value, trial_result.settings[key])
         self.assertEqual(10, len(trial_result.results))
         for idx in range(10):
             frame_result = trial_result.results[idx]

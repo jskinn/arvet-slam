@@ -51,6 +51,14 @@ class LibVisOSystem(VisionSystem, metaclass=ABCModelMeta):
 
     # List of available metadata columns, and getters for each
     columns = ColumnList(
+        seed=None,
+        in_height=None,
+        in_width=None,
+        in_fx=None,
+        in_fy=None,
+        in_cx=None,
+        in_cy=None,
+
         matcher_nms_n=attrgetter('matcher_nms_n'),
         matcher_nms_tau=attrgetter('matcher_nms_tau'),
         matcher_match_binsize=attrgetter('matcher_match_binsize'),
@@ -76,6 +84,8 @@ class LibVisOSystem(VisionSystem, metaclass=ABCModelMeta):
         self._focal_distance = 1.0
         self._cu = 320
         self._cv = 240
+        self._width = 0     # These are not actually used, only stored
+        self._height = 0
 
         # Ongoing state during a trial that is initialised in start_trial
         self._viso = None
@@ -106,6 +116,8 @@ class LibVisOSystem(VisionSystem, metaclass=ABCModelMeta):
         self._focal_distance = float(camera_intrinsics.fx)
         self._cu = float(camera_intrinsics.cx)
         self._cv = float(camera_intrinsics.cy)
+        self._width = float(camera_intrinsics.width)
+        self._height = float(camera_intrinsics.height)
 
     def start_trial(self, sequence_type: ImageSequenceType, seed: int = 0) -> None:
         logging.getLogger(__name__).debug("Starting LibVisO trial...")
@@ -170,16 +182,20 @@ class LibVisOSystem(VisionSystem, metaclass=ABCModelMeta):
         """
         return set(self.columns.keys())
 
-    def get_properties(self, columns: typing.Iterable[str] = None) -> typing.Mapping[str, typing.Any]:
+    def get_properties(self, columns: typing.Iterable[str] = None,
+                       settings: typing.Mapping[str, typing.Any] = None) -> typing.Mapping[str, typing.Any]:
         """
         Get the values of the requested properties
         :param columns:
+        :param settings:
         :return:
         """
         if columns is None:
             columns = self.columns.keys()
+        if settings is None:
+            settings = {}
         return {
-            col_name: self.columns.get_value(self, col_name)
+            col_name: settings[col_name] if col_name in settings else self.columns.get_value(self, col_name)
             for col_name in columns
             if col_name in self.columns
         }
@@ -213,9 +229,12 @@ class LibVisOSystem(VisionSystem, metaclass=ABCModelMeta):
     def get_settings(self):
         return {
             'seed': self._seed,
-            'focal_distance': self._focal_distance,
-            'cu': self._cu,
-            'cv': self._cv
+            'in_fx': self._focal_distance,
+            'in_fy': self._focal_distance,
+            'in_cu': self._cu,
+            'in_cv': self._cv,
+            'in_height': self._height,
+            'in_width': self._width
         }
 
 
@@ -231,6 +250,7 @@ class LibVisOStereoSystem(LibVisOSystem):
     # List of available metadata columns, and getters for each
     columns = ColumnList(
         LibVisOSystem.columns,
+        base=None,
         ransac_iters=attrgetter('ransac_iters'),
         inlier_threshold=attrgetter('inlier_threshold'),
         reweighting=attrgetter('reweighting')
