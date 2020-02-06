@@ -36,7 +36,7 @@ from arvet_slam.systems.slam.orbslam2 import OrbSlam2, SensorMode, dump_config, 
 
 
 class TestOrbSlam2Database(unittest.TestCase):
-    temp_folder = 'temp-test-orbslam2'
+    temp_folder = Path(__file__).parent / 'temp-test-orbslam2'
     path_manager = None
 
     @classmethod
