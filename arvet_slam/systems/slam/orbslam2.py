@@ -59,6 +59,18 @@ class OrbSlam2(VisionSystem):
     columns = ColumnList(
         vocabulary_file=attrgetter('vocabulary_file'),
         mode=attrgetter('mode'),
+        in_height=None,
+        in_width=None,
+        in_fx=None,
+        in_fy=None,
+        in_cx=None,
+        in_cy=None,
+
+        in_p1=None,
+        in_p2=None,
+        in_k1=None,
+        in_k2=None,
+        in_k3=None,
         depth_threshold=attrgetter('depth_threshold'),
         orb_num_features=attrgetter('orb_num_features'),
         orb_scale_factor=attrgetter('orb_scale_factor'),
@@ -122,19 +134,26 @@ class OrbSlam2(VisionSystem):
         """
         return set(self.columns.keys())
 
-    def get_properties(self, columns: typing.Iterable[str] = None) -> typing.Mapping[str, typing.Any]:
+    def get_properties(self, columns: typing.Iterable[str] = None,
+                       settings: typing.Mapping[str, typing.Any] = None) -> typing.Mapping[str, typing.Any]:
         """
         Get the values of the requested properties
         :param columns:
+        :param settings:
         :return:
         """
         if columns is None:
             columns = self.columns.keys()
-        return {
-            col_name: self.columns.get_value(self, col_name)
+        if settings is None:
+            settings = {}
+        properties = {
+            col_name: settings[col_name] if col_name in settings else self.columns.get_value(self, col_name)
             for col_name in columns
             if col_name in self.columns
         }
+        if 'mode' in properties and not isinstance(properties['mode'], SensorMode):
+            properties['mode'] = SensorMode[properties['mode']]
+        return properties
 
     def set_camera_intrinsics(self, camera_intrinsics: CameraIntrinsics, average_timestep: float) -> None:
         """
@@ -307,19 +326,17 @@ class OrbSlam2(VisionSystem):
                      for timestamp in sorted(self._partial_frame_results.keys())],
             has_scale=(self.mode != SensorMode.MONOCULAR),
             settings={
-                'Camera': {
-                    'fx': self._intrinsics.fx,
-                    'fy': self._intrinsics.fy,
-                    'cx': self._intrinsics.cx,
-                    'cy': self._intrinsics.cy,
-                    'k1': self._intrinsics.k1,
-                    'k2': self._intrinsics.k2,
-                    'p1': self._intrinsics.p1,
-                    'p2': self._intrinsics.p2,
-                    'k3': self._intrinsics.k3,
-                    'width': self._intrinsics.width,
-                    'height': self._intrinsics.height
-                },
+                'in_fx': self._intrinsics.fx,
+                'in_fy': self._intrinsics.fy,
+                'in_cx': self._intrinsics.cx,
+                'in_cy': self._intrinsics.cy,
+                'in_k1': self._intrinsics.k1,
+                'in_k2': self._intrinsics.k2,
+                'in_p1': self._intrinsics.p1,
+                'in_p2': self._intrinsics.p2,
+                'in_k3': self._intrinsics.k3,
+                'in_width': self._intrinsics.width,
+                'in_height': self._intrinsics.height,
                 'vocabulary_file': str(self.vocabulary_file),
                 'mode': str(self.mode.name),
                 'depth_threshold': self.depth_threshold,

@@ -137,7 +137,7 @@ class DSO(VisionSystem):
         :return:
         """
         if column_name is 'rectification_mode':
-            return str(self.rectification_mode.name)
+            return self.rectification_mode
         elif self.rectification_mode != RectificationMode.CALIB and \
                 column_name in {'out_fx', 'out_fy', 'out_cx', 'out_cy'}:
             return float('nan')

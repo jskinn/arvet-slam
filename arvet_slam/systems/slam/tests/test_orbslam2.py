@@ -434,6 +434,136 @@ class TestOrbSlam2(unittest.TestCase):
         logging.disable(logging.NOTSET)
         shutil.rmtree(cls.temp_folder)
 
+    def test_get_properties_is_overridden_by_settings(self):
+        settings = {
+            'in_width': 860,
+            'in_height': 500,
+            'in_fx': 401.3,
+            'in_fy': 399.8,
+            'in_cx': 450.1,
+            'in_cy': 335.2,
+            'in_p1': -0.3151,
+            'in_p2': 0.8715,
+            'in_k1': 0.11123,
+            'in_k2': -0.00123,
+            'in_k3': 0.01443,
+            'vocabulary_file': 'my_vocab_file',
+            'mode': str(SensorMode.RGBD.name),
+            'depth_threshold': 123,
+            'orb_num_features': 4082,
+            'orb_scale_factor': 1.1,
+            'orb_num_levels': 3,
+            'orb_ini_threshold_fast': 6,
+            'orb_min_threshold_fast': 3
+        }
+        subject = OrbSlam2(
+            mode=SensorMode.MONOCULAR,
+            depth_threshold=22,
+            orb_num_features=332,
+            orb_scale_factor=1.02,
+            orb_num_levels=8,
+            orb_ini_threshold_fast=22,
+            orb_min_threshold_fast=16
+        )
+        properties = subject.get_properties(settings=settings)
+        self.assertEqual(SensorMode.RGBD, properties['mode'])
+        for column in set(settings.keys()) - {'mode'}:
+            self.assertEqual(settings[column], properties[column])
+
+    def test_get_properties_reads_from_object_or_is_nan_when_not_in_settings(self):
+        subject = OrbSlam2(
+            mode=SensorMode.MONOCULAR,
+            vocabulary_file='my_vocab_file',
+            depth_threshold=22,
+            orb_num_features=332,
+            orb_scale_factor=1.02,
+            orb_num_levels=8,
+            orb_ini_threshold_fast=22,
+            orb_min_threshold_fast=16
+        )
+        properties = subject.get_properties()
+        self.assertEqual(SensorMode.MONOCULAR, properties['mode'])
+        self.assertEqual('my_vocab_file', properties['vocabulary_file'])
+        self.assertEqual(22, properties['depth_threshold'])
+        self.assertEqual(332, properties['orb_num_features'])
+        self.assertEqual(1.02, properties['orb_scale_factor'])
+        self.assertEqual(8, properties['orb_num_levels'])
+        self.assertEqual(22, properties['orb_ini_threshold_fast'])
+        self.assertEqual(16, properties['orb_min_threshold_fast'])
+        for column in [
+            'in_width',
+            'in_height',
+            'in_fx',
+            'in_fy',
+            'in_cx',
+            'in_cy',
+            'in_p1',
+            'in_p2',
+            'in_k1',
+            'in_k2',
+            'in_k3',
+        ]:
+            self.assertTrue(np.isnan(properties[column]))
+
+    def test_get_properties_only_returns_the_requested_properties(self):
+        settings = {
+            'in_width': 860,
+            'in_height': 500,
+            'in_fx': 401.3,
+            'in_fy': 399.8,
+            'in_cx': 450.1,
+            'in_cy': 335.2,
+            'in_p1': -0.3151,
+            'in_p2': 0.8715,
+            'in_k1': 0.11123,
+            'in_k2': -0.00123,
+            'in_k3': 0.01443,
+            'vocabulary_file': 'my_vocab_file',
+            'mode': str(SensorMode.RGBD.name),
+            'depth_threshold': 123,
+            'orb_num_features': 4082,
+            'orb_scale_factor': 1.1,
+            'orb_num_levels': 3,
+            'orb_ini_threshold_fast': 6,
+            'orb_min_threshold_fast': 3
+        }
+        subject = OrbSlam2(
+            mode=SensorMode.MONOCULAR,
+            vocabulary_file='my_vocab_file',
+            depth_threshold=22,
+            orb_num_features=332,
+            orb_scale_factor=1.02,
+            orb_num_levels=8,
+            orb_ini_threshold_fast=22,
+            orb_min_threshold_fast=16
+        )
+        columns = list(subject.get_columns())
+        np.random.shuffle(columns)
+        columns1 = {column for idx, column in enumerate(columns) if idx % 2 == 0 and column != 'mode'}
+        columns2 = set(columns) - columns1
+
+        properties = subject.get_properties(columns1, settings=settings)
+        for column in columns1:
+            self.assertIn(column, properties)
+            if column in settings:
+                self.assertEqual(settings[column], properties[column])
+            else:
+                self.assertTrue(np.isnan(properties[column]))
+        for column in columns2:
+            self.assertNotIn(column, properties)
+
+        properties = subject.get_properties(columns2, settings=settings)
+        for column in columns2:
+            self.assertIn(column, properties)
+            if column == 'mode':
+                self.assertEqual(SensorMode.RGBD, properties[column])
+            elif column in settings:
+                self.assertEqual(settings[column], properties[column])
+            else:
+                self.assertTrue(np.isnan(properties[column]))
+        for column in columns1:
+            self.assertNotIn(column, properties)
+
     def test_is_image_source_appropriate_returns_true_for_monocular_systems_and_sequential_image_sources(self):
         subject = OrbSlam2(mode=SensorMode.MONOCULAR)
         mock_image_source = mock.create_autospec(ImageSource)
@@ -686,7 +816,7 @@ class TestOrbSlam2(unittest.TestCase):
         k3 = np.random.uniform(0, 1)
         p1 = np.random.uniform(0, 1)
         p2 = np.random.uniform(0, 1)
-        framerate = float(np.random.randint(200, 600) / 128)
+        framerate = float(np.random.randint(200, 600) / 64)
         stereo_offset = Transform(np.random.uniform(-1, 1, size=3))
 
         mock_tempfile.mkstemp.return_value = (12, 'my_temp_file.yml')
@@ -989,19 +1119,17 @@ class TestOrbSlam2(unittest.TestCase):
         self.assertTrue(trial_result.success)
         self.assertGreater(trial_result.run_time, 0)
         self.assertEqual({
-            'Camera': {
-                'fx': intrinsics.fx,
-                'fy': intrinsics.fy,
-                'cx': intrinsics.cx,
-                'cy': intrinsics.cy,
-                'k1': intrinsics.k1,
-                'k2': intrinsics.k2,
-                'p1': intrinsics.p1,
-                'p2': intrinsics.p2,
-                'k3': intrinsics.k3,
-                'width': intrinsics.width,
-                'height': intrinsics.height
-            },
+            'in_fx': intrinsics.fx,
+            'in_fy': intrinsics.fy,
+            'in_cx': intrinsics.cx,
+            'in_cy': intrinsics.cy,
+            'in_k1': intrinsics.k1,
+            'in_k2': intrinsics.k2,
+            'in_p1': intrinsics.p1,
+            'in_p2': intrinsics.p2,
+            'in_k3': intrinsics.k3,
+            'in_width': intrinsics.width,
+            'in_height': intrinsics.height,
             'vocabulary_file': str(subject.vocabulary_file),
             'mode': str(subject.mode.name),
             'depth_threshold': subject.depth_threshold,

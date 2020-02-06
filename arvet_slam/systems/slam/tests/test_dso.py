@@ -593,7 +593,8 @@ class TestDSO(unittest.TestCase):
             rectification_intrinsics=out_intrinsics
         )
         properties = subject.get_properties(settings=settings)
-        for column in settings.keys():
+        self.assertEqual(subject.rectification_mode, properties['rectification_mode'])
+        for column in set(settings.keys()) - {'rectification_mode'}:
             self.assertEqual(settings[column], properties[column])
 
     def test_get_properties_prioritises_system_rectification_mode(self):
@@ -623,7 +624,7 @@ class TestDSO(unittest.TestCase):
                     'out_cy': 265.3
                 }
                 properties = subject.get_properties(settings=settings)
-                self.assertEqual(str(sys_rect_mode.name), properties['rectification_mode'])
+                self.assertEqual(sys_rect_mode, properties['rectification_mode'])
                 if sys_rect_mode is RectificationMode.CALIB:
                     self.assertEqual(settings['out_fx'], properties['out_fx'])
                     self.assertEqual(settings['out_fy'], properties['out_fy'])
@@ -669,7 +670,7 @@ class TestDSO(unittest.TestCase):
             rectification_intrinsics=out_intrinsics
         )
         properties = subject.get_properties(settings=settings)
-        for column in settings.keys():
+        for column in set(settings.keys()) - {'rectification_mode'}:
             self.assertEqual(settings[column], properties[column])
 
     def test_get_properties_returns_nan_for_out_intrinsics_if_mode_is_not_CALIB(self):
@@ -750,7 +751,7 @@ class TestDSO(unittest.TestCase):
             rectification_intrinsics=out_intrinsics
         )
         properties = subject.get_properties()
-        self.assertEqual('CROP', properties['rectification_mode'])
+        self.assertEqual(RectificationMode.CROP, properties['rectification_mode'])
         self.assertEqual(out_intrinsics.width, properties['out_width'])
         self.assertEqual(out_intrinsics.height, properties['out_height'])
         for prop in [
@@ -785,7 +786,7 @@ class TestDSO(unittest.TestCase):
             rectification_intrinsics=out_intrinsics
         )
         properties = subject.get_properties()
-        self.assertEqual('CALIB', properties['rectification_mode'])
+        self.assertEqual(RectificationMode.CALIB, properties['rectification_mode'])
         self.assertEqual(out_intrinsics.width, properties['out_width'])
         self.assertEqual(out_intrinsics.height, properties['out_height'])
         self.assertEqual(out_intrinsics.fx, properties['out_fx'])
@@ -835,7 +836,7 @@ class TestDSO(unittest.TestCase):
             rectification_mode=RectificationMode.CROP,
             rectification_intrinsics=out_intrinsics
         )
-        columns = list(subject.get_columns())
+        columns = list(subject.get_columns() - {'rectification_mode'})
         np.random.shuffle(columns)
         columns1 = [col for idx, col in enumerate(columns) if idx % 2 == 0]
         columns2 = list(set(columns) - set(columns1))
@@ -850,7 +851,9 @@ class TestDSO(unittest.TestCase):
         for column in columns2:
             self.assertNotIn(column, properties)
 
-        properties = subject.get_properties(columns2, settings=settings)
+        properties = subject.get_properties(['rectification_mode'] + columns2, settings=settings)
+        self.assertIn('rectification_mode', properties)
+        self.assertEqual(subject.rectification_mode, properties['rectification_mode'])
         for column in columns2:
             self.assertIn(column, properties)
             if column in settings:
@@ -893,7 +896,7 @@ class TestDSO(unittest.TestCase):
             rectification_mode=RectificationMode.CALIB,
             rectification_intrinsics=out_intrinsics
         )
-        columns = list(subject.get_columns())
+        columns = list(subject.get_columns() - {'rectification_mode'})
         np.random.shuffle(columns)
         columns1 = [col for idx, col in enumerate(columns) if idx % 2 == 0]
         columns2 = list(set(columns) - set(columns1))
@@ -908,7 +911,9 @@ class TestDSO(unittest.TestCase):
         for column in columns2:
             self.assertNotIn(column, properties)
 
-        properties = subject.get_properties(columns2, settings=settings)
+        properties = subject.get_properties(['rectification_mode'] + columns2, settings=settings)
+        self.assertIn('rectification_mode', properties)
+        self.assertEqual(subject.rectification_mode, properties['rectification_mode'])
         for column in columns2:
             self.assertIn(column, properties)
             if column in settings:
