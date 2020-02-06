@@ -39,12 +39,29 @@ class DSO(VisionSystem):
 
     columns = ColumnList(
         rectification_mode=attrgetter('rectification_mode'),
-        height=attrgetter('rectification_intrinsics.height'),
-        width=attrgetter('rectification_intrinsics.width'),
-        fx=lambda obj: obj.rectification_intrinsics.fx if obj.rectification_mode is RectificationMode.CALIB else np.nan,
-        fy=lambda obj: obj.rectification_intrinsics.fy if obj.rectification_mode is RectificationMode.CALIB else np.nan,
-        cx=lambda obj: obj.rectification_intrinsics.cx if obj.rectification_mode is RectificationMode.CALIB else np.nan,
-        cy=lambda obj: obj.rectification_intrinsics.cx if obj.rectification_mode is RectificationMode.CALIB else np.nan
+        undistort_mode=None,
+        in_height=None,
+        in_width=None,
+        in_fx=None,
+        in_fy=None,
+        in_cx=None,
+        in_cy=None,
+
+        in_p1=None,
+        in_p2=None,
+        in_k1=None,
+        in_k2=None,
+
+        out_width=attrgetter('rectification_intrinsics.width'),
+        out_height=attrgetter('rectification_intrinsics.height'),
+        out_fx=lambda obj: obj.rectification_intrinsics.fx
+        if obj.rectification_mode is RectificationMode.CALIB else float('nan'),
+        out_fy=lambda obj: obj.rectification_intrinsics.fy
+        if obj.rectification_mode is RectificationMode.CALIB else float('nan'),
+        out_cx=lambda obj: obj.rectification_intrinsics.cx
+        if obj.rectification_mode is RectificationMode.CALIB else float('nan'),
+        out_cy=lambda obj: obj.rectification_intrinsics.cy
+        if obj.rectification_mode is RectificationMode.CALIB else float('nan')
     )
 
     def __init__(self, *args, **kwargs):
@@ -93,19 +110,40 @@ class DSO(VisionSystem):
         """
         return set(self.columns.keys())
 
-    def get_properties(self, columns: typing.Iterable[str] = None) -> typing.Mapping[str, typing.Any]:
+    def get_properties(self, columns: typing.Iterable[str] = None,
+                       settings: typing.Mapping[str, typing.Any] = None) -> typing.Mapping[str, typing.Any]:
         """
         Get the values of the requested properties
-        :param columns:
+        :param columns: The columns to get the values of
+        :param settings: The settings stored in the trial result.
         :return:
         """
         if columns is None:
             columns = self.columns.keys()
+        if settings is None:
+            settings = {}
         return {
-            col_name: self.columns.get_value(self, col_name)
+            col_name: self.get_property(col_name, settings)
             for col_name in columns
             if col_name in self.columns
         }
+
+    def get_property(self, column_name: str, settings: typing.Mapping[str, typing.Any]):
+        """
+        Get the value of a particular column on this model, given some settings.
+        Used in get_properties, to handle various special cases.
+        :param column_name:
+        :param settings:
+        :return:
+        """
+        if column_name is 'rectification_mode':
+            return str(self.rectification_mode.name)
+        elif self.rectification_mode != RectificationMode.CALIB and \
+                column_name in {'out_fx', 'out_fy', 'out_cx', 'out_cy'}:
+            return float('nan')
+        elif column_name in settings:
+            return settings[column_name]
+        return self.columns.get_value(self, column_name)
 
     def set_camera_intrinsics(self, camera_intrinsics: CameraIntrinsics, average_timestep: float) -> None:
         """
@@ -264,15 +302,29 @@ class DSO(VisionSystem):
         return result
 
     def make_settings(self):
+        undistort_mode = "Pinhole" if (
+                self._intrinsics.k1 == 0 and self._intrinsics.k2 == 0 and
+                self._intrinsics.p1 == 0 and self._intrinsics.p2 == 0) else "RadTan"
         settings = {
-            'rectification_mode': self.rectification_mode.name
+            'rectification_mode': self.rectification_mode.name,
+            'undistort_mode': undistort_mode,
+            'in_width': self._intrinsics.width,
+            'in_height': self._intrinsics.height,
+            'in_fx': self._intrinsics.fx,
+            'in_fy': self._intrinsics.fy,
+            'in_cx': self._intrinsics.cx,
+            'in_cy': self._intrinsics.cy,
+            'in_p1': self._intrinsics.p1,
+            'in_p2': self._intrinsics.p2,
+            'in_k1': self._intrinsics.k1,
+            'in_k2': self._intrinsics.k2
         }
         if self.rectification_mode is RectificationMode.NONE:
-            settings['width'] = self._intrinsics.width
-            settings['height'] = self._intrinsics.height
+            settings['out_width'] = self._intrinsics.width
+            settings['out_height'] = self._intrinsics.height
         else:
-            settings['width'] = self.rectification_intrinsics.width
-            settings['height'] = self.rectification_intrinsics.height
+            settings['out_width'] = self.rectification_intrinsics.width
+            settings['out_height'] = self.rectification_intrinsics.height
         if self.rectification_mode is RectificationMode.CALIB:
             settings['out_fx'] = self.rectification_intrinsics.fx
             settings['out_fy'] = self.rectification_intrinsics.fy

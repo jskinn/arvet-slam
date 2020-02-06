@@ -404,6 +404,520 @@ class TestDSO(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             subject.finish_trial()
 
+    def test_make_settings_includes_intrinsics(self):
+        intrinsics = CameraIntrinsics(
+            width=860,
+            height=500,
+            fx=400,
+            fy=400,
+            cx=450,
+            cy=335
+        )
+        subject = DSO(
+            rectification_mode=RectificationMode.CROP,
+            rectification_intrinsics=CameraIntrinsics(
+                width=500,
+                height=500,
+                fx=250,
+                fy=250,
+                cx=250,
+                cy=250
+            )
+        )
+        subject.set_camera_intrinsics(intrinsics, 0.0333333)
+        settings = subject.make_settings()
+        self.assertEqual('Pinhole', settings['undistort_mode'])
+        self.assertEqual(intrinsics.width, settings['in_width'])
+        self.assertEqual(intrinsics.height, settings['in_height'])
+        self.assertEqual(intrinsics.fx, settings['in_fx'])
+        self.assertEqual(intrinsics.fy, settings['in_fy'])
+        self.assertEqual(intrinsics.cx, settings['in_cx'])
+        self.assertEqual(intrinsics.cy, settings['in_cy'])
+        self.assertEqual(intrinsics.p1, settings['in_p1'])
+        self.assertEqual(intrinsics.p2, settings['in_p2'])
+        self.assertEqual(intrinsics.k1, settings['in_k1'])
+        self.assertEqual(intrinsics.k2, settings['in_k2'])
+
+    def test_make_settings_includes_distortion_and_changes_undistort_mode(self):
+        intrinsics = CameraIntrinsics(
+            width=860,
+            height=500,
+            fx=400,
+            fy=400,
+            cx=450,
+            cy=335,
+            k1=0.3312,
+            k2=0.13543,
+            p1=-0.3170,
+            p2=-0.9989
+        )
+        subject = DSO(
+            rectification_mode=RectificationMode.CROP,
+            rectification_intrinsics=CameraIntrinsics(
+                width=500,
+                height=500,
+                fx=250,
+                fy=250,
+                cx=250,
+                cy=250
+            )
+        )
+        subject.set_camera_intrinsics(intrinsics, 0.0333333)
+        settings = subject.make_settings()
+        self.assertEqual('RadTan', settings['undistort_mode'])
+        self.assertEqual(intrinsics.p1, settings['in_p1'])
+        self.assertEqual(intrinsics.p2, settings['in_p2'])
+        self.assertEqual(intrinsics.k1, settings['in_k1'])
+        self.assertEqual(intrinsics.k2, settings['in_k2'])
+
+    def test_make_settings_uses_input_width_height_for_rect_none(self):
+        intrinsics = CameraIntrinsics(
+            width=860,
+            height=500,
+            fx=400,
+            fy=400,
+            cx=450,
+            cy=335
+        )
+        subject = DSO(
+            rectification_mode=RectificationMode.NONE,
+            rectification_intrinsics=CameraIntrinsics(
+                width=400,
+                height=400,
+                fx=200,
+                fy=200,
+                cx=200,
+                cy=200
+            )
+        )
+        subject.set_camera_intrinsics(intrinsics, 0.0333333)
+        settings = subject.make_settings()
+        self.assertEqual(intrinsics.width, settings['out_width'])
+        self.assertEqual(intrinsics.height, settings['out_height'])
+        self.assertNotIn('out_fx', settings)
+        self.assertNotIn('out_fy', settings)
+        self.assertNotIn('out_cx', settings)
+        self.assertNotIn('out_cy', settings)
+
+    def test_make_settings_uses_output_width_height_for_rect_crop(self):
+        intrinsics = CameraIntrinsics(
+            width=860,
+            height=500,
+            fx=400,
+            fy=400,
+            cx=450,
+            cy=335
+        )
+        out_intrinsics = CameraIntrinsics(
+            width=400,
+            height=300,
+            fx=200,
+            fy=200,
+            cx=200,
+            cy=150
+        )
+        subject = DSO(
+            rectification_mode=RectificationMode.CROP,
+            rectification_intrinsics=out_intrinsics
+        )
+        subject.set_camera_intrinsics(intrinsics, 0.0333333)
+        settings = subject.make_settings()
+        self.assertEqual(out_intrinsics.width, settings['out_width'])
+        self.assertEqual(out_intrinsics.height, settings['out_height'])
+        self.assertNotIn('out_fx', settings)
+        self.assertNotIn('out_fy', settings)
+        self.assertNotIn('out_cx', settings)
+        self.assertNotIn('out_cy', settings)
+
+    def test_make_settings_provides_output_calib_for_rect_calib(self):
+        intrinsics = CameraIntrinsics(
+            width=860,
+            height=500,
+            fx=400,
+            fy=400,
+            cx=450,
+            cy=335
+        )
+        out_intrinsics = CameraIntrinsics(
+            width=640,
+            height=480,
+            fx=388.2,
+            fy=389.9,
+            cx=315.5,
+            cy=265.3
+        )
+        subject = DSO(
+            rectification_mode=RectificationMode.CALIB,
+            rectification_intrinsics=out_intrinsics
+        )
+        subject.set_camera_intrinsics(intrinsics, 0.0333333)
+        settings = subject.make_settings()
+        self.assertEqual(out_intrinsics.width, settings['out_width'])
+        self.assertEqual(out_intrinsics.height, settings['out_height'])
+        self.assertEqual(out_intrinsics.fx, settings['out_fx'])
+        self.assertEqual(out_intrinsics.fy, settings['out_fy'])
+        self.assertEqual(out_intrinsics.cx, settings['out_cx'])
+        self.assertEqual(out_intrinsics.cy, settings['out_cy'])
+
+    def test_get_properties_reads_intrinsics_from_settings(self):
+        out_intrinsics = CameraIntrinsics(
+            width=600,
+            height=400,
+            fx=388.2,
+            fy=389.9,
+            cx=315.5,
+            cy=265.3
+        )
+        settings = {
+            'rectification_mode': 'CALIB',
+            'undistort_mode': 'RadTan',
+            'in_width': 860,
+            'in_height': 500,
+            'in_fx': 401.3,
+            'in_fy': 399.8,
+            'in_cx': 450.1,
+            'in_cy': 335.2,
+            'in_p1': -0.3151,
+            'in_p2': 0.8715,
+            'in_k1': 0.11123,
+            'in_k2': -0.00123,
+            'out_width': 640,
+            'out_height': 460,
+            'out_fx': 388.2,
+            'out_fy': 389.9,
+            'out_cx': 315.5,
+            'out_cy': 265.3
+        }
+        subject = DSO(
+            rectification_mode=RectificationMode.CALIB,
+            rectification_intrinsics=out_intrinsics
+        )
+        properties = subject.get_properties(settings=settings)
+        for column in settings.keys():
+            self.assertEqual(settings[column], properties[column])
+
+    def test_get_properties_prioritises_system_rectification_mode(self):
+        out_intrinsics = CameraIntrinsics(
+            width=600,
+            height=400,
+            fx=378.2,
+            fy=289.9,
+            cx=325.5,
+            cy=268.9
+        )
+        for sys_rect_mode in [
+            RectificationMode.NONE, RectificationMode.CROP, RectificationMode.CALIB
+        ]:
+            subject = DSO(
+                rectification_mode=sys_rect_mode,
+                rectification_intrinsics=out_intrinsics
+            )
+            for settings_rect_mode in {
+                RectificationMode.NONE, RectificationMode.CROP, RectificationMode.CALIB
+            } - {sys_rect_mode}:
+                settings = {
+                    'rectification_mode': str(settings_rect_mode.name),
+                    'out_fx': 388.2,
+                    'out_fy': 389.9,
+                    'out_cx': 315.5,
+                    'out_cy': 265.3
+                }
+                properties = subject.get_properties(settings=settings)
+                self.assertEqual(str(sys_rect_mode.name), properties['rectification_mode'])
+                if sys_rect_mode is RectificationMode.CALIB:
+                    self.assertEqual(settings['out_fx'], properties['out_fx'])
+                    self.assertEqual(settings['out_fy'], properties['out_fy'])
+                    self.assertEqual(settings['out_cx'], properties['out_cx'])
+                    self.assertEqual(settings['out_cy'], properties['out_cy'])
+                else:
+                    self.assertTrue(np.isnan(properties['out_fx']))
+                    self.assertTrue(np.isnan(properties['out_fx']))
+                    self.assertTrue(np.isnan(properties['out_cx']))
+                    self.assertTrue(np.isnan(properties['out_cy']))
+
+    def test_get_properties_prioritises_settings_over_stored_intrinsics(self):
+        out_intrinsics = CameraIntrinsics(
+            width=600,
+            height=400,
+            fx=378.2,
+            fy=289.9,
+            cx=325.5,
+            cy=268.9
+        )
+        settings = {
+            'rectification_mode': 'CALIB',
+            'undistort_mode': 'RadTan',
+            'in_width': 860,
+            'in_height': 500,
+            'in_fx': 401.3,
+            'in_fy': 399.8,
+            'in_cx': 450.1,
+            'in_cy': 335.2,
+            'in_p1': -0.3151,
+            'in_p2': 0.8715,
+            'in_k1': 0.11123,
+            'in_k2': -0.00123,
+            'out_width': 640,
+            'out_height': 460,
+            'out_fx': 388.2,
+            'out_fy': 389.9,
+            'out_cx': 315.5,
+            'out_cy': 265.3
+        }
+        subject = DSO(
+            rectification_mode=RectificationMode.CALIB,
+            rectification_intrinsics=out_intrinsics
+        )
+        properties = subject.get_properties(settings=settings)
+        for column in settings.keys():
+            self.assertEqual(settings[column], properties[column])
+
+    def test_get_properties_returns_nan_for_out_intrinsics_if_mode_is_not_CALIB(self):
+        out_intrinsics = CameraIntrinsics(
+            width=640,
+            height=400,
+            fx=388.2,
+            fy=389.9,
+            cx=315.5,
+            cy=265.3
+        )
+        for rect_mode in [RectificationMode.CROP, RectificationMode.NONE]:
+            subject = DSO(
+                rectification_mode=rect_mode,
+                rectification_intrinsics=out_intrinsics
+            )
+
+            settings = {
+                'rectification_mode': str(rect_mode.name),
+                'undistort_mode': 'RadTan',
+                'in_width': 860,
+                'in_height': 500,
+                'in_fx': 401.3,
+                'in_fy': 399.8,
+                'in_cx': 450.1,
+                'in_cy': 335.2,
+                'in_p1': -0.3151,
+                'in_p2': 0.8715,
+                'in_k1': 0.11123,
+                'in_k2': -0.00123,
+                'out_width': 640,
+                'out_height': 460
+            }
+            properties = subject.get_properties(settings=settings)
+            self.assertTrue(np.isnan(properties['out_fx']))
+            self.assertTrue(np.isnan(properties['out_fx']))
+            self.assertTrue(np.isnan(properties['out_cx']))
+            self.assertTrue(np.isnan(properties['out_cy']))
+
+            settings = {
+                'rectification_mode': str(rect_mode.name),
+                'undistort_mode': 'RadTan',
+                'in_width': 860,
+                'in_height': 500,
+                'in_fx': 401.3,
+                'in_fy': 399.8,
+                'in_cx': 450.1,
+                'in_cy': 335.2,
+                'in_p1': -0.3151,
+                'in_p2': 0.8715,
+                'in_k1': 0.11123,
+                'in_k2': -0.00123,
+                'out_width': 640,
+                'out_height': 460,
+                # even if they are included in settings
+                'out_fx': 388.2,
+                'out_fy': 389.9,
+                'out_cx': 315.5,
+                'out_cy': 265.3
+            }
+            properties = subject.get_properties(settings=settings)
+            self.assertTrue(np.isnan(properties['out_fx']))
+            self.assertTrue(np.isnan(properties['out_fx']))
+            self.assertTrue(np.isnan(properties['out_cx']))
+            self.assertTrue(np.isnan(properties['out_cy']))
+
+    def test_get_properties_returns_nan_for_runtime_values_missing_from_settings_with_rect_CROP(self):
+        out_intrinsics = CameraIntrinsics(
+            width=640,
+            height=400,
+            fx=388.2,
+            fy=389.9,
+            cx=315.5,
+            cy=265.3
+        )
+        subject = DSO(
+            rectification_mode=RectificationMode.CROP,
+            rectification_intrinsics=out_intrinsics
+        )
+        properties = subject.get_properties()
+        self.assertEqual('CROP', properties['rectification_mode'])
+        self.assertEqual(out_intrinsics.width, properties['out_width'])
+        self.assertEqual(out_intrinsics.height, properties['out_height'])
+        for prop in [
+            'undistort_mode',
+            'in_width',
+            'in_height',
+            'in_fx',
+            'in_fy',
+            'in_cx',
+            'in_p1',
+            'in_p2',
+            'in_k1',
+            'in_k2',
+            'out_fx',
+            'out_fy',
+            'out_cx',
+            'out_cy'
+        ]:
+            self.assertTrue(np.isnan(properties[prop]))
+
+    def test_get_properties_returns_nan_for_runtime_values_missing_from_settings_with_rect_CALIB(self):
+        out_intrinsics = CameraIntrinsics(
+            width=640,
+            height=400,
+            fx=388.2,
+            fy=389.9,
+            cx=315.5,
+            cy=265.3
+        )
+        subject = DSO(
+            rectification_mode=RectificationMode.CALIB,
+            rectification_intrinsics=out_intrinsics
+        )
+        properties = subject.get_properties()
+        self.assertEqual('CALIB', properties['rectification_mode'])
+        self.assertEqual(out_intrinsics.width, properties['out_width'])
+        self.assertEqual(out_intrinsics.height, properties['out_height'])
+        self.assertEqual(out_intrinsics.fx, properties['out_fx'])
+        self.assertEqual(out_intrinsics.fy, properties['out_fy'])
+        self.assertEqual(out_intrinsics.cx, properties['out_cx'])
+        self.assertEqual(out_intrinsics.cy, properties['out_cy'])
+        for prop in [
+            'undistort_mode',
+            'in_width',
+            'in_height',
+            'in_fx',
+            'in_fy',
+            'in_cx',
+            'in_p1',
+            'in_p2',
+            'in_k1',
+            'in_k2'
+        ]:
+            self.assertTrue(np.isnan(properties[prop]))
+
+    def test_get_properties_only_returns_specified_columns_CROP(self):
+        out_intrinsics = CameraIntrinsics(
+            width=640,
+            height=400,
+            fx=388.2,
+            fy=389.9,
+            cx=315.5,
+            cy=265.3
+        )
+        settings = {
+            'rectification_mode': 'CROP',
+            'undistort_mode': 'RadTan',
+            'in_width': 860,
+            'in_height': 500,
+            'in_fx': 401.3,
+            'in_fy': 399.8,
+            'in_cx': 450.1,
+            'in_cy': 335.2,
+            'in_p1': -0.3151,
+            'in_p2': 0.8715,
+            'in_k1': 0.11123,
+            'in_k2': -0.00123,
+            'out_width': out_intrinsics.width,
+            'out_height': out_intrinsics.height
+        }
+        subject = DSO(
+            rectification_mode=RectificationMode.CROP,
+            rectification_intrinsics=out_intrinsics
+        )
+        columns = list(subject.get_columns())
+        np.random.shuffle(columns)
+        columns1 = [col for idx, col in enumerate(columns) if idx % 2 == 0]
+        columns2 = list(set(columns) - set(columns1))
+
+        properties = subject.get_properties(columns1, settings=settings)
+        for column in columns1:
+            self.assertIn(column, properties)
+            if column in settings:
+                self.assertEqual(settings[column], properties[column])
+            else:
+                self.assertTrue(np.isnan(properties[column]))
+        for column in columns2:
+            self.assertNotIn(column, properties)
+
+        properties = subject.get_properties(columns2, settings=settings)
+        for column in columns2:
+            self.assertIn(column, properties)
+            if column in settings:
+                self.assertEqual(settings[column], properties[column])
+            else:
+                self.assertTrue(np.isnan(properties[column]))
+        for column in columns1:
+            self.assertNotIn(column, properties)
+
+    def test_get_properties_only_returns_specified_columns_CALIB(self):
+        out_intrinsics = CameraIntrinsics(
+            width=640,
+            height=400,
+            fx=388.2,
+            fy=389.9,
+            cx=315.5,
+            cy=265.3
+        )
+        settings = {
+            'rectification_mode': 'CALIB',
+            'undistort_mode': 'RadTan',
+            'in_width': 860,
+            'in_height': 500,
+            'in_fx': 401.3,
+            'in_fy': 399.8,
+            'in_cx': 450.1,
+            'in_cy': 335.2,
+            'in_p1': -0.3151,
+            'in_p2': 0.8715,
+            'in_k1': 0.11123,
+            'in_k2': -0.00123,
+            'out_width': out_intrinsics.width,
+            'out_height': out_intrinsics.height,
+            'out_fx': out_intrinsics.fx,
+            'out_fy': out_intrinsics.fy,
+            'out_cx': out_intrinsics.cx,
+            'out_cy': out_intrinsics.cy
+        }
+        subject = DSO(
+            rectification_mode=RectificationMode.CALIB,
+            rectification_intrinsics=out_intrinsics
+        )
+        columns = list(subject.get_columns())
+        np.random.shuffle(columns)
+        columns1 = [col for idx, col in enumerate(columns) if idx % 2 == 0]
+        columns2 = list(set(columns) - set(columns1))
+
+        properties = subject.get_properties(columns1, settings=settings)
+        for column in columns1:
+            self.assertIn(column, properties)
+            if column in settings:
+                self.assertEqual(settings[column], properties[column])
+            else:
+                self.assertTrue(np.isnan(properties[column]))
+        for column in columns2:
+            self.assertNotIn(column, properties)
+
+        properties = subject.get_properties(columns2, settings=settings)
+        for column in columns2:
+            self.assertIn(column, properties)
+            if column in settings:
+                self.assertEqual(settings[column], properties[column])
+            else:
+                self.assertTrue(np.isnan(properties[column]))
+        for column in columns1:
+            self.assertNotIn(column, properties)
+
 
 class TestMakeUndistortFromMode(unittest.TestCase):
 
