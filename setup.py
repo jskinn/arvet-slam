@@ -45,6 +45,6 @@ setup(
 
     url='https://gitub.com/jskinn/arvet-slam',
     packages=find_packages(exclude=["\.venv.*"]), #find_packages(exclude=["*.tests", "*.tests.*", "tests.*", "tests"]),
-    install_requires=['setuptools', 'pymongo', 'pymodm', 'numpy', 'transforms3d', 'mongomock', 'xxhash', 'PyYAML', 'arvet', 'pykitti'],
+    install_requires=['setuptools', 'pymongo', 'pymodm', 'numpy', 'transforms3d', 'mongomock', 'xxhash', 'PyYAML', 'pandas', 'arvet', 'pykitti'],
     python_requires='>=3'
 )

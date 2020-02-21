@@ -8,12 +8,14 @@ dependencies:
   - h5py
   - numpy
   - matplotlib
+  - pandas
   - pillow
   - pip
   - py-opencv
   - pymongo
   - python
   - pyyaml
+  - pandas
   - seaborn
   - setuptools
   - suitesparse
