@@ -101,7 +101,8 @@ class DSO(VisionSystem):
         :return: True iff the particular dataset is appropriate for this vision system.
         :rtype: bool
         """
-        return image_source.sequence_type == ImageSequenceType.SEQUENTIAL
+        return image_source.sequence_type == ImageSequenceType.SEQUENTIAL and \
+               check_resolution(image_source.camera_intrinsics)
 
     def get_columns(self) -> typing.Set[str]:
         """
@@ -513,6 +514,32 @@ def make_undistort_from_out_intrinsics(intrinsics: CameraIntrinsics, out_intrins
         out_intrinsics.width,
         out_intrinsics.height
     )
+
+
+def check_resolution(instrinsics: CameraIntrinsics):
+    """
+    DSO needs to be able to halve the image to produce a pyramid.
+
+    Based on src/util/globalCalib.cpp, ln 47-69
+
+    :param instrinsics: The camera intriniscs of the dataset, from which we read the image dimensions.
+    :return: True if the image resolution is supported by DSO
+    """
+    max_pyramid_levels = 6      # Compile-time constant in DSO settings.h
+    width = instrinsics.width
+    height = instrinsics.height
+    pyramid_levels = 1
+    while width % 2 == 0 and height % 2 == 0 and width * height > 5000 and pyramid_levels < max_pyramid_levels:
+        width = width / 2
+        height = height / 2
+        pyramid_levels += 1
+    # if width > 100 or height > 100:
+        # This works, but issues a warning
+        # pass
+    if pyramid_levels < 3:
+        # This also issues a warning, and tends to segfault. Don't use these resolutions.
+        return False
+    return True
 
 
 def _find_closest(value, options):
