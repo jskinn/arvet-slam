@@ -13,6 +13,7 @@ from operator import attrgetter
 import tempfile
 from pathlib import Path
 import pymodm.fields as fields
+from orbslam2 import VocabularyBuilder
 
 import arvet.util.transform as tf
 import arvet.util.image_utils as image_utils
@@ -36,6 +37,10 @@ except ImportError:
     from yaml import Dumper as YamlDumper
 
 
+VOCABULARY_FOLDER = 'ORB-SLAM vocabularies'
+VOCABULARY_FILENAME_TEMPLATE = "ORBvoc-{0}.txt"
+
+
 class SensorMode(enum.Enum):
     MONOCULAR = 0
     STEREO = 1
@@ -46,8 +51,13 @@ class OrbSlam2(VisionSystem):
     """
     Python wrapper for ORB_SLAM2
     """
-    vocabulary_file = fields.CharField(required=True)
+    vocabulary_file = fields.CharField(blank=True, default='')
     mode = EnumField(SensorMode, required=True)
+
+    vocabulary_branching_factor = fields.IntegerField(required=True, default=10)
+    vocabulary_depth = fields.IntegerField(required=True, default=6)
+    vocabulary_seed = fields.IntegerField(required=True, default=0)
+
     depth_threshold = fields.FloatField(required=True, default=40.0)
     orb_num_features = fields.IntegerField(required=True, default=2000)
     orb_scale_factor = fields.FloatField(required=True, default=1.2)
@@ -73,6 +83,9 @@ class OrbSlam2(VisionSystem):
         in_k3=None,
         base=None,
 
+        vocabulary_branching_factor=attrgetter('vocabulary_branching_factor'),
+        vocabulary_depth=attrgetter('vocabulary_depth'),
+        vocabulary_seed=attrgetter('vocabulary_seed'),
         depth_threshold=attrgetter('depth_threshold'),
         orb_num_features=attrgetter('orb_num_features'),
         orb_scale_factor=attrgetter('orb_scale_factor'),
@@ -178,6 +191,15 @@ class OrbSlam2(VisionSystem):
         self._stereo_baseline = -1 * offset.location[1]
 
     def resolve_paths(self, path_manager: PathManager):
+        """
+        Use the path manager to find the required files on disk.
+        Will raise various exceptions if the file is not available.
+        You MUST call this before calling start_trial (run_task will handle that).
+        :param path_manager: The PathManager, for locating files.
+        :return:
+        """
+        if self.vocabulary_file is None or len(self.vocabulary_file) <= 0:
+            raise ValueError("No vocabulary available for ORB-SLAM {0}, did you build one?".format(self.pk))
         self._temp_folder = path_manager.get_temp_folder()
         self._actual_vocab_file = path_manager.find_file(self.vocabulary_file)
 
@@ -358,8 +380,11 @@ class OrbSlam2(VisionSystem):
     @classmethod
     def get_instance(
             cls,
-            vocabulary_file: str = None,
             mode: SensorMode = None,
+            vocabulary_file: str = None,
+            vocabulary_branching_factor: int = 10,
+            vocabulary_depth: int = 6,
+            vocabulary_seed: int = 0,
             depth_threshold: float = 40.0,
             orb_num_features: int = 2000,
             orb_scale_factor: float = 1.2,
@@ -373,29 +398,38 @@ class OrbSlam2(VisionSystem):
         It is the responsibility of subclasses to ensure that as few instances of each system as possible exist
         within the database.
         Does not save the returned object, you'll usually want to do that straight away.
-        :return:
+        Also does not build the Vocabulary. Again, handle that and re-save before using.
+        :return: An OrbSlam2 instance with the given settings.
         """
-        if vocabulary_file is None:
-            raise ValueError("Cannot search for None vocabulary file, please specify a vocab file")
         if mode is None:
             raise ValueError("Cannot search for ORBSLAM without a mode, please specify a sensor mode")
         # Look for existing objects with the same settings
-        all_objects = OrbSlam2.objects.raw({
-            'vocabulary_file': str(vocabulary_file),
+        query = {
             'mode': str(mode.name),
+            'vocabulary_branching_factor': int(vocabulary_branching_factor),
+            'vocabulary_depth': int(vocabulary_depth),
+            'vocabulary_seed': int(vocabulary_seed),
             'depth_threshold': float(depth_threshold),
             'orb_num_features': int(orb_num_features),
             'orb_scale_factor': float(orb_scale_factor),
             'orb_num_levels': int(orb_num_levels),
             'orb_ini_threshold_fast': int(orb_ini_threshold_fast),
             'orb_min_threshold_fast': int(orb_min_threshold_fast)
-        })
+        }
+        if vocabulary_file is not None and len(vocabulary_file) > 0:
+            # Only request a specific vocabulary file if one is requested, otherwise leave the parameter free.
+            query['vocabulary_file'] = str(vocabulary_file)
+
+        all_objects = OrbSlam2.objects.raw(query)
         if all_objects.count() > 0:
             return all_objects.first()
         # There isn't an existing system with those settings, make a new one.
         obj = cls(
-            vocabulary_file=str(vocabulary_file),
             mode=mode,
+            vocabulary_file=vocabulary_file,
+            vocabulary_branching_factor=int(vocabulary_branching_factor),
+            vocabulary_depth=int(vocabulary_depth),
+            vocabulary_seed=int(vocabulary_seed),
             depth_threshold=float(depth_threshold),
             orb_num_features=int(orb_num_features),
             orb_scale_factor=float(orb_scale_factor),
@@ -502,6 +536,69 @@ class OrbSlam2(VisionSystem):
             if self._settings_file.exists():
                 self._settings_file.unlink()
             self._settings_file = None
+
+    def build_vocabulary(self, image_sources: typing.Iterable[ImageSource], output_folder: Path,
+                         force: bool = False, change_threshold: float = 0.6, z_depth: float = 1.0) -> None:
+        """
+        Construct a vocabulary file
+        :param image_sources: The image sources to use to build the vocabulary.
+        :param output_folder: A folder to output the vocabulary file to. Get this from the path manager.
+        :param force: Build even if the file already exists
+        :param change_threshold: The IoU between successive views that are considered distinct.
+        Used to reduce the number of duplicate features given to the vocabulary.
+        :param z_depth: The assumed z-depth when reprojecting image frames to work out overlap.
+        :return: None
+        """
+        output_filename = None
+        if self.vocabulary_file is not None and len(self.vocabulary_file) > 0:
+            # Use the existing filename within whatever folder as the filename
+            output_filename = self.vocabulary_file.split('/')[-1]
+        if output_filename is None or len(output_filename) <= 0:
+            if self.pk is not None:
+                output_filename = VOCABULARY_FILENAME_TEMPLATE.format(self.pk)
+            else:
+                raise ValueError("Could not choose a name for the vocabulary file. Please save the model and try again")
+
+        output_path = output_folder / VOCABULARY_FOLDER / output_filename
+        if force or not output_path.exists():
+            vocab_builder = VocabularyBuilder(
+                self.orb_num_features,  # Number of ORB features from the detector
+                self.orb_scale_factor,  # Scale factor for the ORB scale pyramid
+                self.orb_num_levels,    # Number of levels in the ORB scale pyramid
+                31,                     # Edge threshold, matches patch size
+                0,                      # First level
+                2,                      # WTA_K=2, that is, use 2 point to determine descriptor elements
+                1,                      # ScoreType = ORB::FAST_SCORE
+                31,                     # Patch size, matching the constant in OrbExtractor.cc
+                min(self.orb_ini_threshold_fast, self.orb_min_threshold_fast)   # The lower FAST threshold
+            )
+            images_added = 0
+            logging.getLogger(__name__).debug("Building ORB vocab...")
+            for image_source in image_sources:
+                current_image = None
+                for timestamp, image in image_source:
+                    # Make sure successive images are at least a little different
+                    if current_image is None or find_percentage_overlap(current_image, image,
+                                                                        z_depth) < change_threshold:
+                        grey_image = image_utils.convert_to_grey(image.pixels)
+                        vocab_builder.add_image(grey_image)
+                        current_image = image
+                        images_added += 1
+            if images_added < 10:
+                raise ValueError("Could not find enough images with threshold {0}".format(change_threshold))
+            logging.getLogger(__name__).debug(
+                "Created ORB vocabulary from {0} images, saving to {1}...".format(images_added, output_path))
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+
+            # Construct the vocabulary file
+            vocab_builder.build_vocabulary(
+                str(output_path),
+                branchingFactor=int(self.vocabulary_branching_factor),
+                numLevels=int(self.vocabulary_depth),
+                seed=int(self.vocabulary_seed)
+            )
+            # Update the stored vocabulary file to point to the newly build file.
+            self.vocabulary_file = VOCABULARY_FOLDER + '/' + output_filename
 
     def _stop_subprocess(self, terminate: bool = False, timeout: float = 5.0) -> None:
         """
@@ -675,6 +772,100 @@ def check_feature_pyramid_settings(img_width: int, img_height: int, orb_scale_fa
 
     # everything seems ok, proceed.
     return True
+
+
+def find_percentage_overlap(image1: Image, image2: Image, z_depth: float = 1.0):
+    """
+    Find the overlap between two views, without actually reading the pixel values
+    Works by projecting the corners of one image into the other, and then finding the Intersection over Union
+    of the image plane areas.
+    Thus if the camera either rotates, or moves enough that the overlap area is small, then the IoU is small.
+    TODO: This logic might be better by doing intersections on the view pyramid in 3D
+    :param image1: A first image to compare
+    :param image2: A second image
+    :param z_depth: The inferred depth of the z-plane when projecting, since we don't know the true depth
+    :return: The IoU of the two image planes
+    """
+    relative_pose = image2.camera_pose.find_relative(image1.camera_pose)    # I'm not sure this is the right way around
+    transformation_matrix = relative_pose.transform_matrix
+    intrinsics1 = image1.metadata.intrinsics
+    intrinsics2 = image2.metadata.intrinsics
+    # The corners of the second image, projected back into 3D
+    points = [
+        np.array([
+            z_depth * -intrinsics2.cx / intrinsics2.fx,
+            z_depth * -intrinsics2.cy / intrinsics2.fy,
+            z_depth,
+            1
+        ]),
+        np.array([
+            z_depth * (intrinsics2.width - intrinsics2.cx) / intrinsics2.fx,
+            z_depth * -intrinsics2.cy / intrinsics2.fy,
+            z_depth,
+            1
+        ]),
+        np.array([
+            z_depth * -intrinsics2.cx / intrinsics2.fx,
+            z_depth * (intrinsics2.height - intrinsics2.cy) / intrinsics2.fy,
+            z_depth,
+            1
+        ]),
+        np.array([
+            z_depth * (intrinsics2.width - intrinsics2.cx) / intrinsics2.fx,
+            z_depth * (intrinsics2.height - intrinsics2.cy) / intrinsics2.fy,
+            z_depth,
+            1
+        ])
+    ]
+    # Transform those points into the relative frame of the first image
+    points = [transformation_matrix @ point for point in points]
+    points = [
+        np.array([
+            intrinsics1.fx * point[0] / point[2] + intrinsics1.cx,
+            intrinsics1.fy * point[1] / point[2] + intrinsics1.cy
+        ])
+        for point in points
+    ]
+    # Find the projected points of the second image constrained to the first for the intersection
+    intersection_points = [
+        [min(max(0, point[0]), intrinsics1.width), min(max(0, point[1]), intrinsics1.height)]
+        for point in points
+    ]
+    intersection = (
+        # Area of the top-right triangle
+        triangle_area(intersection_points[0], intersection_points[1], intersection_points[3]) +
+        # Area of the bottom-left triangle
+        triangle_area(intersection_points[0], intersection_points[3], intersection_points[2])
+    )
+    if intersection <= 0:
+        return 0
+
+    area1 = intrinsics1.width * intrinsics1.height
+    area2 = (
+        # Area of the top-right triangle
+        triangle_area(points[0], points[1], points[3]) +
+        # Area of the bottom-left triangle
+        triangle_area(points[0], points[3], points[2])
+    )
+    union = area1 + area2 - intersection
+    if union <= 0:
+        return 0
+    return intersection / union
+
+
+def triangle_area(point1, point2, point3):
+    """
+    Find the area of a 2D triangle specified by 3 points.
+    :param point1:
+    :param point2:
+    :param point3:
+    :return:
+    """
+    return abs(0.5 * (
+            point1[0] * (point2[1] - point3[1]) +
+            point2[0] * (point3[1] - point1[1]) +
+            point3[0] * (point1[1] - point2[1])
+    ))
 
 
 def run_orbslam(output_queue, input_queue, vocab_file, settings_file, mode):

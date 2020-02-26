@@ -1,16 +1,163 @@
 import unittest
+import unittest.mock as mock
 import shutil
+from bson import ObjectId
 from pathlib import Path
+from pymodm.context_managers import no_auto_dereference
 from orbslam2 import VocabularyBuilder
 from arvet.config.path_manager import PathManager
 from arvet.core.sequence_type import ImageSequenceType
+from arvet.core.image_collection import ImageCollection
 from arvet_slam.trials.slam.tracking_state import TrackingState
 from arvet_slam.trials.slam.visual_slam import SLAMTrialResult
-from arvet_slam.systems.slam.orbslam2 import OrbSlam2, SensorMode
+from arvet_slam.systems.slam.orbslam2 import OrbSlam2, SensorMode, VOCABULARY_FOLDER
 from arvet_slam.systems.test_helpers.demo_image_builder import DemoImageBuilder, ImageMode
 
 
-class TestORBSLAM2Vocab(unittest.TestCase):
+class TestORBSLAM2BuildVocabulary(unittest.TestCase):
+    temp_folder = Path(__file__).parent / 'temp-orbslam2-vocabs'
+    path_manager = None
+    image_collection = None
+
+    max_time = 50
+    num_frames = 100
+    speed = 0.1
+
+    @classmethod
+    def setUpClass(cls):
+        cls.temp_folder.mkdir(parents=True, exist_ok=True)
+        cls.path_manager = PathManager([Path(__file__).parent], cls.temp_folder)
+
+        image_builder = DemoImageBuilder(
+            mode=ImageMode.STEREO, stereo_offset=0.15,
+            width=320, height=240, num_stars=500,
+            length=cls.max_time * cls.speed, speed=cls.speed,
+            min_size=4, max_size=50
+        )
+
+        # Make an image source from the image builder
+        images = []
+        for time in range(cls.num_frames):
+            image = image_builder.create_frame(time)
+            images.append(image)
+        cls.image_collection = ImageCollection(
+            images=images,
+            timestamps=list(range(len(images))),
+            sequence_type=ImageSequenceType.SEQUENTIAL
+        )
+
+    @classmethod
+    def tearDownClass(cls):
+        shutil.rmtree(cls.temp_folder)
+        shutil.rmtree(Path(__file__).parent / VOCABULARY_FOLDER)
+
+    def test_can_build_a_vocab_file(self):
+        subject = OrbSlam2(
+            mode=SensorMode.STEREO,
+            vocabulary_branching_factor=6,
+            vocabulary_depth=3,
+            vocabulary_seed=158627,
+            orb_num_features=125,
+            orb_scale_factor=2,
+            orb_num_levels=2,
+            orb_ini_threshold_fast=12,
+            orb_min_threshold_fast=7
+        )
+        subject.pk = ObjectId()     # object needs to be "saved" to generate a vocab filename
+        self.assertEqual('', subject.vocabulary_file)
+        subject.build_vocabulary([self.image_collection], self.path_manager.get_output_dir())
+        self.assertNotEqual('', subject.vocabulary_file)
+        vocab_path = self.path_manager.find_file(subject.vocabulary_file)
+        self.assertTrue(vocab_path.exists())
+        vocab_path.unlink()
+
+    @mock.patch('arvet_slam.systems.slam.orbslam2.VocabularyBuilder', autospec=type(VocabularyBuilder))
+    def test_passes_orb_settings_to_vocabulary(self, mock_vocabulary_builder_class):
+        mock_builder = mock.create_autospec(spec=VocabularyBuilder, spec_set=True)
+        mock_vocabulary_builder_class.return_value = mock_builder
+
+        branching_factor = 12
+        vocab_depth = 2
+        vocab_seed = 1618673921
+
+        num_features = 12253
+        scale_factor = 1.23415
+        num_levels = 7
+        ini_threshold = 15
+        min_threshold = 22
+        subject = OrbSlam2(
+            mode=SensorMode.STEREO,
+            vocabulary_branching_factor=branching_factor,
+            vocabulary_depth=vocab_depth,
+            vocabulary_seed=vocab_seed,
+            orb_num_features=num_features,
+            orb_scale_factor=scale_factor,
+            orb_num_levels=num_levels,
+            orb_ini_threshold_fast=ini_threshold,
+            orb_min_threshold_fast=min_threshold
+        )
+        subject.pk = ObjectId()
+        subject.build_vocabulary([self.image_collection], self.path_manager.get_output_dir())
+
+        self.assertTrue(mock_vocabulary_builder_class.called)
+        self.assertEqual(mock.call(
+            num_features, scale_factor, num_levels, 31, 0, 2, 1, 31, min(min_threshold, ini_threshold)
+        ), mock_vocabulary_builder_class.call_args)
+
+        vocab_path = self.path_manager.get_output_dir() / subject.vocabulary_file
+        self.assertTrue(mock_builder.add_image.called)
+        self.assertTrue(mock_builder.build_vocabulary.called)
+        self.assertEqual(mock.call(
+            str(vocab_path),
+            branchingFactor=branching_factor,
+            numLevels=vocab_depth,
+            seed=vocab_seed
+        ), mock_builder.build_vocabulary.call_args)
+
+    def test_building_allows_orbslam_to_run(self):
+        subject = OrbSlam2(
+            mode=SensorMode.STEREO,
+            vocabulary_branching_factor=6,
+            vocabulary_depth=4,
+            vocabulary_seed=158627,
+            orb_num_features=1000,
+            orb_scale_factor=1.2,
+            orb_num_levels=7,
+            orb_ini_threshold_fast=12,
+            orb_min_threshold_fast=7
+        )
+        subject.pk = ObjectId()  # object needs to be "saved" to generate a vocab filename
+        subject.build_vocabulary([self.image_collection], self.path_manager.get_output_dir())
+
+        subject.resolve_paths(self.path_manager)
+        subject.set_camera_intrinsics(self.image_collection.camera_intrinsics, self.max_time / self.num_frames)
+        subject.set_stereo_offset(self.image_collection.stereo_offset)
+
+        subject.start_trial(ImageSequenceType.SEQUENTIAL)
+        for timestamp, image in self.image_collection:
+            subject.process_image(image, timestamp)
+        result = subject.finish_trial()
+
+        self.assertIsInstance(result, SLAMTrialResult)
+        with no_auto_dereference(SLAMTrialResult):
+            self.assertEqual(subject.pk, result.system)
+        self.assertTrue(result.success)
+        self.assertTrue(result.has_scale)
+        self.assertIsNotNone(result.run_time)
+        self.assertIsNotNone(result.settings)
+        self.assertEqual(len(self.image_collection), len(result.results))
+
+        has_been_found = False
+        for idx, frame_result in enumerate(result.results):
+            self.assertEqual(self.image_collection.timestamps[idx], frame_result.timestamp)
+            self.assertIsNotNone(frame_result.pose)
+            self.assertIsNotNone(frame_result.motion)
+            if frame_result.tracking_state is TrackingState.OK:
+                has_been_found = True
+        self.assertTrue(has_been_found)
+
+
+class TestORBSLAM2VocabularyBuilder(unittest.TestCase):
     temp_folder = Path(__file__).parent / 'temp-test-orbslam2'
     vocab_file = Path(__file__).parent / 'ORBvoc-test.txt'
 
