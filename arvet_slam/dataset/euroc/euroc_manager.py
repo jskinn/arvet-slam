@@ -1,6 +1,7 @@
 # Copyright (c) 2017, John Skinner
 import os
 import typing
+from pathlib import PurePath
 import arvet.batch_analysis.task_manager as task_manager
 import arvet_slam.dataset.euroc.euroc_loader as euroc_loader
 
@@ -22,7 +23,7 @@ dataset_names = [
 
 class EuRoCManager:
 
-    def __init__(self, root: typing.Union[str, bytes, os.PathLike]):
+    def __init__(self, root: typing.Union[str, bytes, os.PathLike, PurePath]):
         self._full_paths = self.find_roots(root)
 
     def __getattr__(self, item):
@@ -63,7 +64,7 @@ class EuRoCManager:
         raise NotADirectoryError("No root folder for {0}, did you download it?".format(name))
 
     @classmethod
-    def find_roots(cls, root: typing.Union[str, bytes, os.PathLike]):
+    def find_roots(cls, root: typing.Union[str, bytes, os.PathLike, PurePath]):
         """
         Recursively search for the directories to import from the root folder.
         We're looking for folders with the same names as the

@@ -1,7 +1,7 @@
 # Copyright (c) 2017, John Skinner
 import typing
 from os import PathLike
-from pathlib import Path
+from pathlib import Path, PurePath
 import tarfile
 import arvet.batch_analysis.task_manager as task_manager
 import arvet_slam.dataset.tum.tum_loader as tum_loader
@@ -60,7 +60,7 @@ dataset_names = [
 
 class TUMManager:
 
-    def __init__(self, root: typing.Union[str, bytes, PathLike]):
+    def __init__(self, root: typing.Union[str, bytes, PathLike, PurePath]):
         self._full_paths = self.find_roots(root)
 
     def __getattr__(self, item):
@@ -101,7 +101,7 @@ class TUMManager:
         raise NotADirectoryError("No root folder for {0}, did you download it?".format(name))
 
     @classmethod
-    def find_roots(cls, root: typing.Union[str, bytes, PathLike]):
+    def find_roots(cls, root: typing.Union[str, bytes, PathLike, PurePath]):
         """
         Recursively search for the directories to import from the root folder.
         We're looking for folders with the same names as the
