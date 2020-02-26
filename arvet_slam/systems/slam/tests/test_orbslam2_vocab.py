@@ -96,9 +96,42 @@ class TestORBSLAM2Vocab(unittest.TestCase):
         self.assertEqual(25, len(result.results))
         self.assertTrue(any(frame_result.tracking_state is TrackingState.OK for frame_result in result.results))
 
+    def test_can_control_seed(self):
+        temp_dir = Path(__file__).parent
+        vocab_file_1 = temp_dir / 'seeded_vocab_1.txt'
+        vocab_file_2 = temp_dir / 'seeded_vocab_2.txt'
+        vocab_file_3 = temp_dir / 'seeded_vocab_3.txt'
+
+        # Building the vocab changes the stored set of descriptors. So we need to re-feed it images each time
+        vocab_builder = VocabularyBuilder()
+        create_vocab(vocab_builder, vocab_file_1, 3, 4, num_variants=10, seed=0)
+
+        vocab_builder = VocabularyBuilder()
+        create_vocab(vocab_builder, vocab_file_2, 3, 4, num_variants=10, seed=0)
+
+        vocab_builder = VocabularyBuilder()
+        create_vocab(vocab_builder, vocab_file_3, 3, 4, num_variants=10, seed=22)
+
+        # Read the data from the files
+        with vocab_file_1.open('rb') as fp:
+            file_contents_1 = fp.read()
+        vocab_file_1.unlink()
+
+        with vocab_file_2.open('rb') as fp:
+            file_contents_2 = fp.read()
+        vocab_file_2.unlink()
+
+        with vocab_file_3.open('rb') as fp:
+            file_contents_3 = fp.read()
+        vocab_file_3.unlink()
+
+        self.assertEqual(file_contents_1, file_contents_2)
+        self.assertNotEqual(file_contents_1, file_contents_3)
+        self.assertNotEqual(file_contents_2, file_contents_3)
+
 
 def create_vocab(vocab_builder: VocabularyBuilder, vocab_path: Path,
-                 branching_factor: int, depth: int, num_variants: int = 10):
+                 branching_factor: int, depth: int, num_variants: int = 10, seed=100):
     """
     Tiny script to create a vocabulary from the demo image builder
     This gives me a vocab designed to handle the synthetic images I throw at it while testing.
@@ -107,19 +140,19 @@ def create_vocab(vocab_builder: VocabularyBuilder, vocab_path: Path,
     total_time = 10  # seconds
     num_frames = 20  # Total frames to pull
     speed = 3.0      # Units / second
-    for seed in range(num_variants):
+    for img_seed in range(num_variants):
         image_builder = DemoImageBuilder(
-            mode=ImageMode.MONOCULAR, seed=seed,
+            mode=ImageMode.MONOCULAR, seed=img_seed,
             length=total_time * speed
         )
         for idx in range(num_frames):
             time = total_time * idx / num_frames
             image = image_builder.create_frame(time)
             vocab_builder.add_image(image.pixels)
-    vocab_builder.build_vocabulary(str(vocab_path), branching_factor, depth)
+    vocab_builder.build_vocabulary(str(vocab_path), branching_factor, depth, seed)
 
 
-def run_orbslam_with_vocab(vocab_path, temp_folder, seed=1000, num_frames=25, ):
+def run_orbslam_with_vocab(vocab_path, temp_folder, seed=1000, num_frames=25):
     # Actually run the system using mocked images
     max_time = 50
     speed = 0.1
