@@ -33,18 +33,14 @@ from arvet_slam.trials.slam.tracking_state import TrackingState
 from arvet_slam.trials.slam.visual_slam import SLAMTrialResult, FrameResult
 from arvet_slam.systems.slam.orbslam2 import OrbSlam2, SensorMode, dump_config, nested_to_dotted, \
     make_relative_pose, run_orbslam
+from arvet_slam.systems.slam.tests.create_vocabulary import create_vocab
 
 
 class TestOrbSlam2Database(unittest.TestCase):
-    temp_folder = Path(__file__).parent / 'temp-test-orbslam2'
-    path_manager = None
 
     @classmethod
     def setUpClass(cls):
         dbconn.connect_to_test_db()
-        os.makedirs(cls.temp_folder, exist_ok=True)
-        logging.disable(logging.CRITICAL)
-        cls.path_manager = PathManager([Path(__file__).parent], cls.temp_folder)
 
     def setUp(self):
         # Remove the collection as the start of the test, so that we're sure it's empty
@@ -57,15 +53,14 @@ class TestOrbSlam2Database(unittest.TestCase):
         SLAMTrialResult._mongometa.collection.drop()
         ImageCollection._mongometa.collection.drop()
         Image._mongometa.collection.drop()
-        if os.path.isfile(dbconn.image_file):
-            os.remove(dbconn.image_file)
-        logging.disable(logging.NOTSET)
-        shutil.rmtree(cls.temp_folder)
 
     def test_stores_and_loads(self):
         obj = OrbSlam2(
             vocabulary_file='im-a-file-{0}'.format(np.random.randint(0, 100000)),
             mode=np.random.choice([SensorMode.MONOCULAR, SensorMode.STEREO, SensorMode.RGBD]),
+            vocabulary_branching_factor=np.random.randint(0, 100),
+            vocabulary_depth=np.random.randint(0, 100),
+            vocabulary_seed=np.random.randint(0, 2**31),
             depth_threshold=np.random.uniform(10, 100),
             orb_num_features=np.random.randint(10, 10000),
             orb_scale_factor=np.random.uniform(0.5, 2),
@@ -83,7 +78,6 @@ class TestOrbSlam2Database(unittest.TestCase):
 
     def test_stores_and_loads_minimal_args(self):
         obj = OrbSlam2(
-            vocabulary_file='im-a-file-{0}'.format(np.random.randint(0, 100000)),
             mode=np.random.choice([SensorMode.MONOCULAR, SensorMode.STEREO, SensorMode.RGBD])
         )
         obj.save()
@@ -94,11 +88,195 @@ class TestOrbSlam2Database(unittest.TestCase):
         self.assertEqual(all_entities[0], obj)
         all_entities[0].delete()
 
-    @mock.patch('arvet_slam.systems.slam.orbslam2.multiprocessing', autospec=multiprocessing)
-    def test_result_saves_mono(self, mock_multiprocessing):
-        image_manager = im_manager.DefaultImageManager(dbconn.image_file)
+    def test_get_instance_throws_exception_without_sensor_mode(self):
+        with self.assertRaises(ValueError):
+            OrbSlam2.get_instance()
+
+    def test_get_instance_can_create_an_instance(self):
+        voc_file = 'im-a-file-{0}'.format(np.random.randint(0, 100000))
+        sensor_mode = SensorMode.RGBD
+        vocabulary_branching_factor = np.random.randint(2, 256)
+        vocabulary_depth = np.random.randint(4, 16)
+        vocabulary_seed = np.random.randint(0, 2**31)
+        depth_threshold = np.random.uniform(10, 100.0)
+        orb_num_features = np.random.randint(100, 2000)
+        orb_scale_factor = np.random.uniform(0.5, 2.0)
+        orb_num_levels = np.random.randint(5, 10)
+        orb_ini_threshold_fast = np.random.randint(11, 20)
+        orb_min_threshold_fast = np.random.randint(5, 10)
+        obj = OrbSlam2.get_instance(
+            vocabulary_file=voc_file,
+            mode=sensor_mode,
+            vocabulary_branching_factor=vocabulary_branching_factor,
+            vocabulary_depth=vocabulary_depth,
+            vocabulary_seed=vocabulary_seed,
+            depth_threshold=depth_threshold,
+            orb_num_features=orb_num_features,
+            orb_scale_factor=orb_scale_factor,
+            orb_num_levels=orb_num_levels,
+            orb_ini_threshold_fast=orb_ini_threshold_fast,
+            orb_min_threshold_fast=orb_min_threshold_fast
+        )
+        self.assertIsInstance(obj, OrbSlam2)
+        self.assertEqual(voc_file, obj.vocabulary_file)
+        self.assertEqual(sensor_mode, obj.mode)
+        self.assertEqual(vocabulary_branching_factor, obj.vocabulary_branching_factor)
+        self.assertEqual(vocabulary_depth, obj.vocabulary_depth)
+        self.assertEqual(vocabulary_seed, obj.vocabulary_seed)
+        self.assertEqual(depth_threshold, obj.depth_threshold)
+        self.assertEqual(orb_num_features, obj.orb_num_features)
+        self.assertEqual(orb_scale_factor, obj.orb_scale_factor)
+        self.assertEqual(orb_num_levels, obj.orb_num_levels)
+        self.assertEqual(orb_ini_threshold_fast, obj.orb_ini_threshold_fast)
+        self.assertEqual(orb_min_threshold_fast, obj.orb_min_threshold_fast)
+
+        # Check the object can be saved
+        obj.save()
+
+    def test_creates_an_instance_with_defaults_by_default(self):
+        for sensor_mode in {SensorMode.MONOCULAR, SensorMode.STEREO, SensorMode.RGBD}:
+            obj = OrbSlam2(mode=sensor_mode)
+            result = OrbSlam2.get_instance(mode=sensor_mode)
+
+            self.assertEqual(obj.depth_threshold, result.depth_threshold)
+            self.assertEqual(obj.orb_num_features, result.orb_num_features)
+            self.assertEqual(obj.orb_scale_factor, result.orb_scale_factor)
+            self.assertEqual(obj.orb_num_levels, result.orb_num_levels)
+            self.assertEqual(obj.orb_ini_threshold_fast, result.orb_ini_threshold_fast)
+            self.assertEqual(obj.orb_min_threshold_fast, result.orb_min_threshold_fast)
+
+    def test_get_instance_returns_an_existing_instance_defaults(self):
+        for sensor_mode in {SensorMode.MONOCULAR, SensorMode.STEREO, SensorMode.RGBD}:
+            obj = OrbSlam2(mode=sensor_mode)
+            obj.save()
+
+            result = OrbSlam2.get_instance(mode=sensor_mode)
+            self.assertIsInstance(result, OrbSlam2)
+            self.assertEqual(obj.pk, result.pk)
+            self.assertEqual(obj, result)
+
+    def test_get_instance_returns_existing_instance_complex(self):
+        voc_file = 'im-a-file-{0}'.format(np.random.randint(0, 100000))
+        sensor_mode = SensorMode.RGBD
+        vocabulary_branching_factor = np.random.randint(2, 256)
+        vocabulary_depth = np.random.randint(4, 16)
+        vocabulary_seed = np.random.randint(0, 2 ** 31)
+        depth_threshold = np.random.uniform(10, 100.0)
+        orb_num_features = np.random.randint(100, 2000)
+        orb_scale_factor = np.random.uniform(0.5, 2.0)
+        orb_num_levels = np.random.randint(5, 10)
+        orb_ini_threshold_fast = np.random.randint(11, 20)
+        orb_min_threshold_fast = np.random.randint(5, 10)
+
+        obj = OrbSlam2(
+            vocabulary_file=voc_file,
+            mode=sensor_mode,
+            vocabulary_branching_factor=vocabulary_branching_factor,
+            vocabulary_depth=vocabulary_depth,
+            vocabulary_seed=vocabulary_seed,
+            depth_threshold=depth_threshold,
+            orb_num_features=orb_num_features,
+            orb_scale_factor=orb_scale_factor,
+            orb_num_levels=orb_num_levels,
+            orb_ini_threshold_fast=orb_ini_threshold_fast,
+            orb_min_threshold_fast=orb_min_threshold_fast
+        )
+        obj.save()
+
+        result = OrbSlam2.get_instance(
+            vocabulary_file=voc_file,
+            mode=sensor_mode,
+            vocabulary_branching_factor=vocabulary_branching_factor,
+            vocabulary_depth=vocabulary_depth,
+            vocabulary_seed=vocabulary_seed,
+            depth_threshold=depth_threshold,
+            orb_num_features=orb_num_features,
+            orb_scale_factor=orb_scale_factor,
+            orb_num_levels=orb_num_levels,
+            orb_ini_threshold_fast=orb_ini_threshold_fast,
+            orb_min_threshold_fast=orb_min_threshold_fast
+        )
+        self.assertEqual(obj.pk, result.pk)
+        self.assertEqual(obj, result)
+
+    def test_get_instance_returns_existing_instance_without_vocab_file(self):
+        sensor_mode = SensorMode.RGBD
+        vocabulary_branching_factor = np.random.randint(2, 256)
+        vocabulary_depth = np.random.randint(4, 16)
+        vocabulary_seed = np.random.randint(0, 2 ** 31)
+        depth_threshold = np.random.uniform(10, 100.0)
+        orb_num_features = np.random.randint(100, 2000)
+        orb_scale_factor = np.random.uniform(0.5, 2.0)
+        orb_num_levels = np.random.randint(5, 10)
+        orb_ini_threshold_fast = np.random.randint(11, 20)
+        orb_min_threshold_fast = np.random.randint(5, 10)
+
+        obj = OrbSlam2(
+            vocabulary_file='im-a-file',
+            mode=sensor_mode,
+            vocabulary_branching_factor=vocabulary_branching_factor,
+            vocabulary_depth=vocabulary_depth,
+            vocabulary_seed=vocabulary_seed,
+            depth_threshold=depth_threshold,
+            orb_num_features=orb_num_features,
+            orb_scale_factor=orb_scale_factor,
+            orb_num_levels=orb_num_levels,
+            orb_ini_threshold_fast=orb_ini_threshold_fast,
+            orb_min_threshold_fast=orb_min_threshold_fast
+        )
+        obj.save()
+
+        result = OrbSlam2.get_instance(
+            mode=sensor_mode,
+            vocabulary_branching_factor=vocabulary_branching_factor,
+            vocabulary_depth=vocabulary_depth,
+            vocabulary_seed=vocabulary_seed,
+            depth_threshold=depth_threshold,
+            orb_num_features=orb_num_features,
+            orb_scale_factor=orb_scale_factor,
+            orb_num_levels=orb_num_levels,
+            orb_ini_threshold_fast=orb_ini_threshold_fast,
+            orb_min_threshold_fast=orb_min_threshold_fast
+        )
+        self.assertEqual(obj.pk, result.pk)
+        self.assertEqual(obj, result)
+
+
+class TestOrbSlam2ResultDatabase(unittest.TestCase):
+    temp_folder = Path(__file__).parent / 'temp-test-orbslam2'
+    vocab_file = 'ORBvoc-synth.txt'
+    vocab_path = Path(__file__).parent / vocab_file
+    path_manager = None
+
+    @classmethod
+    def setUpClass(cls):
+        dbconn.connect_to_test_db()
+        image_manager = im_manager.DefaultImageManager(dbconn.image_file, allow_write=True)
         im_manager.set_image_manager(image_manager)
 
+        os.makedirs(cls.temp_folder, exist_ok=True)
+        logging.disable(logging.CRITICAL)
+        cls.path_manager = PathManager([Path(__file__).parent], cls.temp_folder)
+
+        if not cls.vocab_path.exists():  # If there is no vocab file, make one
+            print("Creating vocab file, this may take a while...")
+            create_vocab(cls.vocab_path)
+
+    @classmethod
+    def tearDownClass(cls):
+        # Clean up after ourselves by dropping the collection for this model
+        VisionSystem._mongometa.collection.drop()
+        SLAMTrialResult._mongometa.collection.drop()
+        ImageCollection._mongometa.collection.drop()
+        Image._mongometa.collection.drop()
+
+        if os.path.isfile(dbconn.image_file):
+            os.remove(dbconn.image_file)
+        logging.disable(logging.NOTSET)
+        shutil.rmtree(cls.temp_folder)
+
+    @mock.patch('arvet_slam.systems.slam.orbslam2.multiprocessing', autospec=multiprocessing)
+    def test_result_saves_mono(self, mock_multiprocessing):
         # Make an image collection with some number of images
         images = []
         num_images = 10
@@ -136,7 +314,7 @@ class TestOrbSlam2Database(unittest.TestCase):
         ]
         mock_multiprocessing.Queue.return_value = mock_queue
 
-        subject = OrbSlam2(mode=SensorMode.MONOCULAR, vocabulary_file='ORBvoc-tiny.txt')
+        subject = OrbSlam2(mode=SensorMode.MONOCULAR, vocabulary_file=self.vocab_file)
         subject.save()
         subject.set_camera_intrinsics(image_collection.camera_intrinsics, image_collection.average_timestep)
         subject.resolve_paths(self.path_manager)
@@ -169,9 +347,6 @@ class TestOrbSlam2Database(unittest.TestCase):
 
     @mock.patch('arvet_slam.systems.slam.orbslam2.multiprocessing', autospec=multiprocessing)
     def test_result_saves_stereo(self, mock_multiprocessing):
-        image_manager = im_manager.DefaultImageManager(dbconn.image_file)
-        im_manager.set_image_manager(image_manager)
-
         # Make an image collection with some number of images
         images = []
         num_images = 10
@@ -212,7 +387,7 @@ class TestOrbSlam2Database(unittest.TestCase):
         ]
         mock_multiprocessing.Queue.return_value = mock_queue
 
-        subject = OrbSlam2(mode=SensorMode.STEREO, vocabulary_file='ORBvoc-tiny.txt')
+        subject = OrbSlam2(mode=SensorMode.STEREO, vocabulary_file=self.vocab_file)
         subject.save()
         subject.set_camera_intrinsics(image_collection.camera_intrinsics, image_collection.average_timestep)
         subject.resolve_paths(self.path_manager)
@@ -246,9 +421,6 @@ class TestOrbSlam2Database(unittest.TestCase):
 
     @mock.patch('arvet_slam.systems.slam.orbslam2.multiprocessing', autospec=multiprocessing)
     def test_result_saves_rgbd(self, mock_multiprocessing):
-        image_manager = im_manager.DefaultImageManager(dbconn.image_file)
-        im_manager.set_image_manager(image_manager)
-
         # Make an image collection with some number of images
         images = []
         num_images = 10
@@ -287,7 +459,7 @@ class TestOrbSlam2Database(unittest.TestCase):
         ]
         mock_multiprocessing.Queue.return_value = mock_queue
 
-        subject = OrbSlam2(mode=SensorMode.RGBD, vocabulary_file='ORBvoc-tiny.txt')
+        subject = OrbSlam2(mode=SensorMode.RGBD, vocabulary_file=self.vocab_file)
         subject.save()
         subject.set_camera_intrinsics(image_collection.camera_intrinsics, image_collection.average_timestep)
         subject.resolve_paths(self.path_manager)
@@ -318,120 +490,24 @@ class TestOrbSlam2Database(unittest.TestCase):
         VisionSystem.objects.all().delete()
         ImageCollection.objects.all().delete()
 
-    def test_get_instance_throws_exception_without_vocab(self):
-        for sensor_mode in {SensorMode.MONOCULAR, SensorMode.RGBD, SensorMode.STEREO}:
-            with self.assertRaises(ValueError):
-                OrbSlam2.get_instance(mode=sensor_mode)
-
-    def test_get_instance_throws_exception_without_sensor_mode(self):
-        with self.assertRaises(ValueError):
-            OrbSlam2.get_instance(vocabulary_file="ORBvoc-synth.txt")
-
-    def test_get_instance_can_create_an_instance(self):
-        voc_file = 'im-a-file-{0}'.format(np.random.randint(0, 100000))
-        sensor_mode = SensorMode.RGBD
-        depth_threshold = float(np.random.uniform(10, 100.0))
-        orb_num_features = int(np.random.randint(100, 2000))
-        orb_scale_factor = float(np.random.uniform(0.5, 2.0))
-        orb_num_levels = int(np.random.randint(5, 10))
-        orb_ini_threshold_fast = int(np.random.randint(11, 20))
-        orb_min_threshold_fast = int(np.random.randint(5, 10))
-        obj = OrbSlam2.get_instance(
-            vocabulary_file=voc_file,
-            mode=sensor_mode,
-            depth_threshold=depth_threshold,
-            orb_num_features=orb_num_features,
-            orb_scale_factor=orb_scale_factor,
-            orb_num_levels=orb_num_levels,
-            orb_ini_threshold_fast=orb_ini_threshold_fast,
-            orb_min_threshold_fast=orb_min_threshold_fast
-        )
-        self.assertIsInstance(obj, OrbSlam2)
-        self.assertEqual(voc_file, obj.vocabulary_file)
-        self.assertEqual(sensor_mode, obj.mode)
-        self.assertEqual(depth_threshold, obj.depth_threshold)
-        self.assertEqual(orb_num_features, obj.orb_num_features)
-        self.assertEqual(orb_scale_factor, obj.orb_scale_factor)
-        self.assertEqual(orb_num_levels, obj.orb_num_levels)
-        self.assertEqual(orb_ini_threshold_fast, obj.orb_ini_threshold_fast)
-        self.assertEqual(orb_min_threshold_fast, obj.orb_min_threshold_fast)
-
-        # Check the object can be saved
-        obj.save()
-
-    def test_creates_an_instance_with_defaults_by_default(self):
-        voc_file = 'im-a-file-{0}'.format(np.random.randint(0, 100000))
-        for sensor_mode in {SensorMode.MONOCULAR, SensorMode.STEREO, SensorMode.RGBD}:
-            obj = OrbSlam2(vocabulary_file=voc_file, mode=sensor_mode)
-            result = OrbSlam2.get_instance(vocabulary_file=voc_file, mode=sensor_mode)
-
-            self.assertEqual(obj.depth_threshold, result.depth_threshold)
-            self.assertEqual(obj.orb_num_features, result.orb_num_features)
-            self.assertEqual(obj.orb_scale_factor, result.orb_scale_factor)
-            self.assertEqual(obj.orb_num_levels, result.orb_num_levels)
-            self.assertEqual(obj.orb_ini_threshold_fast, result.orb_ini_threshold_fast)
-            self.assertEqual(obj.orb_min_threshold_fast, result.orb_min_threshold_fast)
-
-    def test_get_instance_returns_an_existing_instance_simple(self):
-        voc_file = 'im-a-file-{0}'.format(np.random.randint(0, 100000))
-        for sensor_mode in {SensorMode.MONOCULAR, SensorMode.STEREO, SensorMode.RGBD}:
-            obj = OrbSlam2(vocabulary_file=voc_file, mode=sensor_mode)
-            obj.save()
-
-            result = OrbSlam2.get_instance(vocabulary_file=voc_file, mode=sensor_mode)
-            self.assertIsInstance(result, OrbSlam2)
-            self.assertEqual(obj.pk, result.pk)
-            self.assertEqual(obj, result)
-
-    def test_get_instance_returns_existing_instance_complex(self):
-        voc_file = 'im-a-file-{0}'.format(np.random.randint(0, 100000))
-        sensor_mode = SensorMode.RGBD
-        depth_threshold = float(np.random.uniform(10, 100.0))
-        orb_num_features = int(np.random.randint(100, 2000))
-        orb_scale_factor = float(np.random.uniform(0.5, 2.0))
-        orb_num_levels = int(np.random.randint(5, 10))
-        orb_ini_threshold_fast = int(np.random.randint(11, 20))
-        orb_min_threshold_fast = int(np.random.randint(5, 10))
-
-        obj = OrbSlam2(
-            vocabulary_file=voc_file,
-            mode=sensor_mode,
-            depth_threshold=depth_threshold,
-            orb_num_features=orb_num_features,
-            orb_scale_factor=orb_scale_factor,
-            orb_num_levels=orb_num_levels,
-            orb_ini_threshold_fast=orb_ini_threshold_fast,
-            orb_min_threshold_fast=orb_min_threshold_fast
-        )
-        obj.save()
-
-        result = OrbSlam2.get_instance(
-            vocabulary_file=voc_file,
-            mode=sensor_mode,
-            depth_threshold=depth_threshold,
-            orb_num_features=orb_num_features,
-            orb_scale_factor=orb_scale_factor,
-            orb_num_levels=orb_num_levels,
-            orb_ini_threshold_fast=orb_ini_threshold_fast,
-            orb_min_threshold_fast=orb_min_threshold_fast
-        )
-        self.assertEqual(obj.pk, result.pk)
-        self.assertEqual(obj, result)
-
 
 class TestOrbSlam2(unittest.TestCase):
-    temp_folder = 'temp-test-orbslam2'
+    temp_folder = Path(__file__).parent / 'temp-test-orbslam2'
+    vocabulary_file = 'ORBvoc-temp.txt'
     path_manager = None
 
     @classmethod
     def setUpClass(cls):
         logging.disable(logging.CRITICAL)
         os.makedirs(cls.temp_folder, exist_ok=True)
-        cls.path_manager = PathManager([Path(__file__).parent], cls.temp_folder)
+        path = Path(__file__).parent
+        (path / cls.vocabulary_file).touch()    # This file just has to exist where the path manager can find it
+        cls.path_manager = PathManager([path], cls.temp_folder)
 
     @classmethod
     def tearDownClass(cls):
         logging.disable(logging.NOTSET)
+        (Path(__file__).parent / cls.vocabulary_file).unlink()
         shutil.rmtree(cls.temp_folder)
 
     def test_get_properties_is_overridden_by_settings(self):
@@ -448,6 +524,9 @@ class TestOrbSlam2(unittest.TestCase):
             'in_k2': -0.00123,
             'in_k3': 0.01443,
             'base': 15.223,
+            'vocabulary_branching_factor': 12,
+            'vocabulary_depth': 5,
+            'vocabulary_seed': 378627802,
             'vocabulary_file': 'my_vocab_file',
             'mode': str(SensorMode.RGBD.name),
             'depth_threshold': 123,
@@ -475,6 +554,9 @@ class TestOrbSlam2(unittest.TestCase):
         subject = OrbSlam2(
             mode=SensorMode.MONOCULAR,
             vocabulary_file='my_vocab_file',
+            vocabulary_branching_factor=17,
+            vocabulary_depth=5,
+            vocabulary_seed=273635835,
             depth_threshold=22,
             orb_num_features=332,
             orb_scale_factor=1.02,
@@ -485,6 +567,9 @@ class TestOrbSlam2(unittest.TestCase):
         properties = subject.get_properties()
         self.assertEqual(SensorMode.MONOCULAR, properties['mode'])
         self.assertEqual('my_vocab_file', properties['vocabulary_file'])
+        self.assertEqual(17, properties['vocabulary_branching_factor'])
+        self.assertEqual(5, properties['vocabulary_depth'])
+        self.assertEqual(273635835, properties['vocabulary_seed'])
         self.assertEqual(22, properties['depth_threshold'])
         self.assertEqual(332, properties['orb_num_features'])
         self.assertEqual(1.02, properties['orb_scale_factor'])
@@ -521,6 +606,9 @@ class TestOrbSlam2(unittest.TestCase):
             'in_k2': -0.00123,
             'in_k3': 0.01443,
             'base': 15.223,
+            'vocabulary_branching_factor': 3,
+            'vocabulary_depth': 21,
+            'vocabulary_seed': 163463436,
             'vocabulary_file': 'my_vocab_file',
             'mode': str(SensorMode.RGBD.name),
             'depth_threshold': 123,
@@ -533,6 +621,9 @@ class TestOrbSlam2(unittest.TestCase):
         subject = OrbSlam2(
             mode=SensorMode.MONOCULAR,
             vocabulary_file='my_vocab_file',
+            vocabulary_branching_factor=12,
+            vocabulary_depth=5,
+            vocabulary_seed=378627802,
             depth_threshold=22,
             orb_num_features=332,
             orb_scale_factor=1.02,
@@ -665,14 +756,14 @@ class TestOrbSlam2(unittest.TestCase):
         intrinsics = CameraIntrinsics(
             width=640, height=480, fx=320, fy=320, cx=320, cy=240
         )
-        subject = OrbSlam2(mode=SensorMode.MONOCULAR, vocabulary_file='ORBvoc-tiny.txt')
+        subject = OrbSlam2(mode=SensorMode.MONOCULAR, vocabulary_file=self.vocabulary_file)
         subject.set_camera_intrinsics(intrinsics, 1 / 30)
 
         with self.assertRaises(RuntimeError):
             subject.save_settings()
 
     def test_save_settings_raises_error_without_camera_intrinsics(self):
-        subject = OrbSlam2(mode=SensorMode.MONOCULAR, vocabulary_file='ORBvoc-tiny.txt')
+        subject = OrbSlam2(mode=SensorMode.MONOCULAR, vocabulary_file=self.vocabulary_file)
         subject.resolve_paths(self.path_manager)
 
         with self.assertRaises(RuntimeError):
@@ -680,7 +771,7 @@ class TestOrbSlam2(unittest.TestCase):
 
     def test_save_settings_raises_error_without_camera_baseline_if_stereo(self):
         intrinsics = CameraIntrinsics(width=640, height=480, fx=320, fy=320, cx=320, cy=240)
-        subject = OrbSlam2(mode=SensorMode.STEREO, vocabulary_file='ORBvoc-tiny.txt')
+        subject = OrbSlam2(mode=SensorMode.STEREO, vocabulary_file=self.vocabulary_file)
         subject.set_camera_intrinsics(intrinsics, 1 / 30)
         subject.resolve_paths(self.path_manager)
 
@@ -694,7 +785,7 @@ class TestOrbSlam2(unittest.TestCase):
         mock_open.return_value = StringIO()
 
         intrinsics = CameraIntrinsics(width=640, height=480, fx=320, fy=321, cx=322, cy=240)
-        subject = OrbSlam2(mode=SensorMode.MONOCULAR, vocabulary_file='ORBvoc-tiny.txt')
+        subject = OrbSlam2(mode=SensorMode.MONOCULAR, vocabulary_file=self.vocabulary_file)
         subject.set_camera_intrinsics(intrinsics, 1 / 30)
         subject.resolve_paths(self.path_manager)
 
@@ -715,7 +806,7 @@ class TestOrbSlam2(unittest.TestCase):
             width=640, height=480, fx=320, fy=321, cx=322, cy=240,
             k1=1, k2=2, k3=3, p1=4, p2=5
         )
-        subject = OrbSlam2(mode=SensorMode.MONOCULAR, vocabulary_file='ORBvoc-tiny.txt')
+        subject = OrbSlam2(mode=SensorMode.MONOCULAR, vocabulary_file=self.vocabulary_file)
         subject.set_camera_intrinsics(intrinsics, 1 / 29)
         subject.resolve_paths(self.path_manager)
 
@@ -752,7 +843,7 @@ class TestOrbSlam2(unittest.TestCase):
             width=640, height=480, fx=320, fy=321, cx=322, cy=240,
             k1=1, k2=2, k3=3, p1=4, p2=5
         )
-        subject = OrbSlam2(mode=SensorMode.STEREO, vocabulary_file='ORBvoc-tiny.txt')
+        subject = OrbSlam2(mode=SensorMode.STEREO, vocabulary_file=self.vocabulary_file)
         subject.set_camera_intrinsics(intrinsics, 1 / 29)
         subject.set_stereo_offset(Transform([0.012, -0.142, 0.09]))
         subject.resolve_paths(self.path_manager)
@@ -778,7 +869,7 @@ class TestOrbSlam2(unittest.TestCase):
         intrinsics = CameraIntrinsics(width=640, height=480, fx=320, fy=321, cx=322, cy=240)
         subject = OrbSlam2(
             mode=SensorMode.MONOCULAR,
-            vocabulary_file='ORBvoc-tiny.txt',
+            vocabulary_file=self.vocabulary_file,
             depth_threshold=58.2,
             orb_num_features=2337,
             orb_scale_factor=1.32,
@@ -832,7 +923,7 @@ class TestOrbSlam2(unittest.TestCase):
         )
         subject = OrbSlam2(
             mode=SensorMode.STEREO,
-            vocabulary_file='ORBvoc-tiny.txt',
+            vocabulary_file=self.vocabulary_file,
             depth_threshold=np.random.uniform(0, 255),
             orb_num_features=np.random.randint(0, 8000),
             orb_scale_factor=np.random.uniform(0, 2),
@@ -876,7 +967,7 @@ class TestOrbSlam2(unittest.TestCase):
         sys_id = ObjectId()
         mock_open = mock.mock_open()
 
-        subject = OrbSlam2(_id=sys_id, mode=SensorMode.MONOCULAR, vocabulary_file='ORBvoc-tiny.txt')
+        subject = OrbSlam2(_id=sys_id, mode=SensorMode.MONOCULAR, vocabulary_file=self.vocabulary_file)
         subject.set_camera_intrinsics(CameraIntrinsics(width=640, height=480, fx=320, fy=321, cx=322, cy=240), 1 / 29)
         subject.resolve_paths(self.path_manager)
 
@@ -887,7 +978,7 @@ class TestOrbSlam2(unittest.TestCase):
 
     @mock.patch('arvet_slam.systems.slam.orbslam2.multiprocessing', autospec=multiprocessing)
     def test_start_trial_finds_available_file(self, _):
-        subject = OrbSlam2(mode=SensorMode.MONOCULAR, vocabulary_file='ORBvoc-tiny.txt')
+        subject = OrbSlam2(mode=SensorMode.MONOCULAR, vocabulary_file=self.vocabulary_file)
         subject.set_camera_intrinsics(CameraIntrinsics(width=640, height=480, fx=320, fy=321, cx=322, cy=240), 1 / 29)
         subject.resolve_paths(self.path_manager)
 
@@ -902,7 +993,7 @@ class TestOrbSlam2(unittest.TestCase):
         mock_process = mock.create_autospec(multiprocessing.Process)
         mock_multiprocessing.Process.return_value = mock_process
         mock_open = mock.mock_open()
-        subject = OrbSlam2(mode=SensorMode.MONOCULAR, vocabulary_file='ORBvoc-tiny.txt')
+        subject = OrbSlam2(mode=SensorMode.MONOCULAR, vocabulary_file=self.vocabulary_file)
         subject.set_camera_intrinsics(CameraIntrinsics(width=640, height=480, fx=320, fy=321, cx=322, cy=240), 1 / 29)
         subject.resolve_paths(self.path_manager)
         with mock.patch('arvet_slam.systems.slam.orbslam2.open', mock_open, create=True):
@@ -916,7 +1007,7 @@ class TestOrbSlam2(unittest.TestCase):
         mock_process = mock.create_autospec(multiprocessing.Process)
         mock_multiprocessing.Process.return_value = mock_process
 
-        subject = OrbSlam2(mode=SensorMode.MONOCULAR, vocabulary_file='ORBvoc-tiny.txt')
+        subject = OrbSlam2(mode=SensorMode.MONOCULAR, vocabulary_file=self.vocabulary_file)
         subject.set_camera_intrinsics(CameraIntrinsics(width=640, height=480, fx=320, fy=321, cx=322, cy=240), 1 / 29)
         subject.resolve_paths(self.path_manager)
 
@@ -932,7 +1023,7 @@ class TestOrbSlam2(unittest.TestCase):
         mock_queue.get.return_value = 'ORBSLAM Ready!'
         mock_multiprocessing.Queue.return_value = mock_queue
 
-        subject = OrbSlam2(mode=SensorMode.MONOCULAR, vocabulary_file='ORBvoc-tiny.txt')
+        subject = OrbSlam2(mode=SensorMode.MONOCULAR, vocabulary_file=self.vocabulary_file)
         subject.set_camera_intrinsics(CameraIntrinsics(width=640, height=480, fx=320, fy=321, cx=322, cy=240), 1 / 29)
         subject.resolve_paths(self.path_manager)
 
@@ -949,7 +1040,7 @@ class TestOrbSlam2(unittest.TestCase):
         mock_queue.get.side_effect = QueueEmpty
         mock_multiprocessing.Queue.return_value = mock_queue
 
-        subject = OrbSlam2(mode=SensorMode.MONOCULAR, vocabulary_file='ORBvoc-tiny.txt')
+        subject = OrbSlam2(mode=SensorMode.MONOCULAR, vocabulary_file=self.vocabulary_file)
         subject.set_camera_intrinsics(CameraIntrinsics(width=640, height=480, fx=320, fy=321, cx=322, cy=240), 1 / 29)
         subject.resolve_paths(self.path_manager)
 
@@ -970,7 +1061,7 @@ class TestOrbSlam2(unittest.TestCase):
         mock_multiprocessing.Queue.return_value = mock_queue
         image = make_image(SensorMode.MONOCULAR)
 
-        subject = OrbSlam2(mode=SensorMode.MONOCULAR, vocabulary_file='ORBvoc-tiny.txt')
+        subject = OrbSlam2(mode=SensorMode.MONOCULAR, vocabulary_file=self.vocabulary_file)
         subject.set_camera_intrinsics(CameraIntrinsics(width=640, height=480, fx=320, fy=321, cx=322, cy=240), 1 / 29)
         subject.resolve_paths(self.path_manager)
 
@@ -991,7 +1082,7 @@ class TestOrbSlam2(unittest.TestCase):
         mock_multiprocessing.Queue.return_value = mock_queue
         image = make_image(SensorMode.RGBD)
 
-        subject = OrbSlam2(mode=SensorMode.RGBD, vocabulary_file='ORBvoc-tiny.txt')
+        subject = OrbSlam2(mode=SensorMode.RGBD, vocabulary_file=self.vocabulary_file)
         subject.set_camera_intrinsics(CameraIntrinsics(width=640, height=480, fx=320, fy=321, cx=322, cy=240), 1 / 29)
         subject.resolve_paths(self.path_manager)
 
@@ -1013,7 +1104,7 @@ class TestOrbSlam2(unittest.TestCase):
         mock_multiprocessing.Queue.return_value = mock_queue
         image = make_image(SensorMode.STEREO)
 
-        subject = OrbSlam2(mode=SensorMode.STEREO, vocabulary_file='ORBvoc-tiny.txt')
+        subject = OrbSlam2(mode=SensorMode.STEREO, vocabulary_file=self.vocabulary_file)
         subject.set_camera_intrinsics(CameraIntrinsics(width=640, height=480, fx=320, fy=321, cx=322, cy=240), 1 / 29)
         subject.resolve_paths(self.path_manager)
         subject.set_stereo_offset(Transform(location=(0.2, -0.6, 0.01)))
@@ -1030,7 +1121,7 @@ class TestOrbSlam2(unittest.TestCase):
         self.assertTrue(np.any([np.array_equal(image.right_pixels, elem) for elem in mock_queue.put.call_args[0][0]]))
 
     def test_finish_trial_raises_exception_if_unstarted(self):
-        subject = OrbSlam2(mode=SensorMode.MONOCULAR, vocabulary_file='ORBvoc-tiny.txt')
+        subject = OrbSlam2(mode=SensorMode.MONOCULAR, vocabulary_file=self.vocabulary_file)
         subject.set_camera_intrinsics(CameraIntrinsics(width=640, height=480, fx=320, fy=321, cx=322, cy=240), 1 / 29)
         subject.resolve_paths(self.path_manager)
         with self.assertRaises(RuntimeError):
@@ -1058,7 +1149,7 @@ class TestOrbSlam2(unittest.TestCase):
         ]
         mock_multiprocessing.Queue.return_value = mock_queue
 
-        subject = OrbSlam2(mode=SensorMode.MONOCULAR, vocabulary_file='ORBvoc-tiny.txt')
+        subject = OrbSlam2(mode=SensorMode.MONOCULAR, vocabulary_file=self.vocabulary_file)
         subject.set_camera_intrinsics(CameraIntrinsics(width=640, height=480, fx=320, fy=321, cx=322, cy=240), 1 / 29)
         subject.resolve_paths(self.path_manager)
 
@@ -1099,7 +1190,7 @@ class TestOrbSlam2(unittest.TestCase):
         )
 
         subject = OrbSlam2(
-            mode=SensorMode.MONOCULAR, vocabulary_file='ORBvoc-tiny.txt',
+            mode=SensorMode.MONOCULAR, vocabulary_file=self.vocabulary_file,
             depth_threshold=42.0,
             orb_num_features=1337,
             orb_scale_factor=1.03,
@@ -1186,7 +1277,7 @@ class TestOrbSlam2(unittest.TestCase):
         mock_logger = mock.MagicMock()
         mock_logging.getLogger.return_value = mock_logger
 
-        subject = OrbSlam2(mode=SensorMode.MONOCULAR, vocabulary_file='ORBvoc-tiny.txt')
+        subject = OrbSlam2(mode=SensorMode.MONOCULAR, vocabulary_file=self.vocabulary_file)
         subject.set_camera_intrinsics(CameraIntrinsics(width=640, height=480, fx=320, fy=321, cx=322, cy=240), 1 / 29)
         subject.resolve_paths(self.path_manager)
 
@@ -1212,7 +1303,7 @@ class TestOrbSlam2(unittest.TestCase):
         mock_queue.get.side_effect = ['ORBSLAM ready!', QueueEmpty()]
         mock_multiprocessing.Queue.return_value = mock_queue
 
-        subject = OrbSlam2(mode=SensorMode.MONOCULAR, vocabulary_file='ORBvoc-tiny.txt')
+        subject = OrbSlam2(mode=SensorMode.MONOCULAR, vocabulary_file=self.vocabulary_file)
         subject.set_camera_intrinsics(CameraIntrinsics(width=640, height=480, fx=320, fy=321, cx=322, cy=240), 1 / 29)
         subject.resolve_paths(self.path_manager)
 

@@ -1,7 +1,7 @@
 # Copyright (c) 2017, John Skinner
 from os import PathLike
 import typing
-from pathlib import Path
+from pathlib import Path, PurePath
 import arvet.batch_analysis.task_manager as task_manager
 import arvet_slam.dataset.kitti.kitti_loader as kitti_loader
 
@@ -15,7 +15,7 @@ sequence_ids = list(range(11))
 
 class KITTIManager:
 
-    def __init__(self, root: typing.Union[str, bytes, PathLike, Path]):
+    def __init__(self, root: typing.Union[str, bytes, PathLike, PurePath]):
         self._full_paths = self.find_roots(root)
 
     def __getattr__(self, item):
@@ -67,7 +67,7 @@ class KITTIManager:
                 "No root folder for sequence {0}, are you sure it's a sequence?".format(sequence_id))
 
     @classmethod
-    def find_roots(cls, root: typing.Union[str, bytes, PathLike, Path]):
+    def find_roots(cls, root: typing.Union[str, bytes, PathLike, PurePath]):
         """
         Recursively search for the directories to import from the root folder.
         We're looking for folders with the same names as the
