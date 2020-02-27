@@ -406,9 +406,6 @@ class OrbSlam2(VisionSystem):
         # Look for existing objects with the same settings
         query = {
             'mode': str(mode.name),
-            'vocabulary_branching_factor': int(vocabulary_branching_factor),
-            'vocabulary_depth': int(vocabulary_depth),
-            'vocabulary_seed': int(vocabulary_seed),
             'depth_threshold': float(depth_threshold),
             'orb_num_features': int(orb_num_features),
             'orb_scale_factor': float(orb_scale_factor),
@@ -419,6 +416,11 @@ class OrbSlam2(VisionSystem):
         if vocabulary_file is not None and len(vocabulary_file) > 0:
             # Only request a specific vocabulary file if one is requested, otherwise leave the parameter free.
             query['vocabulary_file'] = str(vocabulary_file)
+        else:
+            # No vocabulary file specified, look for a system with the same settings
+            query['vocabulary_branching_factor'] = int(vocabulary_branching_factor)
+            query['vocabulary_depth'] = int(vocabulary_depth)
+            query['vocabulary_seed'] = int(vocabulary_seed)
 
         all_objects = OrbSlam2.objects.raw(query)
         if all_objects.count() > 0:

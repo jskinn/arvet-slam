@@ -241,6 +241,50 @@ class TestOrbSlam2Database(unittest.TestCase):
         self.assertEqual(obj.pk, result.pk)
         self.assertEqual(obj, result)
 
+    def test_get_instance_ignores_vocab_settings_if_file_is_specified(self):
+        voc_file = 'im-a-file-{0}'.format(np.random.randint(0, 100000))
+        sensor_mode = SensorMode.RGBD
+        vocabulary_branching_factor = np.random.randint(2, 256)
+        vocabulary_depth = np.random.randint(4, 16)
+        vocabulary_seed = np.random.randint(4, 2 ** 31)
+        depth_threshold = np.random.uniform(10, 100.0)
+        orb_num_features = np.random.randint(100, 2000)
+        orb_scale_factor = np.random.uniform(0.5, 2.0)
+        orb_num_levels = np.random.randint(5, 10)
+        orb_ini_threshold_fast = np.random.randint(11, 20)
+        orb_min_threshold_fast = np.random.randint(5, 10)
+
+        obj = OrbSlam2(
+            vocabulary_file=voc_file,
+            mode=sensor_mode,
+            vocabulary_branching_factor=vocabulary_branching_factor,
+            vocabulary_depth=vocabulary_depth,
+            vocabulary_seed=vocabulary_seed,
+            depth_threshold=depth_threshold,
+            orb_num_features=orb_num_features,
+            orb_scale_factor=orb_scale_factor,
+            orb_num_levels=orb_num_levels,
+            orb_ini_threshold_fast=orb_ini_threshold_fast,
+            orb_min_threshold_fast=orb_min_threshold_fast
+        )
+        obj.save()
+
+        result = OrbSlam2.get_instance(
+            vocabulary_file=voc_file,
+            mode=sensor_mode,
+            vocabulary_branching_factor=vocabulary_branching_factor + 1,
+            vocabulary_depth=vocabulary_depth - 1,
+            vocabulary_seed=vocabulary_seed // 2,
+            depth_threshold=depth_threshold,
+            orb_num_features=orb_num_features,
+            orb_scale_factor=orb_scale_factor,
+            orb_num_levels=orb_num_levels,
+            orb_ini_threshold_fast=orb_ini_threshold_fast,
+            orb_min_threshold_fast=orb_min_threshold_fast
+        )
+        self.assertEqual(obj.pk, result.pk)
+        self.assertEqual(obj, result)
+
 
 class TestOrbSlam2ResultDatabase(unittest.TestCase):
     temp_folder = Path(__file__).parent / 'temp-test-orbslam2'
