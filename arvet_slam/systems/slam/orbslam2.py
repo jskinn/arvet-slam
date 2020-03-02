@@ -278,12 +278,12 @@ class OrbSlam2(VisionSystem):
 
             # Send different input based on the running mode
             if self.mode == SensorMode.MONOCULAR:
-                self._input_queue.put((image_utils.to_uint_image(image.pixels), None, timestamp))
+                self._input_queue.put((image_utils.convert_to_grey(image.pixels), None, timestamp))
             elif self.mode == SensorMode.STEREO:
-                self._input_queue.put((image_utils.to_uint_image(image.left_pixels),
-                                       image_utils.to_uint_image(image.right_pixels), timestamp))
+                self._input_queue.put((image_utils.convert_to_grey(image.left_pixels),
+                                       image_utils.convert_to_grey(image.right_pixels), timestamp))
             elif self.mode == SensorMode.RGBD:
-                self._input_queue.put((image_utils.to_uint_image(image.pixels), image.depth, timestamp))
+                self._input_queue.put((image_utils.convert_to_grey(image.pixels), image.depth, timestamp))
 
     def finish_trial(self) -> SLAMTrialResult:
         """

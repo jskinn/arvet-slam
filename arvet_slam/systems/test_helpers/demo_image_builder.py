@@ -18,7 +18,7 @@ class DemoImageBuilder:
             self, mode: ImageMode = ImageMode.MONOCULAR, seed: int = 0, width: int = 320, height: int = 240,
             focal_length: float = None, stereo_offset: float = 0.15,
             num_stars: int = 300, close_ratio: float = 0.5, min_size: float = 4.0, max_size: float = 50.0,
-            speed: float = 5.0, length: float = 60, corridor_width: float = 2.0
+            speed: float = 5.0, length: float = 60, corridor_width: float = 2.0, colour: bool = False
     ):
         self.mode = mode
         self.width = width
@@ -26,6 +26,7 @@ class DemoImageBuilder:
         self.speed = speed
         self.focal_length = max(focal_length, 1.0) if focal_length is not None else width / 2
         self.stereo_offset = stereo_offset
+        self.colour = bool(colour)
         random = np.random.RandomState(seed=seed)
 
         # z values for stars beyond the end of the motion
@@ -45,7 +46,7 @@ class DemoImageBuilder:
                 random.uniform(-lim_y * z_value, lim_y * z_value),
                 z_value
             ),
-            'colour': random.randint(20, 256)
+            'colour': random.randint(20, 256, size=3 if colour else 1)
         } for idx, z_value in enumerate(z_values) if z_value > 0]
 
         # Having placed the stars, choose a size such that they are visible but not too close to the camera
@@ -79,7 +80,8 @@ class DemoImageBuilder:
         return Transform([0, -1 * self.stereo_offset, 0])
 
     def create_frame(self, time: float) -> Image:
-        frame = np.zeros((self.height, self.width), dtype=np.uint8)
+        img_shape = (self.height, self.width, 3) if self.colour else (self.height, self.width)
+        frame = np.zeros(img_shape, dtype=np.uint8)
         depth = None
         if self.mode is ImageMode.RGBD:
             depth = (1000 + 2 * len(self.stars)) * np.ones((self.height, self.width), dtype=np.float16)
@@ -128,7 +130,7 @@ class DemoImageBuilder:
 
         # If we're building a stereo image, make the right image
         if self.mode is ImageMode.STEREO:
-            right_frame = np.zeros((self.height, self.width), dtype=np.uint8)
+            right_frame = np.zeros(img_shape, dtype=np.uint8)
             for star in self.stars:
                 x, y, z = star['pos']
                 x -= self.stereo_offset
