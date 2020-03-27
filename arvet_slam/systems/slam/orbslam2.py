@@ -283,7 +283,7 @@ class OrbSlam2(VisionSystem):
                 self._input_queue.put((image_utils.convert_to_grey(image.left_pixels),
                                        image_utils.convert_to_grey(image.right_pixels), timestamp))
             elif self.mode == SensorMode.RGBD:
-                self._input_queue.put((image_utils.convert_to_grey(image.pixels), image.depth, timestamp))
+                self._input_queue.put((image_utils.convert_to_grey(image.pixels), image.depth.astype(np.float32), timestamp))
 
     def finish_trial(self) -> SLAMTrialResult:
         """

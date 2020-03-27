@@ -84,7 +84,7 @@ class DemoImageBuilder:
         frame = np.zeros(img_shape, dtype=np.uint8)
         depth = None
         if self.mode is ImageMode.RGBD:
-            depth = (1000 + 2 * len(self.stars)) * np.ones((self.height, self.width), dtype=np.float16)
+            depth = (1000 + 2 * len(self.stars)) * np.ones((self.height, self.width), dtype=np.float64)
         f = self.focal_length
         cx = frame.shape[1] / 2
         cy = frame.shape[0] / 2
