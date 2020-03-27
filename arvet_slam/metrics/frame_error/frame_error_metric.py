@@ -1,6 +1,5 @@
 # Copyright (c) 2018, John Skinner
 import typing
-import logging
 from operator import attrgetter
 import bson
 import numpy as np
@@ -19,13 +18,12 @@ from arvet.core.system import VisionSystem
 from arvet.core.image_source import ImageSource
 from arvet.core.image import Image
 from arvet.core.trial_result import TrialResult
-from arvet.core.metric import Metric, MetricResult, T_MetricResult, check_trial_collection
+from arvet.core.metric import Metric, MetricResult, check_trial_collection
 from arvet.util.column_list import ColumnList
 import arvet.util.associate
 import arvet.util.transform as tf
 from arvet_slam.trials.slam.tracking_state import TrackingState
 from arvet_slam.trials.slam.visual_slam import SLAMTrialResult
-import arvet_slam.metrics.frame_error.plots.plot_abs_error_distrubution as abs_error_plot
 
 
 class PoseError(pymodm.EmbeddedMongoModel):
@@ -184,62 +182,6 @@ class FrameErrorResult(MetricResult):
         other_properties = {**image_source_properties, **metric_properties}
         return [frame_error.get_properties(columns, other_properties) for frame_error in self.errors]
 
-    @classmethod
-    def get_available_plots(cls) -> typing.Set[str]:
-        """
-        Get the set of available plots for this metric.
-        That is, these are the values that when passed to visualise_results, actually do something.
-        They should also be human-readable names.
-        :return: A set of valid plot names
-        """
-        return {
-            abs_error_plot.NAME
-        }
-
-    @classmethod
-    def visualize_results(cls: typing.Type[T_MetricResult],
-                          results: typing.Iterable[T_MetricResult],
-                          plots: typing.Collection[str],
-                          display: bool = True, output: str = '') -> None:
-        """
-        Visualize
-        :param results:
-        :param plots:
-        :param display:
-        :param output:
-        :return:
-        """
-        # Plotting imports, which we don't want to bother with most of the time.
-        import pandas as pd
-        import matplotlib.pyplot as plt
-
-        plots = set(plots)
-
-        # Work out which data we need to make the requested plots
-        columns = set()
-        if abs_error_plot.NAME in plots:
-            columns |= abs_error_plot.get_required_columns()
-
-        # We don't need any data, and won't produce any plots. return.
-        if len(columns) <= 0:
-            return
-
-        # Collect the relevant data from the metric results and build the dataframe
-        logging.getLogger(__name__).info("Collating results...")
-        data = []
-        for metric_result in results:
-            data.extend(metric_result.get_results(columns))
-        dataframe = pd.DataFrame(data)
-
-        # Delegate plotting the results
-        logging.getLogger(__name__).info("Plotting...")
-        if abs_error_plot.NAME in plots:
-            abs_error_plot.plot(dataframe, output)
-
-        # Show the generated plots
-        if display:
-            plt.show()
-
 
 class FrameErrorMetric(Metric):
 
@@ -264,7 +206,8 @@ class FrameErrorMetric(Metric):
     def measure_results(self, trial_results: typing.Iterable[TrialResult]) -> FrameErrorResult:
         """
         Collect the errors
-        TODO: Track the error introduced by a loop closure, somehow. Might need to track loop closures in the FrameResult
+        TODO: Track the error introduced by a loop closure, somehow.
+        Might need to track loop closures in the FrameResult
         :param trial_results: The results of several trials to aggregate
         :return:
         :rtype BenchmarkResult:

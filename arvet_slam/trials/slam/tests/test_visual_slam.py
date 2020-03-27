@@ -31,7 +31,7 @@ class TestPoseErrorDatabase(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         dbconn.connect_to_test_db()
-        image_manager = im_manager.DefaultImageManager(dbconn.image_file)
+        image_manager = im_manager.DefaultImageManager(dbconn.image_file, allow_write=True)
         im_manager.set_image_manager(image_manager)
 
         pixels = np.array([[1, 2, 3], [4, 5, 6], [7, 8, 9]])
@@ -726,7 +726,7 @@ class TestSLAMTrialResultDatabase(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         dbconn.connect_to_test_db()
-        image_manager = im_manager.DefaultImageManager(dbconn.image_file)
+        image_manager = im_manager.DefaultImageManager(dbconn.image_file, allow_write=True)
         im_manager.set_image_manager(image_manager)
 
         cls.system = mock_types.MockSystem()

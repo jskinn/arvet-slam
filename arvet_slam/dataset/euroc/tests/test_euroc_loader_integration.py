@@ -16,7 +16,7 @@ def load_dataset_location():
         with conf_json.open('r') as fp:
             son = json_load(fp)
             return Path(son['location']), str(son['sequence'])
-    return None
+    return None, None
 
 
 dataset_root, sequence = load_dataset_location()

@@ -20,6 +20,7 @@ import arvet.database.tests.database_connection as dbconn
 import arvet.database.image_manager as im_manager
 from arvet.util.transform import Transform
 from arvet.util.test_helpers import ExtendedTestCase
+from arvet.util.image_utils import convert_to_grey
 from arvet.config.path_manager import PathManager
 import arvet.metadata.image_metadata as imeta
 from arvet.metadata.camera_intrinsics import CameraIntrinsics
@@ -1104,6 +1105,7 @@ class TestOrbSlam2(unittest.TestCase):
         mock_queue.qsize.return_value = 0
         mock_multiprocessing.Queue.return_value = mock_queue
         image = make_image(SensorMode.MONOCULAR)
+        greyscale_pixels = convert_to_grey(image.pixels)
 
         subject = OrbSlam2(mode=SensorMode.MONOCULAR, vocabulary_file=self.vocabulary_file)
         subject.set_camera_intrinsics(CameraIntrinsics(width=640, height=480, fx=320, fy=321, cx=322, cy=240), 1 / 29)
@@ -1117,7 +1119,7 @@ class TestOrbSlam2(unittest.TestCase):
         subject.process_image(image, 12)
         self.assertTrue(mock_queue.put.called)
         self.assertIn(12, [elem for elem in mock_queue.put.call_args[0][0] if isinstance(elem, int)])
-        self.assertTrue(any(np.array_equal(image.pixels, elem) for elem in mock_queue.put.call_args[0][0]))
+        self.assertTrue(any(np.array_equal(greyscale_pixels, elem) for elem in mock_queue.put.call_args[0][0]))
 
     @mock.patch('arvet_slam.systems.slam.orbslam2.multiprocessing', autospec=multiprocessing)
     def test_process_image_rgbd_sends_image_and_depth_to_subprocess(self, mock_multiprocessing):
@@ -1125,6 +1127,8 @@ class TestOrbSlam2(unittest.TestCase):
         mock_queue.qsize.return_value = 0
         mock_multiprocessing.Queue.return_value = mock_queue
         image = make_image(SensorMode.RGBD)
+        greyscale_pixels = convert_to_grey(image.pixels)
+        float32_depth = image.depth.astype(np.float32)
 
         subject = OrbSlam2(mode=SensorMode.RGBD, vocabulary_file=self.vocabulary_file)
         subject.set_camera_intrinsics(CameraIntrinsics(width=640, height=480, fx=320, fy=321, cx=322, cy=240), 1 / 29)
@@ -1138,8 +1142,8 @@ class TestOrbSlam2(unittest.TestCase):
         subject.process_image(image, 12)
         self.assertTrue(mock_queue.put.called)
         self.assertIn(12, [elem for elem in mock_queue.put.call_args[0][0] if isinstance(elem, int)])
-        self.assertTrue(any(np.array_equal(image.pixels, elem) for elem in mock_queue.put.call_args[0][0]))
-        self.assertTrue(any(np.array_equal(image.depth, elem) for elem in mock_queue.put.call_args[0][0]))
+        self.assertTrue(any(np.array_equal(greyscale_pixels, elem) for elem in mock_queue.put.call_args[0][0]))
+        self.assertTrue(any(np.array_equal(float32_depth, elem) for elem in mock_queue.put.call_args[0][0]))
 
     @mock.patch('arvet_slam.systems.slam.orbslam2.multiprocessing', autospec=multiprocessing)
     def test_process_image_stereo_sends_left_and_right_image_to_subprocess(self, mock_multiprocessing):
@@ -1147,6 +1151,8 @@ class TestOrbSlam2(unittest.TestCase):
         mock_queue.qsize.return_value = 0
         mock_multiprocessing.Queue.return_value = mock_queue
         image = make_image(SensorMode.STEREO)
+        greyscale_left = convert_to_grey(image.left_pixels)
+        greyscale_right = convert_to_grey(image.right_pixels)
 
         subject = OrbSlam2(mode=SensorMode.STEREO, vocabulary_file=self.vocabulary_file)
         subject.set_camera_intrinsics(CameraIntrinsics(width=640, height=480, fx=320, fy=321, cx=322, cy=240), 1 / 29)
@@ -1161,8 +1167,8 @@ class TestOrbSlam2(unittest.TestCase):
         subject.process_image(image, 12)
         self.assertTrue(mock_queue.put.called)
         self.assertIn(12, [elem for elem in mock_queue.put.call_args[0][0] if isinstance(elem, int)])
-        self.assertTrue(np.any([np.array_equal(image.left_pixels, elem) for elem in mock_queue.put.call_args[0][0]]))
-        self.assertTrue(np.any([np.array_equal(image.right_pixels, elem) for elem in mock_queue.put.call_args[0][0]]))
+        self.assertTrue(np.any([np.array_equal(greyscale_left, elem) for elem in mock_queue.put.call_args[0][0]]))
+        self.assertTrue(np.any([np.array_equal(greyscale_right, elem) for elem in mock_queue.put.call_args[0][0]]))
 
     def test_finish_trial_raises_exception_if_unstarted(self):
         subject = OrbSlam2(mode=SensorMode.MONOCULAR, vocabulary_file=self.vocabulary_file)

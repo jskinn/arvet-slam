@@ -102,7 +102,7 @@ class DSO(VisionSystem):
         :rtype: bool
         """
         return image_source.sequence_type == ImageSequenceType.SEQUENTIAL and \
-               check_resolution(image_source.camera_intrinsics)
+            check_resolution(image_source.camera_intrinsics)
 
     def get_columns(self) -> typing.Set[str]:
         """

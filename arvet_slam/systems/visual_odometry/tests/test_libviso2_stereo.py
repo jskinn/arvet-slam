@@ -63,7 +63,7 @@ class TestLibVisOStereoDatabase(unittest.TestCase):
         all_entities[0].delete()
 
     def test_result_saves(self):
-        image_manager = im_manager.DefaultImageManager(dbconn.image_file)
+        image_manager = im_manager.DefaultImageManager(dbconn.image_file, allow_write=True)
         im_manager.set_image_manager(image_manager)
 
         # Make an image collection with some number of images
@@ -256,6 +256,14 @@ class TestLibVisOStereo(unittest.TestCase):
     def test_get_columns_returns_column_list(self):
         subject = LibVisOStereoSystem()
         self.assertEqual({
+            'seed',
+            'in_width',
+            'in_height',
+            'in_fx',
+            'in_fy',
+            'in_cx',
+            'in_cy',
+            'base',
             'matcher_nms_n',
             'matcher_nms_tau',
             'matcher_match_binsize',
@@ -310,7 +318,16 @@ class TestLibVisOStereo(unittest.TestCase):
             inlier_threshold=inlier_threshold,
             reweighting=reweighting
         )
-        self.assertEqual({
+        properties = subject.get_properties()
+        for key, value in {
+            'seed': np.nan,
+            'in_width': np.nan,
+            'in_height': np.nan,
+            'in_fx': np.nan,
+            'in_fy': np.nan,
+            'in_cx': np.nan,
+            'in_cy': np.nan,
+            'base': np.nan,
             'matcher_nms_n': matcher_nms_n,
             'matcher_nms_tau': matcher_nms_tau,
             'matcher_match_binsize': matcher_match_binsize,
@@ -327,7 +344,13 @@ class TestLibVisOStereo(unittest.TestCase):
             'ransac_iters': ransac_iters,
             'inlier_threshold': inlier_threshold,
             'reweighting': reweighting
-        }, subject.get_properties())
+        }.items():
+            self.assertIn(key, properties)
+            if isinstance(value, float) and np.isnan(value):
+                self.assertTrue(np.isnan(properties[key]))
+            else:
+                self.assertEqual(value, properties[key])
+
 
     def test_get_properties_returns_only_requested_columns_that_exist(self):
         matcher_nms_n = 10
@@ -411,9 +434,12 @@ class TestLibVisOStereoExecution(ExtendedTestCase):
         self.assertIsNotNone(result.run_time)
         self.assertEqual({
             'seed': 0,
-            'focal_distance': image_builder.focal_length,
-            'cu': image_builder.width / 2,
-            'cv': image_builder.height / 2,
+            'in_fx': image_builder.focal_length,
+            'in_fy': image_builder.focal_length,
+            'in_cu': image_builder.width / 2,
+            'in_cv': image_builder.height / 2,
+            'in_width': image_builder.width,
+            'in_height': image_builder.height,
             'base': image_builder.stereo_offset
         }, result.settings)
         self.assertEqual(num_frames, len(result.results))

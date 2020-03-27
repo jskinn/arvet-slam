@@ -98,7 +98,7 @@ class TestDSODatabase(unittest.TestCase):
         all_entities[0].delete()
 
     def test_result_saves(self):
-        image_manager = im_manager.DefaultImageManager(dbconn.image_file)
+        image_manager = im_manager.DefaultImageManager(dbconn.image_file, allow_write=True)
         im_manager.set_image_manager(image_manager)
 
         # Make an image collection with some number of images
@@ -301,6 +301,9 @@ class TestDSO(unittest.TestCase):
             )
         )
         mock_image_source = mock.create_autospec(ImageSource)
+        mock_image_source.camera_intrinsics = mock.Mock()
+        mock_image_source.camera_intrinsics.width = 640
+        mock_image_source.camera_intrinsics.height = 480
 
         mock_image_source.sequence_type = ImageSequenceType.SEQUENTIAL
         self.assertTrue(subject.is_image_source_appropriate(mock_image_source))
@@ -310,6 +313,43 @@ class TestDSO(unittest.TestCase):
 
         mock_image_source.sequence_type = ImageSequenceType.INTERACTIVE
         self.assertFalse(subject.is_image_source_appropriate(mock_image_source))
+
+    def test_is_image_source_appropriate_returns_true_for_image_resolutions_that_are_valid(self):
+        subject = DSO(
+            rectification_mode=RectificationMode.CROP,
+            rectification_intrinsics=CameraIntrinsics(
+                width=640,
+                height=480,
+                fx=320,
+                fy=320,
+                cx=320,
+                cy=240
+            )
+        )
+        mock_image_source = mock.create_autospec(ImageSource)
+        mock_image_source.sequence_type = ImageSequenceType.SEQUENTIAL
+        mock_image_source.camera_intrinsics = mock.Mock()
+
+        mock_image_source.camera_intrinsics.height = 480
+
+        # DSO requires at least a 3 layer pyramid from resolution halving
+        # Valid dimensions can be halved at least 2 times, with resolutions greater than 5000 pixels
+        # - 16 is too small, it can be halved, but isn't enough pixels
+        # - 202 cannot be halved twice
+        # - 480 is valid
+        mock_image_source.camera_intrinsics.height = 640
+        for width in [16, 202, 480]:
+            mock_image_source.camera_intrinsics.width = width
+            self.assertEqual(width % 4 == 0 and (width / 4) * (640 / 4) > 5000,
+                             subject.is_image_source_appropriate(mock_image_source),
+                             f"Failed with resolution {width}x640")
+
+        mock_image_source.camera_intrinsics.width = 640
+        for height in [16, 202, 480]:
+            mock_image_source.camera_intrinsics.height = height
+            self.assertEqual(height % 4 == 0 and (height / 4) * (640 / 4) > 5000,
+                             subject.is_image_source_appropriate(mock_image_source),
+                             f"Failed with resolution 640x{height}")
 
     def test_start_trial_raises_exception_for_non_sequential_image_sources(self):
         subject = DSO(

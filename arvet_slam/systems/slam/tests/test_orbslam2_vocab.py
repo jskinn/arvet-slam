@@ -157,6 +157,7 @@ class TestORBSLAM2BuildVocabulary(unittest.TestCase):
         self.assertTrue(has_been_found)
 
 
+@unittest.skip
 class TestORBSLAM2VocabularyBuilder(unittest.TestCase):
     temp_folder = Path(__file__).parent / 'temp-test-orbslam2'
     vocab_file = Path(__file__).parent / 'ORBvoc-test.txt'
