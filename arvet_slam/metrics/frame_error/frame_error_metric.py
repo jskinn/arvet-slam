@@ -20,7 +20,7 @@ from arvet.core.image import Image
 from arvet.core.trial_result import TrialResult
 from arvet.core.metric import Metric, MetricResult, check_trial_collection
 from arvet.util.column_list import ColumnList
-import arvet.util.associate
+# import arvet.util.associate
 import arvet.util.transform as tf
 from arvet_slam.trials.slam.tracking_state import TrackingState
 from arvet_slam.trials.slam.visual_slam import SLAMTrialResult
@@ -54,9 +54,9 @@ class FrameError(pymodm.MongoModel):
     processing_time = fields.FloatField(default=np.nan)
 
     tracking = EnumField(TrackingState, default=TrackingState.OK)
-    absolute_error = fields.EmbeddedDocumentField(PoseError)
-    relative_error = fields.EmbeddedDocumentField(PoseError)
-    noise = fields.EmbeddedDocumentField(PoseError)
+    absolute_error = fields.EmbeddedDocumentField(PoseError, blank=True)
+    relative_error = fields.EmbeddedDocumentField(PoseError, blank=True)
+    noise = fields.EmbeddedDocumentField(PoseError, blank=True)
     num_features = fields.IntegerField(default=0)
     num_matches = fields.IntegerField(default=0)
 
@@ -231,63 +231,82 @@ class FrameErrorMetric(Metric):
                 message=invalid_reason
             )
 
-        # First, we need to find the average computed motions, so we can estimate noise
-        if len(trial_results) > 1:
-            mean_computed_motions = find_average_motions([
-                trial_result.get_computed_camera_motions() for trial_result in trial_results
-            ])
-        else:
-            # We don't want to estimate noise for a single trajectory, in that case it should always be NaN
-            mean_computed_motions = {}
+        # Make sure we have a non-zero number of trials to measure
+        if len(trial_results) <= 0:
+            return MetricResult(
+                metric=self,
+                trial_results=trial_results,
+                success=False,
+                message="Cannot measure zero trials."
+            )
+
+        # Ensure the trials all have the same number of results
+        for repeat, trial_result in enumerate(trial_results[1:]):
+            if len(trial_result.results) != len(trial_results[0].results):
+                return MetricResult(
+                    metric=self,
+                    trial_results=trial_results,
+                    success=False,
+                    message=f"Repeat {repeat + 1} has a different number of frames "
+                            f"({len(trial_result.results)} != {len(trial_results[0].results)})"
+                )
 
         # Then, tally all the errors for all the computed trajectories
         estimate_errors = []
         image_columns = set()
-        for repeat, trial_result in enumerate(trial_results):
-            # Find a mapping from the timestamps in the frame results to the timestamps in the average trajectory
-            to_average = {
-                k: v for k, v in arvet.util.associate.associate(
-                    {frame_result.timestamp: True for frame_result in trial_result.results}, mean_computed_motions,
-                    offset=0, max_difference=0.1
-                )
-            }
-            scaled_motions = trial_result.get_computed_camera_motions()
-            scaled_trajectory = trial_result.get_computed_camera_poses()
-            gt_origin = None
-            estimate_origin = None
-            for frame_result in trial_result.results:
-                # Collect together the error statistics for this frame result
-                image_columns |= frame_result.image.get_columns()
-                frame_error = FrameError(
-                    trial_result=trial_result,
-                    repeat=repeat,
-                    timestamp=frame_result.timestamp,
-                    image=frame_result.image,
-                    tracking=frame_result.tracking_state,
-                    processing_time=frame_result.processing_time,
-                    motion=frame_result.motion,
-                    num_features=frame_result.num_features,
-                    num_matches=frame_result.num_matches
-                )
-                if frame_result.timestamp in scaled_trajectory and \
-                        scaled_trajectory[frame_result.timestamp] is not None:
-                    if estimate_origin is None:
-                        gt_origin = frame_result.pose
-                        estimate_origin = scaled_trajectory[frame_result.timestamp]
-                    frame_error.absolute_error = make_pose_error(
-                        estimate_origin.find_relative(scaled_trajectory[frame_result.timestamp]),
-                        gt_origin.find_relative(frame_result.pose)
-                    )
-                if frame_result.timestamp in scaled_motions and scaled_motions[frame_result.timestamp] is not None:
-                    frame_error.relative_error = make_pose_error(
-                        scaled_motions[frame_result.timestamp], frame_result.motion)
-                    if frame_result.timestamp in to_average and \
-                            mean_computed_motions[to_average[frame_result.timestamp]] is not None:
-                        frame_error.noise = make_pose_error(
-                            scaled_motions[frame_result.timestamp],
-                            mean_computed_motions[to_average[frame_result.timestamp]]
-                        )
-                estimate_errors.append(frame_error)
+        estimate_origins = [None for _ in range(len(trial_results))]
+        ground_truth_origins = [None for _ in range(len(trial_results))]
+        for frame_idx, frame_results in enumerate(zip(*(trial_result.results for trial_result in trial_results))):
+            # Get the estimated motions and absolute poses for each trial
+            # The trial result handles rescaling them to the ground truth if the scale was not available.
+            scaled_motions = [trial_result.get_scaled_motion(frame_idx) for trial_result in trial_results]
+            scaled_poses = [trial_result.get_scaled_pose(frame_idx) for trial_result in trial_results]
+
+            # Find the average estimated motion for this frame across all the different trials
+            # The average is not available for frames with only a single estimate
+            non_null_motions = [motion for motion in scaled_motions if motion is not None]
+            if len(non_null_motions) > 1:
+                average_motion = tf.compute_average_pose(non_null_motions)
+            else:
+                average_motion = None
+
+            # Union the image columns for all the images for all the frame results
+            image_columns |= set(
+                column for frame_result in frame_results for column in frame_result.image.get_columns())
+
+            # Look for the first frame for each trial where the estimated pose is defined, record it as the origin
+            # This aligns the two maps, even if it didn't start at the same place
+            for repeat_idx, estimated_pose in enumerate(scaled_poses):
+                if estimate_origins[repeat_idx] is None and estimated_pose is not None:
+                    estimate_origins[repeat_idx] = estimated_pose
+                    ground_truth_origins[repeat_idx] = frame_results[repeat_idx].pose
+
+            estimate_errors.extend(FrameError(
+                trial_result=trial_results[repeat_idx],
+                repeat=repeat_idx,
+                timestamp=frame_result.timestamp,
+                image=frame_result.image,
+                tracking=frame_result.tracking_state,
+                processing_time=frame_result.processing_time,
+                motion=frame_result.motion,
+                num_features=frame_result.num_features,
+                num_matches=frame_result.num_matches,
+                # Compute the error in the absolute estimated pose (if available)
+                absolute_error=make_pose_error(
+                    estimate_origins[repeat_idx].find_relative(scaled_poses[repeat_idx]),
+                    ground_truth_origins[repeat_idx].find_relative(frame_result.pose)
+                ) if scaled_poses[repeat_idx] is not None else None,
+                # Compute the error of the motion relative to the true motion
+                relative_error=make_pose_error(
+                    scaled_motions[repeat_idx],
+                    frame_result.motion
+                ) if scaled_motions[repeat_idx] is not None else None,
+                # Compute the error between the motion and the average estimated motion
+                noise=make_pose_error(
+                    scaled_motions[repeat_idx],
+                    average_motion
+                ) if scaled_motions[repeat_idx] is not None and average_motion is not None else None
+            ) for repeat_idx, frame_result in enumerate(frame_results))
 
         # Once we've tallied all the results, either succeed or fail based on the number of results.
         if len(estimate_errors) <= 0:
@@ -360,7 +379,7 @@ def find_average_motions(trajectories: typing.Iterable[typing.Mapping[float, tf.
     for traj in trajectories:
         traj_times = set(traj.keys())
         # First, add all the times that can be associated to an existing time
-        matches = arvet.util.associate.associate(associated_times, traj, offset=0, max_difference=0.1)
+        matches = associate(associated_times, traj, offset=0, max_difference=0.1)
         for match in matches:
             associated_times[match[0]].append(match[1])
             if traj[match[1]] is not None:
@@ -395,3 +414,48 @@ def quat_cosine(q1: typing.Union[typing.Sequence, np.ndarray], q2: typing.Union[
 
     # We only care about the scalar component, compose only that
     return q_inv[0] * q2[0] - q_inv[1] * q2[1] - q_inv[2] * q2[2] - q_inv[3] * q2[3]
+
+
+def associate(first_list, second_list, offset, max_difference, window=3):
+    """
+    Associate two dictionaries of (stamp,data). As the time stamps never match exactly, we aim
+    to find the closest match for every input tuple.
+
+    Input:
+    first_list -- first dictionary of (stamp,data) tuples
+    second_list -- second dictionary of (stamp,data) tuples
+    offset -- time offset between both dictionaries (e.g., to model the delay between the sensors)
+    max_difference -- search radius for candidate generation
+
+    Output:
+    matches -- list of matched tuples ((stamp1,data1),(stamp2,data2))
+
+    """
+    # first_keys = list(first_list.keys())  # copy both keys lists, so we can remove from them later
+    # second_keys = list(second_list.keys())
+    # potential_matches = [(abs(a - (b + offset)), a, b)
+    #                      for a in first_keys
+    #                      for b in second_keys
+    #                      if abs(a - (b + offset)) < max_difference]
+
+    first_keys = sorted(first_list.keys())
+    second_keys = sorted(second_list.keys())
+    if first_keys == second_keys:
+        return [(a, a) for a in first_keys]
+    potential_matches = [
+        (abs(a - (b + offset)), a, b)
+        for idx, a in enumerate(first_keys)
+        for b in second_keys[max(0, idx - window):min(len(second_keys), idx + window)]
+        if abs(a - (b + offset)) < max_difference
+    ]
+
+    potential_matches.sort()
+    matches = []
+    for diff, a, b in potential_matches:
+        if a in first_keys and b in second_keys:
+            first_keys.remove(a)
+            second_keys.remove(b)
+            matches.append((a, b))
+
+    matches.sort()
+    return matches

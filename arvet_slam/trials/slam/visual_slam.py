@@ -46,7 +46,8 @@ class SLAMTrialResult(TrialResult):
         super(SLAMTrialResult, self).__init__(*args, **kwargs)
 
         # Lazy-compute the scale
-        self.ground_truth_scale = None
+        self._ground_truth_scale = None
+        self._estimated_scale = None
 
         # If the results aren't sorted, re-sort them
         if not all(self.results[idx].timestamp >= self.results[idx - 1].timestamp
@@ -178,6 +179,94 @@ class SLAMTrialResult(TrialResult):
     def ground_truth_trajectory(self) -> typing.Mapping[float, Transform]:
         return {result.timestamp: result.pose for result in self.results}
 
+    @property
+    def ground_truth_scale(self) -> float:
+        """
+        Get the scale of the ground truth motions.
+        That is, the average speed of the ground truth
+        When dealing with monocular trajectories, we re-scale so that the average speed is the same
+        :return:
+        """
+        if self._ground_truth_scale is None:
+            # Compute it once, but not until we need it
+            self._ground_truth_scale = th.find_trajectory_scale(self.ground_truth_trajectory)
+        return self._ground_truth_scale
+
+    @property
+    def estimated_scale(self) -> float:
+        """
+        Get the scale of the ground truth motions.
+        That is, the average speed of the ground truth
+        When dealing with monocular trajectories, we re-scale so that the average speed is the same
+        :return:
+        """
+        if self._estimated_scale is None:
+            # Compute it once, but not until we need it
+            speeds = [
+                np.linalg.norm(r1.estimated_motion.location) / (r1.timestamp - r0.timestamp)
+                for r1, r0 in zip(self.results[1:], self.results[:-1])
+                if r1.estimated_motion is not None
+            ]
+            if len(speeds) > 0:
+                self._estimated_scale = np.mean(speeds)
+            else:
+                self._estimated_scale = 0
+        return self._estimated_scale
+
+    def get_scaled_motion(self, index: int) -> typing.Union[Transform, None]:
+        """
+        Get the motion of the camera from a particular frame, re-scaled to the ground truth motion
+        if the system didn't have scale available when it ran.
+        May return None if there is no available estimate
+        :param index:
+        :return:
+        """
+        if not 0 <= index < len(self.results):
+            return None
+        base_motion = self.results[index].estimated_motion
+        if self.has_scale or base_motion is None:
+            return base_motion
+        return Transform(
+            location=(self.ground_truth_scale / self.estimated_scale) * base_motion.location,
+            rotation=base_motion.rotation_quat(w_first=True),
+            w_first=True
+        )
+
+    def get_scaled_pose(self, index: int) -> typing.Union[Transform, None]:
+        """
+        Get the estimated pose of the camera.
+        If the system couldn't infer scale (i.e., it was monocular), then the estimated poses will be re-scaled
+        so that the average distances between poses is the same as the average distance between poses
+        in the ground truth.
+        That is an affine transformation, so it doesn't
+        :param index:
+        :return:
+        """
+        if not 0 <= index < len(self.results):
+            return None
+        base_pose = self.results[index].estimated_pose
+        if self.has_scale or base_pose is None:
+            return base_pose
+        return Transform(
+            location=(self.ground_truth_scale / self.estimated_scale) * base_pose.location,
+            rotation=base_pose.rotation_quat(w_first=True),
+            w_first=True
+        )
+        # prev_pose = next((
+        #     self.results[idx].estimated_pose for idx in range(index - 1, -1, -1)
+        #     if self.results[idx].estimated_pose is not None
+        # ), None)
+        # if prev_pose is None:
+        #     return base_pose
+        # motion = prev_pose.find_relative(base_pose)
+        # return Transform(
+        #     location=prev_pose.find_independent(
+        #         (self.ground_truth_scale / self.estimated_scale) * motion.location
+        #     ),
+        #     rotation=base_pose.rotation_quat(w_first=True),
+        #     w_first=True
+        # )
+
     def get_computed_camera_poses(self, rescale: bool = True) -> typing.Mapping[float, Transform]:
         """
         Get the computed camera poses (absolute world positions)
@@ -188,9 +277,7 @@ class SLAMTrialResult(TrialResult):
         if self.has_scale or not rescale:
             return self.trajectory
         # This is a monocular trajectory, so might be out of scale relative to the ground truth.
-        # We rescale
-        if self.ground_truth_scale is None:
-            self.ground_truth_scale = th.find_trajectory_scale(self.ground_truth_trajectory)
+        # We re-scale using the ground truth
         return th.rescale_trajectory(self.trajectory, self.ground_truth_scale)
 
     def get_computed_camera_motions(self, rescale: bool = True) -> typing.Mapping[float, Transform]:
@@ -205,8 +292,6 @@ class SLAMTrialResult(TrialResult):
         }
         if self.has_scale or not rescale:
             return motions
-        if self.ground_truth_scale is None:
-            self.ground_truth_scale = th.find_trajectory_scale(self.ground_truth_trajectory)
         speeds = [
             np.linalg.norm(self.results[idx].estimated_motion.location) /
             (self.results[idx].timestamp - self.results[idx - 1].timestamp)

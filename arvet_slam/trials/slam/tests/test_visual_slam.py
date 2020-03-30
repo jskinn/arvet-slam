@@ -443,6 +443,364 @@ class TestSLAMTrialResult(ExtendedTestCase):
         for idx in range(estimate_start, 10):
             self.assertNPEqual((15 * idx, idx, 0), obj.results[idx].estimated_pose.location)
 
+    def test_ground_truth_scale_is_average_speed_of_ground_truth(self):
+        results = [
+            FrameResult(
+                timestamp=0.9 * idx,
+                pose=Transform(
+                    (15 * idx, idx, 0),
+                    (1, 0, 0, 0), w_first=True
+                ),
+                tracking_state=TrackingState.OK
+            )
+            for idx in range(10)
+        ]
+        obj = SLAMTrialResult(
+            success=True,
+            results=results,
+            has_scale=True
+        )
+        self.assertEqual(np.sqrt(15 * 15 + 1) / 0.9, obj.ground_truth_scale)
+
+    def test_estimated_scale_is_average_speed_of_estimated_motions(self):
+        estimate_start = 5
+
+        results = [
+            FrameResult(
+                timestamp=0.9 * idx,
+                pose=Transform(
+                    (15 * idx, idx, 0),
+                    (1, 0, 0, 0), w_first=True
+                ),
+                estimated_motion=Transform(
+                    (1.5, 0.1, 0),
+                    (1, 0, 0, 0), w_first=True
+                ) if idx > estimate_start else None,  # Motions start the frame after 'estimate_start'
+                tracking_state=TrackingState.OK
+            )
+            for idx in range(10)
+        ]
+        obj = SLAMTrialResult(
+            success=True,
+            results=results,
+            has_scale=False
+        )
+        self.assertEqual(np.sqrt(1.5 * 1.5 + 0.1 * 0.1) / 0.9, obj.estimated_scale)
+
+    def test_get_scaled_motion_returns_None_for_indices_out_of_range(self):
+        num_results = 10
+        results = [
+            FrameResult(
+                timestamp=0.9 * idx,
+                pose=Transform(
+                    (15 * idx, idx, 0),
+                    (1, 0, 0, 0), w_first=True
+                ),
+                estimated_motion=Transform(
+                    (1.5, 0.1, 0),
+                    (1, 0, 0, 0), w_first=True
+                ),
+                tracking_state=TrackingState.OK
+            )
+            for idx in range(num_results)
+        ]
+        obj = SLAMTrialResult(
+            success=True,
+            results=results,
+            has_scale=True
+        )
+        self.assertIsNone(obj.get_scaled_motion(-1))
+        self.assertIsNone(obj.get_scaled_motion(-30))
+        self.assertIsNone(obj.get_scaled_motion(30 * num_results))
+
+    def test_get_scaled_motion_returns_none_when_no_estimate_is_available(self):
+        num_results = 10
+        estimate_start = 5
+
+        results = [
+            FrameResult(
+                timestamp=0.9 * idx,
+                pose=Transform(
+                    (15 * idx, idx, 0),
+                    (1, 0, 0, 0), w_first=True
+                ),
+                estimated_motion=Transform(
+                    (1.5, 0.1, 0),
+                    (1, 0, 0, 0), w_first=True
+                ) if idx > estimate_start else None,  # Motions start the frame after 'estimate_start'
+                tracking_state=TrackingState.OK
+            )
+            for idx in range(num_results)
+        ]
+        obj = SLAMTrialResult(
+            success=True,
+            results=results,
+            has_scale=True
+        )
+        for idx in range(num_results):
+            if idx <= estimate_start:
+                self.assertIsNone(obj.get_scaled_motion(idx))
+            else:
+                self.assertIsInstance(obj.get_scaled_motion(idx), Transform)
+
+        obj = SLAMTrialResult(
+            success=True,
+            results=results,
+            has_scale=False
+        )
+        for idx in range(num_results):
+            if idx <= estimate_start:
+                self.assertIsNone(obj.get_scaled_motion(idx))
+            else:
+                self.assertIsInstance(obj.get_scaled_motion(idx), Transform)
+
+    def test_get_scaled_motion_returns_the_estimated_motion_if_has_scale(self):
+        system = mock_types.MockSystem()
+        image_source = mock_types.MockImageSource()
+        mock_image = mock.create_autospec(Image)
+        num_results = 10
+        estimate_start = 5
+
+        results = [
+            FrameResult(
+                timestamp=0.9 * idx,
+                image=mock_image,
+                processing_time=np.random.uniform(0.01, 1),
+                pose=Transform(
+                    (15 * idx, idx, 0),
+                    (1, 0, 0, 0), w_first=True
+                ),
+                estimated_motion=Transform(
+                    (1.5, 0.1, 0),
+                    tf3d.quaternions.axangle2quat((1, 2, 3), np.pi / (2 * num_results)), w_first=True
+                ) if idx > estimate_start else None,  # Motions start the frame after 'estimate_start'
+                tracking_state=TrackingState.OK,
+                num_features=np.random.randint(10, 1000),
+                num_matches=np.random.randint(10, 1000)
+            )
+            for idx in range(num_results)
+        ]
+        obj = SLAMTrialResult(
+            system=system,
+            image_source=image_source,
+            success=True,
+            results=results,
+            has_scale=True
+        )
+        for idx in range(num_results):
+            if idx <= estimate_start:
+                self.assertIsNone(obj.get_scaled_motion(idx))
+            else:
+                self.assertEqual(
+                    Transform(
+                        location=(1.5, 0.1, 0),
+                        rotation=tf3d.quaternions.axangle2quat((1, 2, 3), np.pi / (2 * num_results)),
+                        w_first=True
+                    ),
+                    obj.get_scaled_motion(idx)
+                )
+
+    def test_get_scaled_motion_rescales_to_the_ground_truth_if_not_has_scale(self):
+        system = mock_types.MockSystem()
+        image_source = mock_types.MockImageSource()
+        mock_image = mock.create_autospec(Image)
+        num_results = 10
+        estimate_start = 4
+
+        results = [
+            FrameResult(
+                timestamp=0.9 * idx,
+                image=mock_image,
+                processing_time=np.random.uniform(0.01, 1),
+                pose=Transform(
+                    (15 * idx, idx, 0),
+                    (1, 0, 0, 0), w_first=True
+                ),
+                estimated_motion=Transform(
+                    (1.5, 0.1, 0),
+                    tf3d.quaternions.axangle2quat((1, 2, 3), np.pi / (2 * num_results)), w_first=True
+                ) if idx > estimate_start else None,  # Motions start the frame after 'estimate_start'
+                tracking_state=TrackingState.OK,
+                num_features=np.random.randint(10, 1000),
+                num_matches=np.random.randint(10, 1000)
+            )
+            for idx in range(num_results)
+        ]
+        obj = SLAMTrialResult(
+            system=system,
+            image_source=image_source,
+            success=True,
+            results=results,
+            has_scale=False
+        )
+        for idx in range(num_results):
+            if idx <= estimate_start:
+                self.assertIsNone(obj.get_scaled_motion(idx))
+            else:
+                motion = obj.get_scaled_motion(idx)
+                self.assertNPEqual((15, 1, 0), motion.location)
+                self.assertNPEqual(
+                    tf3d.quaternions.axangle2quat((1, 2, 3), np.pi / (2 * num_results)),
+                    motion.rotation_quat(True)
+                )
+
+    def test_get_scaled_pose_returns_None_for_indices_out_of_range(self):
+        num_results = 10
+        results = [
+            FrameResult(
+                timestamp=0.9 * idx,
+                pose=Transform(
+                    (15 * idx, idx, 0),
+                    (1, 0, 0, 0), w_first=True
+                ),
+                estimated_motion=Transform(
+                    (1.5, 0.1, 0),
+                    (1, 0, 0, 0), w_first=True
+                ),
+                tracking_state=TrackingState.OK
+            )
+            for idx in range(num_results)
+        ]
+        obj = SLAMTrialResult(
+            success=True,
+            results=results,
+            has_scale=True
+        )
+        self.assertIsNone(obj.get_scaled_pose(-1))
+        self.assertIsNone(obj.get_scaled_pose(-30))
+        self.assertIsNone(obj.get_scaled_pose(30 * num_results))
+
+    def test_get_scaled_pose_returns_none_when_no_estimate_is_available(self):
+        num_results = 10
+        estimate_start = 5
+
+        results = [
+            FrameResult(
+                timestamp=0.9 * idx,
+                pose=Transform(
+                    (15 * idx, idx, 0),
+                    (1, 0, 0, 0), w_first=True
+                ),
+                estimated_pose=Transform(
+                    (1.5 * idx, 0.1 * idx, 0),
+                    (1, 0, 0, 0), w_first=True
+                ) if idx > estimate_start else None,  # Motions start the frame after 'estimate_start'
+                tracking_state=TrackingState.OK
+            )
+            for idx in range(num_results)
+        ]
+        obj = SLAMTrialResult(
+            success=True,
+            results=results,
+            has_scale=True
+        )
+        for idx in range(num_results):
+            if idx <= estimate_start:
+                self.assertIsNone(obj.get_scaled_pose(idx))
+            else:
+                self.assertIsInstance(obj.get_scaled_pose(idx), Transform)
+
+        obj = SLAMTrialResult(
+            success=True,
+            results=results,
+            has_scale=False
+        )
+        for idx in range(num_results):
+            if idx <= estimate_start:
+                self.assertIsNone(obj.get_scaled_pose(idx))
+            else:
+                self.assertIsInstance(obj.get_scaled_pose(idx), Transform)
+
+    def test_get_scaled_pose_returns_the_estimated_pose_if_has_scale(self):
+        system = mock_types.MockSystem()
+        image_source = mock_types.MockImageSource()
+        mock_image = mock.create_autospec(Image)
+        num_results = 10
+        estimate_start = 5
+
+        results = [
+            FrameResult(
+                timestamp=0.9 * idx,
+                image=mock_image,
+                processing_time=np.random.uniform(0.01, 1),
+                pose=Transform(
+                    (15 * idx, idx, 0),
+                    (1, 0, 0, 0), w_first=True
+                ),
+                estimated_pose=Transform(
+                    (1.5 * idx, 0.1 * idx, 0),
+                    tf3d.quaternions.axangle2quat((1, 2, 3), idx * np.pi / (2 * num_results)), w_first=True
+                ) if idx > estimate_start else None,  # Motions start the frame after 'estimate_start'
+                tracking_state=TrackingState.OK,
+                num_features=np.random.randint(10, 1000),
+                num_matches=np.random.randint(10, 1000)
+            )
+            for idx in range(num_results)
+        ]
+        obj = SLAMTrialResult(
+            system=system,
+            image_source=image_source,
+            success=True,
+            results=results,
+            has_scale=True
+        )
+        for idx in range(num_results):
+            if idx <= estimate_start:
+                self.assertIsNone(obj.get_scaled_pose(idx))
+            else:
+                self.assertEqual(
+                    Transform(
+                        location=(1.5 * idx, 0.1 * idx, 0),
+                        rotation=tf3d.quaternions.axangle2quat((1, 2, 3), idx * np.pi / (2 * num_results)),
+                        w_first=True
+                    ),
+                    obj.get_scaled_pose(idx)
+                )
+
+    def test_get_scaled_pose_rescales_to_the_ground_truth_if_not_has_scale(self):
+        system = mock_types.MockSystem()
+        image_source = mock_types.MockImageSource()
+        mock_image = mock.create_autospec(Image)
+        num_results = 10
+        estimate_start = 4
+
+        results = [
+            FrameResult(
+                timestamp=0.9 * idx,
+                image=mock_image,
+                processing_time=np.random.uniform(0.01, 1),
+                pose=Transform(
+                    (15 * idx, idx, 0),
+                    (1, 0, 0, 0), w_first=True
+                ),
+                estimated_pose=Transform(
+                    (1.5 * idx, 0.1 * idx, 0),
+                    tf3d.quaternions.axangle2quat((1, 2, 3), idx * np.pi / (2 * num_results)), w_first=True
+                ) if idx >= estimate_start else None,  # Motions start the frame after 'estimate_start'
+                tracking_state=TrackingState.OK,
+                num_features=np.random.randint(10, 1000),
+                num_matches=np.random.randint(10, 1000)
+            )
+            for idx in range(num_results)
+        ]
+        obj = SLAMTrialResult(
+            system=system,
+            image_source=image_source,
+            success=True,
+            results=results,
+            has_scale=False
+        )
+        for idx in range(num_results):
+            if idx < estimate_start:
+                self.assertIsNone(obj.get_scaled_pose(idx))
+            else:
+                pose = obj.get_scaled_pose(idx)
+                self.assertNPClose((15 * idx, idx, 0), pose.location, rtol=0, atol=1e15)
+                self.assertNPEqual(
+                    tf3d.quaternions.axangle2quat((1, 2, 3), idx * np.pi / (2 * num_results)),
+                    pose.rotation_quat(True)
+                )
+
     def test_get_computed_camera_poses_rescales_trajectory(self):
         system = mock_types.MockSystem()
         image_source = mock_types.MockImageSource()
@@ -580,6 +938,63 @@ class TestSLAMTrialResult(ExtendedTestCase):
             result.timestamp: result.estimated_pose for result in results
         }, estimated_trajectory)
 
+    def test_get_computed_camera_poses_gives_the_same_results_as_get_scaled_pose(self):
+        system = mock_types.MockSystem()
+        image_source = mock_types.MockImageSource()
+        mock_image = mock.create_autospec(Image)
+
+        results = [
+            FrameResult(
+                timestamp=idx + np.random.normal(0, 0.01),
+                image=mock_image,
+                processing_time=np.random.uniform(0.01, 1),
+                pose=Transform(
+                    (idx * 15 + np.random.normal(0, 1), idx + np.random.normal(0, 0.1), np.random.normal(0, 1)),
+                    tf3d.quaternions.axangle2quat((1, 2, 3), idx * np.pi / 36), w_first=True
+                ),
+                estimated_pose=Transform(
+                    (idx * 1.51 + np.random.normal(0, 0.1),
+                     0.1 * idx + np.random.normal(0, 0.01), np.random.normal(0, 0.1)),
+                    tf3d.quaternions.axangle2quat((1, 2, 3), 9 * idx * np.pi / 288), w_first=True
+                ),
+                tracking_state=TrackingState.OK,
+                num_features=np.random.randint(10, 1000),
+                num_matches=np.random.randint(10, 1000)
+            )
+            for idx in range(10)
+        ]
+        obj = SLAMTrialResult(
+            system=system,
+            image_source=image_source,
+            success=True,
+            results=results,
+            has_scale=False
+        )
+        estimated_trajectory = obj.get_computed_camera_poses(rescale=True)
+
+        first_trajectory_pose = None
+        first_scaled_pose = None
+        for idx in range(len(obj.results)):
+            timestamp = obj.results[idx].timestamp
+            scaled_pose = obj.get_scaled_pose(idx)
+            self.assertIn(timestamp, estimated_trajectory)
+            if scaled_pose is None:
+                self.assertIsNone(estimated_trajectory[timestamp])
+            else:
+                # The estimated trajectory and scaled pose should have the same scale,
+                # but will have different origins.
+                # Thus, we normalise the origin before comparing.
+                if first_trajectory_pose is None:
+                    first_trajectory_pose = estimated_trajectory[timestamp]
+                if first_scaled_pose is None:
+                    first_scaled_pose = scaled_pose
+                normalised_trajectory_pose = first_trajectory_pose.find_relative(estimated_trajectory[timestamp])
+                normalised_scaled_pose = first_scaled_pose.find_relative(scaled_pose)
+                self.assertNPClose(normalised_scaled_pose.location,
+                                   normalised_trajectory_pose.location, atol=0, rtol=1e-15)
+                self.assertNPClose(normalised_scaled_pose.rotation_quat(True),
+                                   normalised_trajectory_pose.rotation_quat(True), atol=0, rtol=1e-15)
+
     def test_get_computed_camera_motions_rescales(self):
         system = mock_types.MockSystem()
         image_source = mock_types.MockImageSource()
@@ -716,6 +1131,50 @@ class TestSLAMTrialResult(ExtendedTestCase):
         self.assertEqual({
             result.timestamp: result.estimated_motion for result in results
         }, estimated_motions)
+
+    def test_get_computed_camera_motions_gives_the_same_results_as_get_scaled_motion(self):
+        system = mock_types.MockSystem()
+        image_source = mock_types.MockImageSource()
+        mock_image = mock.create_autospec(Image)
+
+        results = [
+            FrameResult(
+                timestamp=idx + np.random.normal(0, 0.01),
+                image=mock_image,
+                processing_time=np.random.uniform(0.01, 1),
+                pose=Transform(
+                    (idx * 15 + np.random.normal(0, 1), idx + np.random.normal(0, 0.1), np.random.normal(0, 1)),
+                    tf3d.quaternions.axangle2quat((1, 2, 3), idx * np.pi / 36), w_first=True
+                ),
+                estimated_pose=Transform(
+                    (idx * 1.51 + np.random.normal(0, 0.1),
+                     0.1 * idx + np.random.normal(0, 0.01), np.random.normal(0, 0.1)),
+                    tf3d.quaternions.axangle2quat((1, 2, 3), 9 * idx * np.pi / 288), w_first=True
+                ),
+                tracking_state=TrackingState.OK,
+                num_features=np.random.randint(10, 1000),
+                num_matches=np.random.randint(10, 1000)
+            )
+            for idx in range(10)
+        ]
+        obj = SLAMTrialResult(
+            system=system,
+            image_source=image_source,
+            success=True,
+            results=results,
+            has_scale=False
+        )
+        estimated_motions = obj.get_computed_camera_motions(rescale=True)
+
+        for idx in range(len(obj.results)):
+            timestamp = obj.results[idx].timestamp
+            scaled_motion = obj.get_scaled_motion(idx)
+            self.assertIn(timestamp, estimated_motions)
+            if scaled_motion is None:
+                self.assertIsNone(estimated_motions[timestamp])
+            else:
+                self.assertNPEqual(scaled_motion.location, estimated_motions[timestamp].location)
+                self.assertNPEqual(scaled_motion.rotation_quat(True), estimated_motions[timestamp].rotation_quat(True))
 
 
 class TestSLAMTrialResultDatabase(unittest.TestCase):

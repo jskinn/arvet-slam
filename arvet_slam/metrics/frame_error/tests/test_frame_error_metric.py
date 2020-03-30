@@ -162,6 +162,15 @@ class TestFrameErrorMetric(unittest.TestCase):
         self.assertFalse(metric.is_trial_appropriate(mock_types.MockTrialResult()))
 
     @mock.patch('arvet_slam.metrics.frame_error.frame_error_metric.autoload_modules')
+    def test_returns_failed_metric_if_given_no_trials(self, _):
+        metric = FrameErrorMetric()
+        result = metric.measure_results([])
+
+        self.assertFalse(result.success)
+        self.assertGreater(len(result.message), 1)
+        self.assertIn('zero', result.message)
+
+    @mock.patch('arvet_slam.metrics.frame_error.frame_error_metric.autoload_modules')
     def test_returns_failed_metric_if_any_trials_have_failed(self, _):
         system = mock_types.MockSystem()
         image_source = mock_types.MockImageSource()
@@ -225,6 +234,31 @@ class TestFrameErrorMetric(unittest.TestCase):
         self.assertFalse(result.success)
         self.assertGreater(len(result.message), 1)
         self.assertIn('image source', result.message)
+
+    @mock.patch('arvet_slam.metrics.frame_error.frame_error_metric.autoload_modules')
+    def test_returns_failed_metric_if_the_trials_have_different_numbers_of_results(self, _):
+        system = mock_types.MockSystem()
+        image_source = mock_types.MockImageSource()
+
+        group1 = [
+            SLAMTrialResult(image_source=image_source, system=system, success=True,
+                            results=[FrameResult(timestamp=frame_idx) for frame_idx in range(5)])
+            for _ in range(3)
+        ]
+        group2 = [
+            SLAMTrialResult(image_source=image_source, system=system, success=True,
+                            results=[FrameResult(timestamp=frame_idx) for frame_idx in range(6)])
+            for _ in range(3)
+        ]
+
+        metric = FrameErrorMetric()
+        result = metric.measure_results(group1 + group2)
+
+        self.assertFalse(result.success)
+        self.assertGreater(len(result.message), 1)
+        self.assertIn('number of frames', result.message)
+        self.assertIn('5', result.message)
+        self.assertIn('6', result.message)
 
     @mock.patch('arvet_slam.metrics.frame_error.frame_error_metric.autoload_modules')
     def test_autoloads_image_sources_and_systems(self, mock_autoload):
@@ -533,7 +567,7 @@ class TestFrameErrorMetricOutput(unittest.TestCase):
         self.assertEqual(repeats * len(self.images), len(result.errors))
         for repeat in range(repeats):
             for idx in range(len(self.images)):
-                frame_error = result.errors[repeat * len(self.images) + idx]
+                frame_error = result.errors[idx * len(trial_results) + repeat]
                 frame_result = trial_results[repeat].results[idx]
                 self.assertEqual(repeat, frame_error.repeat)
                 self.assertEqual(frame_result.timestamp, frame_error.timestamp)
@@ -586,7 +620,7 @@ class TestFrameErrorMetricOutput(unittest.TestCase):
         self.assertEqual(repeats * len(self.images), len(result.errors))
         for repeat in range(repeats):
             for idx in range(len(self.images)):
-                frame_error = result.errors[repeat * len(self.images) + idx]
+                frame_error = result.errors[idx * len(trial_results) + repeat]
                 frame_result = trial_results[repeat].results[idx]
                 self.assertEqual(repeat, frame_error.repeat)
                 self.assertEqual(frame_result.timestamp, frame_error.timestamp)
@@ -659,7 +693,7 @@ class TestFrameErrorMetricOutput(unittest.TestCase):
         self.assertEqual(repeats * len(self.images), len(result.errors))
         for repeat in range(repeats):
             for idx in range(len(self.images)):
-                frame_error = result.errors[repeat * len(self.images) + idx]
+                frame_error = result.errors[idx * len(trial_results) + repeat]
                 frame_result = trial_results[repeat].results[idx]
                 self.assertEqual(repeat, frame_error.repeat)
                 self.assertEqual(frame_result.timestamp, frame_error.timestamp)
@@ -726,7 +760,7 @@ class TestFrameErrorMetricOutput(unittest.TestCase):
         self.assertEqual(repeats * len(self.images), len(result.errors))
         for repeat in range(repeats):
             for idx in range(len(self.images)):
-                frame_error = result.errors[repeat * len(self.images) + idx]
+                frame_error = result.errors[idx * len(trial_results) + repeat]
                 frame_result = trial_results[repeat].results[idx]
                 self.assertEqual(repeat, frame_error.repeat)
                 self.assertEqual(frame_result.timestamp, frame_error.timestamp)
@@ -770,7 +804,7 @@ class TestFrameErrorMetricOutput(unittest.TestCase):
         self.assertEqual(repeats * len(self.images), len(result.errors))
         for repeat in range(repeats):
             for idx in range(len(self.images)):
-                frame_error = result.errors[repeat * len(self.images) + idx]
+                frame_error = result.errors[idx * len(trial_results) + repeat]
                 frame_result = trial_results[repeat].results[idx]
                 self.assertEqual(repeat, frame_error.repeat)
                 self.assertEqual(frame_result.timestamp, frame_error.timestamp)
@@ -813,7 +847,7 @@ class TestFrameErrorMetricOutput(unittest.TestCase):
         self.assertEqual(repeats * len(self.images), len(result.errors))
         for repeat in range(repeats):
             for idx in range(len(self.images)):
-                frame_error = result.errors[repeat * len(self.images) + idx]
+                frame_error = result.errors[idx * len(trial_results) + repeat]
                 frame_result = trial_results[repeat].results[idx]
                 self.assertEqual(repeat, frame_error.repeat)
                 self.assertEqual(frame_result.timestamp, frame_error.timestamp)
@@ -892,7 +926,7 @@ class TestFrameErrorMetricOutput(unittest.TestCase):
         for repeat in range(repeats):
             has_been_lost = False
             for idx in range(len(self.images)):
-                frame_error = result.errors[repeat * len(self.images) + idx]
+                frame_error = result.errors[idx * len(trial_results) + repeat]
                 frame_result = trial_results[repeat].results[idx]
                 self.assertEqual(repeat, frame_error.repeat)
                 self.assertEqual(frame_result.timestamp, frame_error.timestamp)
