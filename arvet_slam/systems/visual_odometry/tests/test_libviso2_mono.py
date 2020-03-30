@@ -93,6 +93,7 @@ class TestLibVisOMonoDatabase(unittest.TestCase):
             subject.process_image(image, time)
         result = subject.finish_trial()
         self.assertIsInstance(result, SLAMTrialResult)
+        self.assertEqual(len(image_collection), len(result.results))
         result.image_source = image_collection
         result.save()
 

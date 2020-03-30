@@ -370,6 +370,7 @@ class TestOrbSlam2ResultDatabase(unittest.TestCase):
             subject.process_image(image, timestamp)
         result = subject.finish_trial()
         self.assertIsInstance(result, SLAMTrialResult)
+        self.assertEqual(len(image_collection), len(result.results))
         for frame_result in result.results:
             self.assertIsNotNone(frame_result.image)
         result.image_source = image_collection
@@ -444,6 +445,7 @@ class TestOrbSlam2ResultDatabase(unittest.TestCase):
             subject.process_image(image, timestamp)
         result = subject.finish_trial()
         self.assertIsInstance(result, SLAMTrialResult)
+        self.assertEqual(len(image_collection), len(result.results))
         for frame_result in result.results:
             self.assertIsNotNone(frame_result.image)
         result.image_source = image_collection
@@ -515,6 +517,7 @@ class TestOrbSlam2ResultDatabase(unittest.TestCase):
             subject.process_image(image, timestamp)
         result = subject.finish_trial()
         self.assertIsInstance(result, SLAMTrialResult)
+        self.assertEqual(len(image_collection), len(result.results))
         for frame_result in result.results:
             self.assertIsNotNone(frame_result.image)
         result.image_source = image_collection
@@ -944,19 +947,20 @@ class TestOrbSlam2(unittest.TestCase):
     @mock.patch('arvet_slam.systems.slam.orbslam2.tempfile', autospec=tempfile)
     @mock.patch('arvet_slam.systems.slam.orbslam2.multiprocessing', autospec=multiprocessing)
     def test_start_trial_saves_settings_file(self, _, mock_tempfile):
-        width = np.random.randint(300, 800)
-        height = np.random.randint(300, 800)
-        fx = np.random.uniform(0.9, 1.1) * width
-        fy = np.random.uniform(0.9, 1.1) * height
-        cx = np.random.uniform(0, 1) * width
-        cy = np.random.uniform(0, 1) * height
-        k1 = np.random.uniform(0, 1)
-        k2 = np.random.uniform(0, 1)
-        k3 = np.random.uniform(0, 1)
-        p1 = np.random.uniform(0, 1)
-        p2 = np.random.uniform(0, 1)
-        framerate = float(np.random.randint(200, 600) / 64)
-        stereo_offset = Transform(np.random.uniform(-1, 1, size=3))
+        random = np.random.RandomState(22)
+        width = random.randint(300, 800)
+        height = random.randint(300, 800)
+        fx = random.uniform(0.9, 1.1) * width
+        fy = random.uniform(0.9, 1.1) * height
+        cx = random.uniform(0, 1) * width
+        cy = random.uniform(0, 1) * height
+        k1 = random.uniform(0, 1)
+        k2 = random.uniform(0, 1)
+        k3 = random.uniform(0, 1)
+        p1 = random.uniform(0, 1)
+        p2 = random.uniform(0, 1)
+        framerate = float(random.randint(200, 600) / 64)
+        stereo_offset = Transform(random.uniform(-1, 1, size=3))
 
         mock_tempfile.mkstemp.return_value = (12, 'my_temp_file.yml')
         mock_file = InspectableStringIO()
@@ -969,12 +973,12 @@ class TestOrbSlam2(unittest.TestCase):
         subject = OrbSlam2(
             mode=SensorMode.STEREO,
             vocabulary_file=self.vocabulary_file,
-            depth_threshold=np.random.uniform(0, 255),
-            orb_num_features=np.random.randint(0, 8000),
-            orb_scale_factor=np.random.uniform(0, 2),
-            orb_num_levels=np.random.randint(1, 10),
-            orb_ini_threshold_fast=np.random.randint(15, 100),
-            orb_min_threshold_fast=np.random.randint(0, 15)
+            depth_threshold=random.uniform(0, 255),
+            orb_num_features=random.randint(0, 8000),
+            orb_scale_factor=random.uniform(0, 2),
+            orb_num_levels=random.randint(1, 10),
+            orb_ini_threshold_fast=random.randint(15, 100),
+            orb_min_threshold_fast=random.randint(0, 15)
         )
         subject.resolve_paths(self.path_manager)
         subject.set_camera_intrinsics(intrinsics, 1 / framerate)

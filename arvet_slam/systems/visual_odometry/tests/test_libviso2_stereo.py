@@ -92,6 +92,7 @@ class TestLibVisOStereoDatabase(unittest.TestCase):
             subject.process_image(image, time)
         result = subject.finish_trial()
         self.assertIsInstance(result, SLAMTrialResult)
+        self.assertEqual(len(image_collection), len(result.results))
         result.image_source = image_collection
         result.save()
 
@@ -350,7 +351,6 @@ class TestLibVisOStereo(unittest.TestCase):
                 self.assertTrue(np.isnan(properties[key]))
             else:
                 self.assertEqual(value, properties[key])
-
 
     def test_get_properties_returns_only_requested_columns_that_exist(self):
         matcher_nms_n = 10

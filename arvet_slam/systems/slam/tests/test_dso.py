@@ -136,6 +136,7 @@ class TestDSODatabase(unittest.TestCase):
             subject.process_image(image, timestamp)
         result = subject.finish_trial()
         self.assertIsInstance(result, SLAMTrialResult)
+        self.assertEqual(len(image_collection), len(result.results))
         for frame_result in result.results:
             self.assertIsNotNone(frame_result.image)
         result.image_source = image_collection
