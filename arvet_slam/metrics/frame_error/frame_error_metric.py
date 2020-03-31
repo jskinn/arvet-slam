@@ -464,13 +464,10 @@ def make_pose_error(estimated_pose: tf.Transform, reference_pose: tf.Transform) 
         if reference_norm > 0:
             unit_reference = reference_pose.location / reference_norm
             # Find the angle between the trans error and the true location
+            dot_product = np.dot(trans_error / trans_error_length, unit_reference)
             trans_error_direction = np.arccos(
                 # Clip to arccos range to avoid errors
-                np.clip(
-                    # a \dot b = |a||b|cos theta
-                    np.dot(trans_error / trans_error_length, unit_reference),
-                    -1.0, 1.0
-                )
+                min(1.0, max(0.0, dot_product))
             )
     # Different to the trans_direction, this is the angle between the estimated orientation and true orientation
     rot_error = tf.quat_diff(estimated_pose.rotation_quat(w_first=True), reference_pose.rotation_quat(w_first=True))
@@ -482,100 +479,3 @@ def make_pose_error(estimated_pose: tf.Transform, reference_pose: tf.Transform) 
         direction=trans_error_direction,
         rot=rot_error
     )
-
-
-def find_average_motions(trajectories: typing.Iterable[typing.Mapping[float, tf.Transform]]) \
-        -> typing.Mapping[float, tf.Transform]:
-    """
-    Find the average motions from a number of estimated motions
-    We use a custom implementation here because we only want the average to exist when there is uncertainty.
-    If there is only one estimate for a given time, we should return None, rather than that single estimate.
-    Can handle small variations in timestamps, but privileges timestamps from earlier trajectories for association
-    :param trajectories:
-    :return:
-    """
-    associated_times = {}
-    associated_poses = {}
-    for traj in trajectories:
-        traj_times = set(traj.keys())
-        # First, add all the times that can be associated to an existing time
-        matches = associate(associated_times, traj, offset=0, max_difference=0.1)
-        for match in matches:
-            associated_times[match[0]].append(match[1])
-            if traj[match[1]] is not None:
-                associated_poses[match[0]].append(traj[match[1]])
-            traj_times.remove(match[1])
-        # Add all the times in this trajectory that don't have associations yet
-        for time in traj_times:
-            associated_times[time] = [time]
-            associated_poses[time] = [traj[time]] if traj[time] is not None else []
-    # Take the median associated time and pose together
-    return {
-        np.median(associated_times[time]): tf.compute_average_pose(associated_poses[time])
-        if time in associated_poses and len(associated_poses[time]) > 1 else None
-        for time in associated_times.keys()
-    }
-
-
-def quat_cosine(q1: typing.Union[typing.Sequence, np.ndarray], q2: typing.Union[typing.Sequence, np.ndarray]) -> float:
-    """
-    Find the cosine of the  angle between the two quaternions
-    This is similar to the quat-diff, but without the arccos, which makes it more stable around zero
-    :param q1: A quaternion, [w, x, y, z]
-    :param q2: A quaternion, [w, x, y, z]
-    :return:
-    """
-    q1 = np.asarray(q1)
-    if np.dot(q1, q2) < 0:
-        # Quaternions have opposite handedness, flip q1 since it's already an ndarray
-        q1 = -1 * q1
-    q_inv = q1 * np.array([1.0, -1.0, -1.0, -1.0])
-    q_inv = q_inv / np.linalg.norm(q_inv)
-
-    # We only care about the scalar component, compose only that
-    return q_inv[0] * q2[0] - q_inv[1] * q2[1] - q_inv[2] * q2[2] - q_inv[3] * q2[3]
-
-
-def associate(first_list, second_list, offset, max_difference, window=3):
-    """
-    Associate two dictionaries of (stamp,data). As the time stamps never match exactly, we aim
-    to find the closest match for every input tuple.
-
-    Input:
-    first_list -- first dictionary of (stamp,data) tuples
-    second_list -- second dictionary of (stamp,data) tuples
-    offset -- time offset between both dictionaries (e.g., to model the delay between the sensors)
-    max_difference -- search radius for candidate generation
-
-    Output:
-    matches -- list of matched tuples ((stamp1,data1),(stamp2,data2))
-
-    """
-    # first_keys = list(first_list.keys())  # copy both keys lists, so we can remove from them later
-    # second_keys = list(second_list.keys())
-    # potential_matches = [(abs(a - (b + offset)), a, b)
-    #                      for a in first_keys
-    #                      for b in second_keys
-    #                      if abs(a - (b + offset)) < max_difference]
-
-    first_keys = sorted(first_list.keys())
-    second_keys = sorted(second_list.keys())
-    if first_keys == second_keys:
-        return [(a, a) for a in first_keys]
-    potential_matches = [
-        (abs(a - (b + offset)), a, b)
-        for idx, a in enumerate(first_keys)
-        for b in second_keys[max(0, idx - window):min(len(second_keys), idx + window)]
-        if abs(a - (b + offset)) < max_difference
-    ]
-
-    potential_matches.sort()
-    matches = []
-    for diff, a, b in potential_matches:
-        if a in first_keys and b in second_keys:
-            first_keys.remove(a)
-            second_keys.remove(b)
-            matches.append((a, b))
-
-    matches.sort()
-    return matches
