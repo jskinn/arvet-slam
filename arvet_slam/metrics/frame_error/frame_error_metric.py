@@ -125,6 +125,16 @@ class FrameError(pymodm.MongoModel):
         }
 
 
+class TrialErrors(pymodm.EmbeddedMongoModel):
+    frame_errors = ReferenceListField(FrameError, required=True, blank=True)
+    frames_lost = fields.ListField(fields.IntegerField(), blank=True)
+    frames_found = fields.ListField(fields.IntegerField(), blank=True)
+    times_lost = fields.ListField(fields.FloatField(), blank=True)
+    times_found = fields.ListField(fields.FloatField(), blank=True)
+    distances_lost = fields.ListField(fields.FloatField(), blank=True)
+    distances_found = fields.ListField(fields.FloatField(), blank=True)
+
+
 class FrameErrorResultQuerySet(QuerySet):
     
     def delete(self):
@@ -133,7 +143,7 @@ class FrameErrorResultQuerySet(QuerySet):
         :return:
         """
         frame_error_ids = set(err_id for doc in self.values()
-                              for trial_errors in doc['errors'] for err_id in trial_errors)
+                              for trial_errors in doc['errors'] for err_id in trial_errors['frame_errors'])
         FrameError.objects.raw({'_id': {'$in': list(frame_error_ids)}}).delete()
         super(FrameErrorResultQuerySet, self).delete()
 
@@ -147,18 +157,8 @@ class FrameErrorResult(MetricResult):
     """
     system = fields.ReferenceField(VisionSystem, required=True, on_delete=pymodm.ReferenceField.CASCADE)
     image_source = fields.ReferenceField(ImageSource, required=True, on_delete=pymodm.ReferenceField.CASCADE)
-    errors = fields.ListField(
-        ReferenceListField(FrameError, required=True, blank=True, on_delete=pymodm.ReferenceField.CASCADE),
-        required=True, blank=True
-    )
+    errors = fields.EmbeddedDocumentListField(TrialErrors, required=True, blank=True)
     image_columns = fields.ListField(fields.CharField())
-
-    frames_lost = fields.ListField(fields.ListField(fields.IntegerField(), blank=True))
-    frames_found = fields.ListField(fields.ListField(fields.IntegerField(), blank=True))
-    times_lost = fields.ListField(fields.ListField(fields.FloatField(), blank=True))
-    times_found = fields.ListField(fields.ListField(fields.FloatField(), blank=True))
-    distance_lost = fields.ListField(fields.ListField(fields.FloatField(), blank=True))
-    distance_found = fields.ListField(fields.ListField(fields.FloatField(), blank=True))
 
     objects = FrameErrorResultManger()
 
@@ -173,13 +173,22 @@ class FrameErrorResult(MetricResult):
         # Cascade the save to the frame errors
         if cascade or (self._mongometa.cascade and cascade is not False):
             for trial_errors in self.errors:
-                for frame_error in trial_errors:
+                for frame_error in trial_errors.frame_errors:
                     frame_error.save(cascade, full_clean, force_insert)
         super(FrameErrorResult, self).save(cascade, full_clean, force_insert)
 
     def get_columns(self) -> typing.Set[str]:
-        columns = set(FrameError.columns.keys()) | set(self.image_columns) \
-                  | self.system.get_columns() | self.image_source.get_columns() | self.metric.get_columns()
+        funcs = ['min', 'max', 'mean', 'median', 'std']
+        values = ['frames_lost', 'frames_found', 'times_lost', 'times_found', 'distance_lost', 'distance_found']
+
+        columns = (
+            set(FrameError.columns.keys()) |
+            set(self.image_columns) |
+            self.system.get_columns() |
+            self.image_source.get_columns() |
+            self.metric.get_columns()
+        )
+        columns |= set(func + '_' + val for func in funcs for val in values)
         return columns
 
     def get_results(self, columns: typing.Iterable[str] = None) -> typing.List[dict]:
@@ -189,10 +198,42 @@ class FrameErrorResult(MetricResult):
         :param columns:
         :return:
         """
+        if columns is None:
+            # If no columns, do all columns
+            columns = self.get_columns()
+        columns = set(columns)
         image_source_properties = self.image_source.get_properties(columns)
         metric_properties = self.metric.get_properties(columns)
         other_properties = {**image_source_properties, **metric_properties}
-        return [frame_error.get_properties(columns, other_properties) for frame_error in self.errors]
+
+        # Find column values that need to be computed for this object
+        # Possibilities are any of 5 aggregate functions (min, max, mean, median, std)
+        # applied to any of frames_lost, frames_found, time_lost, time_found, distance_lost, or distance_found.
+        # These will be evaluated for each separate trial, and aggregated with the results from that trial.
+        # we pre-compute to avoid checking which columns are actually specified every repeat
+        funcs = [('min', np.min), ('max', np.max), ('mean', np.mean), ('median', np.median), ('std', np.std)]
+        values = [('frames_lost', 'frames_lost'), ('frames_found', 'frames_found'),
+                  ('times_lost', 'times_lost'), ('times_found', 'times_found'),
+                  ('distance_lost', 'distances_lost'), ('distance_found', 'distances_found')]
+        columns_to_compute = [
+            (func_name + '_' + col_name, func, data)
+            for col_name, data in values
+            for func_name, func in funcs
+            if func_name + '_' + col_name in columns
+        ]
+
+        results = []
+        for trial_errors in self.errors:
+            # Compute the values of certain columns available from this result
+            for column, func, attribute in columns_to_compute:
+                data = getattr(trial_errors, attribute)
+                other_properties[column] = func(data) if len(data) > 0 else np.nan
+
+            results.extend([
+                frame_error.get_properties(columns, other_properties)
+                for frame_error in trial_errors.frame_errors
+            ])
+        return results
 
 
 class FrameErrorMetric(Metric):
@@ -391,13 +432,18 @@ class FrameErrorMetric(Metric):
             image_source=trial_results[0].image_source,
             success=True,
             image_columns=list(image_columns),
-            errors=estimate_errors,
-            frames_lost=frames_lost,
-            frames_found=frames_found,
-            times_lost=times_lost,
-            times_found=times_found,
-            distance_lost=distances_lost,
-            distance_found=distances_found
+            errors=[
+                TrialErrors(
+                    frame_errors=estimate_errors[repeat],
+                    frames_lost=frames_lost[repeat],
+                    frames_found=frames_found[repeat],
+                    times_lost=times_lost[repeat],
+                    times_found=times_found[repeat],
+                    distances_lost=distances_lost[repeat],
+                    distances_found=distances_found[repeat]
+                )
+                for repeat, trial_result in enumerate(trial_results)
+            ]
         )
 
 

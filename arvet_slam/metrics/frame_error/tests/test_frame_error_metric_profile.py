@@ -14,7 +14,7 @@ from arvet_slam.trials.slam.tracking_state import TrackingState
 from arvet_slam.trials.slam.visual_slam import SLAMTrialResult, FrameResult
 
 
-@unittest.skip("Not running profiling")
+#@unittest.skip("Not running profiling")
 class TestRunAllDatabaseProfile(unittest.TestCase):
     system = None
     image_source = None
