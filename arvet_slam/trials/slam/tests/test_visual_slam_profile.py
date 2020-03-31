@@ -15,7 +15,7 @@ from arvet_slam.trials.slam.visual_slam import SLAMTrialResult, FrameResult
 
 
 @unittest.skip("Not running profiling")
-class TestRunAllDatabaseProfile(unittest.TestCase):
+class TestSlamTrialResultProfile(unittest.TestCase):
     system = None
     image_source = None
     images = None
