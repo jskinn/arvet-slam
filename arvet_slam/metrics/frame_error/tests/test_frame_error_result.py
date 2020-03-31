@@ -469,6 +469,7 @@ class TestFrameErrorDatabase(unittest.TestCase):
         mock_types.MockTrialResult.objects.all().delete()
         FrameError.objects.all().delete()
         Image._mongometa.collection.drop()
+        im_manager.set_image_manager(None)
         if os.path.isfile(dbconn.image_file):
             os.remove(dbconn.image_file)
 
@@ -579,6 +580,78 @@ class TestFrameErrorDatabase(unittest.TestCase):
         )
         with self.assertRaises(ValidationError):
             frame_error.save()
+
+    def test_stores_and_loads_without_saving_images(self):
+        pixels = np.array([[1, 2, 3], [4, 5, 6], [7, 8, 9]])
+        image = Image(
+            pixels=pixels,
+            metadata=make_metadata(pixels, source_type=ImageSourceType.SYNTHETIC)
+        )
+        image.save()
+
+        prev_image_manager = im_manager.get()
+        image_manager = im_manager.DefaultImageManager(dbconn.image_file, allow_write=False)
+        im_manager.set_image_manager(image_manager)
+
+        frame_error = FrameError(
+            trial_result=self.trial_result,
+            repeat=1,
+            timestamp=1.3,
+            image=image,
+            tracking=TrackingState.OK,
+            motion=Transform((1.2, 0.1, -0.03), (0, 1, 0, 0)),
+            processing_time=0.223,
+            num_features=423,
+            num_matches=238,
+            absolute_error=PoseError(
+                x=10,
+                y=11,
+                z=12,
+                length=np.sqrt(100 + 121 + 144),
+                direction=np.pi / 7,
+                rot=np.pi / 5
+            ),
+            relative_error=PoseError(
+                x=13,
+                y=14,
+                z=15,
+                length=np.sqrt(169 + 196 + 225),
+                direction=np.pi / 36,
+                rot=np.pi / 2
+            ),
+            noise=PoseError(
+                x=16,
+                y=17,
+                z=18,
+                length=np.sqrt(256 + 289 + 324),
+                direction=np.pi / 8,
+                rot=np.pi / 16
+            )
+        )
+
+        # Clear the models
+        FrameError._mongometa.collection.drop()
+
+        # Save the model
+        frame_error.save(cascade=True)
+
+        # Load all the entities
+        all_entities = list(FrameError.objects.all())
+        self.assertEqual(len(all_entities), 1)
+
+        # For some reason, we need to force the load of these properties for the objects to compare equal
+        loaded_frame_error = all_entities[0]
+        self.assertEqual(frame_error.image, image)
+        self.assertEqual(frame_error.tracking, loaded_frame_error.tracking)
+        self.assertEqual(frame_error.absolute_error, loaded_frame_error.absolute_error)
+        self.assertEqual(frame_error.relative_error, loaded_frame_error.relative_error)
+        self.assertEqual(frame_error.noise, loaded_frame_error.noise)
+
+        self.assertEqual(frame_error, loaded_frame_error)
+        loaded_frame_error.delete()
+
+        # restore the image manager
+        im_manager.set_image_manager(prev_image_manager)
 
 
 # ------------------------- FRAME ERROR RESULT -------------------------

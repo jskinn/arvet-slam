@@ -1206,6 +1206,7 @@ class TestSLAMTrialResultDatabase(unittest.TestCase):
         mock_types.MockSystem._mongometa.collection.drop()
         mock_types.MockImageSource._mongometa.collection.drop()
         Image._mongometa.collection.drop()
+        im_manager.set_image_manager(None)
         if os.path.isfile(dbconn.image_file):
             os.remove(dbconn.image_file)
 
@@ -1449,6 +1450,51 @@ class TestSLAMTrialResultDatabase(unittest.TestCase):
         self.assertGreaterEqual(len(all_entities), 1)
         self.assertEqual(all_entities[0], obj)
         all_entities[0].delete()
+
+    def test_stores_and_loads_when_images_cannot_be_written(self):
+        prev_image_manager = im_manager.get()
+        image_manager = im_manager.DefaultImageManager(dbconn.image_file, allow_write=False)
+        im_manager.set_image_manager(image_manager)
+
+        results = [
+            FrameResult(
+                timestamp=idx + np.random.normal(0, 0.01),
+                image=self.image,
+                processing_time=np.random.uniform(0.01, 1),
+                motion=Transform(
+                    (np.random.normal(0, 1), np.random.normal(0, 0.1), np.random.normal(0, 1)),
+                    (1, 0, 0, 0), w_first=True
+                ),
+                estimated_motion=Transform(
+                    (np.random.normal(0, 1), np.random.normal(0, 0.1), np.random.normal(0, 1)),
+                    (1, 0, 0, 0), w_first=True
+                ) if idx > 0 else None,
+                tracking_state=TrackingState.OK,
+                num_features=np.random.randint(10, 1000),
+                num_matches=np.random.randint(10, 1000)
+            )
+            for idx in range(10)
+        ]
+        results[0].estimated_pose = Transform()
+        obj = SLAMTrialResult(
+            system=self.system,
+            image_source=self.image_source,
+            success=True,
+            settings={'key': 'value'},
+            results=results,
+            run_time=10.4,
+            has_scale=True
+        )
+        obj.save(cascade=True)
+
+        # Load all the entities
+        all_entities = list(SLAMTrialResult.objects.all())
+        self.assertGreaterEqual(len(all_entities), 1)
+        self.assertEqual(all_entities[0], obj)
+        all_entities[0].delete()
+
+        # restore the image manager
+        im_manager.set_image_manager(prev_image_manager)
 
     def test_required_fields_are_required(self):
         results = [
