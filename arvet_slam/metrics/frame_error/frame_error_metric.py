@@ -20,7 +20,6 @@ from arvet.core.image import Image
 from arvet.core.trial_result import TrialResult
 from arvet.core.metric import Metric, MetricResult, check_trial_collection
 from arvet.util.column_list import ColumnList
-# import arvet.util.associate
 import arvet.util.transform as tf
 from arvet_slam.trials.slam.tracking_state import TrackingState
 from arvet_slam.trials.slam.visual_slam import SLAMTrialResult
@@ -105,8 +104,7 @@ class FrameError(pymodm.MongoModel):
         Flatten the frame error to a dictionary.
         This is used to construct rows in a Pandas data frame, so the keys are column names
         Handles pulling data from the linked system and linked image
-        :return:
-        """
+        :return:        """
         system = self.trial_result.system
         if other_properties is None:
             other_properties = {}
@@ -134,7 +132,8 @@ class FrameErrorResultQuerySet(QuerySet):
         When a frame error result is deleted, also delete the frame errors it refers to
         :return:
         """
-        frame_error_ids = set(err_id for doc in self.values() for err_id in doc['errors'])
+        frame_error_ids = set(err_id for doc in self.values()
+                              for trial_errors in doc['errors'] for err_id in trial_errors)
         FrameError.objects.raw({'_id': {'$in': list(frame_error_ids)}}).delete()
         super(FrameErrorResultQuerySet, self).delete()
 
@@ -148,21 +147,34 @@ class FrameErrorResult(MetricResult):
     """
     system = fields.ReferenceField(VisionSystem, required=True, on_delete=pymodm.ReferenceField.CASCADE)
     image_source = fields.ReferenceField(ImageSource, required=True, on_delete=pymodm.ReferenceField.CASCADE)
-    errors = ReferenceListField(FrameError, required=True, blank=True, on_delete=pymodm.ReferenceField.CASCADE)
+    errors = fields.ListField(
+        ReferenceListField(FrameError, required=True, blank=True, on_delete=pymodm.ReferenceField.CASCADE),
+        required=True, blank=True
+    )
     image_columns = fields.ListField(fields.CharField())
+
+    frames_lost = fields.ListField(fields.ListField(fields.IntegerField(), blank=True))
+    frames_found = fields.ListField(fields.ListField(fields.IntegerField(), blank=True))
+    times_lost = fields.ListField(fields.ListField(fields.FloatField(), blank=True))
+    times_found = fields.ListField(fields.ListField(fields.FloatField(), blank=True))
+    distance_lost = fields.ListField(fields.ListField(fields.FloatField(), blank=True))
+    distance_found = fields.ListField(fields.ListField(fields.FloatField(), blank=True))
 
     objects = FrameErrorResultManger()
 
     def save(self, cascade=None, full_clean=True, force_insert=False):
         """
-        When saving, also save the
+        When saving, also save the frame results
         :param cascade:
         :param full_clean:
         :param force_insert:
         :return:
         """
-        for frame_error in self.errors:
-            frame_error.save(cascade, full_clean, force_insert)
+        # Cascade the save to the frame errors
+        if cascade or (self._mongometa.cascade and cascade is not False):
+            for trial_errors in self.errors:
+                for frame_error in trial_errors:
+                    frame_error.save(cascade, full_clean, force_insert)
         super(FrameErrorResult, self).save(cascade, full_clean, force_insert)
 
     def get_columns(self) -> typing.Set[str]:
@@ -252,10 +264,23 @@ class FrameErrorMetric(Metric):
                 )
 
         # Then, tally all the errors for all the computed trajectories
-        estimate_errors = []
+        estimate_errors = [[] for _ in range(len(trial_results))]
         image_columns = set()
+        distances_lost = [[] for _ in range(len(trial_results))]
+        times_lost = [[] for _ in range(len(trial_results))]
+        frames_lost = [[] for _ in range(len(trial_results))]
+        distances_found = [[] for _ in range(len(trial_results))]
+        times_found = [[] for _ in range(len(trial_results))]
+        frames_found = [[] for _ in range(len(trial_results))]
+
         estimate_origins = [None for _ in range(len(trial_results))]
         ground_truth_origins = [None for _ in range(len(trial_results))]
+        is_tracking = [False for _ in range(len(trial_results))]
+        tracking_frames = [0 for _ in range(len(trial_results))]
+        tracking_distances = [0 for _ in range(len(trial_results))]
+        prev_tracking_time = [0 for _ in range(len(trial_results))]
+        current_tracking_time = [0 for _ in range(len(trial_results))]
+
         for frame_idx, frame_results in enumerate(zip(*(trial_result.results for trial_result in trial_results))):
             # Get the estimated motions and absolute poses for each trial
             # The trial result handles rescaling them to the ground truth if the scale was not available.
@@ -274,42 +299,85 @@ class FrameErrorMetric(Metric):
             image_columns |= set(
                 column for frame_result in frame_results for column in frame_result.image.get_columns())
 
-            # Look for the first frame for each trial where the estimated pose is defined, record it as the origin
-            # This aligns the two maps, even if it didn't start at the same place
-            for repeat_idx, estimated_pose in enumerate(scaled_poses):
-                if estimate_origins[repeat_idx] is None and estimated_pose is not None:
-                    estimate_origins[repeat_idx] = estimated_pose
+            for repeat_idx, frame_result in enumerate(frame_results):
+
+                # Look for the first frame for each trial where the estimated pose is defined, record it as the origin
+                # This aligns the two maps, even if it didn't start at the same place
+                if estimate_origins[repeat_idx] is None and scaled_poses[repeat_idx] is not None:
+                    estimate_origins[repeat_idx] = scaled_poses[repeat_idx]
                     ground_truth_origins[repeat_idx] = frame_results[repeat_idx].pose
 
-            estimate_errors.extend(FrameError(
-                trial_result=trial_results[repeat_idx],
-                repeat=repeat_idx,
-                timestamp=frame_result.timestamp,
-                image=frame_result.image,
-                tracking=frame_result.tracking_state,
-                processing_time=frame_result.processing_time,
-                motion=frame_result.motion,
-                num_features=frame_result.num_features,
-                num_matches=frame_result.num_matches,
-                # Compute the error in the absolute estimated pose (if available)
-                absolute_error=make_pose_error(
-                    estimate_origins[repeat_idx].find_relative(scaled_poses[repeat_idx]),
-                    ground_truth_origins[repeat_idx].find_relative(frame_result.pose)
-                ) if scaled_poses[repeat_idx] is not None else None,
-                # Compute the error of the motion relative to the true motion
-                relative_error=make_pose_error(
-                    scaled_motions[repeat_idx],
-                    frame_result.motion
-                ) if scaled_motions[repeat_idx] is not None else None,
-                # Compute the error between the motion and the average estimated motion
-                noise=make_pose_error(
-                    scaled_motions[repeat_idx],
-                    average_motion
-                ) if scaled_motions[repeat_idx] is not None and average_motion is not None else None
-            ) for repeat_idx, frame_result in enumerate(frame_results))
+                # Record how long the current tracking state has persisted
+                if frame_idx <= 0:
+                    # Cannot change to or from tracking on the first frame
+                    is_tracking[repeat_idx] = (frame_result.tracking_state is TrackingState.OK)
+                    prev_tracking_time[repeat_idx] = frame_result.timestamp
+                elif is_tracking[repeat_idx] and frame_result.tracking_state is not TrackingState.OK:
+                    # This trial has become lost, add to the list and reset the counters
+                    frames_found[repeat_idx].append(tracking_frames[repeat_idx])
+                    distances_found[repeat_idx].append(tracking_distances[repeat_idx])
+                    times_found[repeat_idx].append(current_tracking_time[repeat_idx] - prev_tracking_time[repeat_idx])
+                    tracking_frames[repeat_idx] = 0
+                    tracking_distances[repeat_idx] = 0
+                    prev_tracking_time[repeat_idx] = current_tracking_time[repeat_idx]
+                    is_tracking[repeat_idx] = False
+                elif not is_tracking[repeat_idx] and frame_result.tracking_state is TrackingState.OK:
+                    # This trial has started to track, record how long it was lost for
+                    frames_lost[repeat_idx].append(tracking_frames[repeat_idx])
+                    distances_lost[repeat_idx].append(tracking_distances[repeat_idx])
+                    times_lost[repeat_idx].append(current_tracking_time[repeat_idx] - prev_tracking_time[repeat_idx])
+                    tracking_frames[repeat_idx] = 0
+                    tracking_distances[repeat_idx] = 0
+                    prev_tracking_time[repeat_idx] = current_tracking_time[repeat_idx]
+                    is_tracking[repeat_idx] = True
+
+                # Update the current tracking information
+                tracking_frames[repeat_idx] += 1
+                tracking_distances[repeat_idx] += np.linalg.norm(frame_result.motion.location)
+                current_tracking_time[repeat_idx] = frame_result.timestamp
+
+                # Build the frame error
+                estimate_errors[repeat_idx].append(FrameError(
+                    trial_result=trial_results[repeat_idx],
+                    repeat=repeat_idx,
+                    timestamp=frame_result.timestamp,
+                    image=frame_result.image,
+                    tracking=frame_result.tracking_state,
+                    processing_time=frame_result.processing_time,
+                    motion=frame_result.motion,
+                    num_features=frame_result.num_features,
+                    num_matches=frame_result.num_matches,
+                    # Compute the error in the absolute estimated pose (if available)
+                    absolute_error=make_pose_error(
+                        estimate_origins[repeat_idx].find_relative(scaled_poses[repeat_idx]),
+                        ground_truth_origins[repeat_idx].find_relative(frame_result.pose)
+                    ) if scaled_poses[repeat_idx] is not None else None,
+                    # Compute the error of the motion relative to the true motion
+                    relative_error=make_pose_error(
+                        scaled_motions[repeat_idx],
+                        frame_result.motion
+                    ) if scaled_motions[repeat_idx] is not None else None,
+                    # Compute the error between the motion and the average estimated motion
+                    noise=make_pose_error(
+                        scaled_motions[repeat_idx],
+                        average_motion
+                    ) if scaled_motions[repeat_idx] is not None and average_motion is not None else None
+                ))
+
+        # Add any accumulated tracking information left over at the end
+        if len(trial_results[0].results) > 0:
+            for repeat_idx, tracking in enumerate(is_tracking):
+                if tracking:
+                    frames_found[repeat_idx].append(tracking_frames[repeat_idx])
+                    distances_found[repeat_idx].append(tracking_distances[repeat_idx])
+                    times_found[repeat_idx].append(current_tracking_time[repeat_idx] - prev_tracking_time[repeat_idx])
+                else:
+                    frames_lost[repeat_idx].append(tracking_frames[repeat_idx])
+                    distances_lost[repeat_idx].append(tracking_distances[repeat_idx])
+                    times_lost[repeat_idx].append(current_tracking_time[repeat_idx] - prev_tracking_time[repeat_idx])
 
         # Once we've tallied all the results, either succeed or fail based on the number of results.
-        if len(estimate_errors) <= 0:
+        if len(estimate_errors) <= 0 or any(len(trial_errors) <= 0 for trial_errors in estimate_errors):
             return FrameErrorResult(
                 metric=self,
                 trial_results=trial_results,
@@ -323,7 +391,13 @@ class FrameErrorMetric(Metric):
             image_source=trial_results[0].image_source,
             success=True,
             image_columns=list(image_columns),
-            errors=estimate_errors
+            errors=estimate_errors,
+            frames_lost=frames_lost,
+            frames_found=frames_found,
+            times_lost=times_lost,
+            times_found=times_found,
+            distance_lost=distances_lost,
+            distance_found=distances_found
         )
 
 

@@ -1,30 +1,20 @@
 import unittest
 import unittest.mock as mock
-import os
-import bson
 import numpy as np
 import transforms3d as tf3d
-
-import arvet.database.tests.database_connection as dbconn
-import arvet.database.image_manager as im_manager
 
 from arvet.metadata.camera_intrinsics import CameraIntrinsics
 from arvet.metadata.image_metadata import make_metadata, ImageSourceType
 from arvet.core.image import Image
-from arvet.core.system import VisionSystem
-from arvet.core.image_source import ImageSource
-from arvet.core.metric import MetricResult
-from arvet.core.trial_result import TrialResult
 import arvet.core.tests.mock_types as mock_types
-from arvet.util.transform import Transform, compute_average_pose
+from arvet.util.transform import Transform
 
-from arvet_slam.metrics.frame_error.frame_error_metric import FrameErrorMetric, make_pose_error
-from arvet_slam.systems.test_helpers.demo_image_builder import DemoImageBuilder, ImageMode
+from arvet_slam.metrics.frame_error.frame_error_metric import FrameErrorMetric
 from arvet_slam.trials.slam.tracking_state import TrackingState
 from arvet_slam.trials.slam.visual_slam import SLAMTrialResult, FrameResult
 
 
-#@unittest.skip("Not running profiling")
+@unittest.skip("Not running profiling")
 class TestRunAllDatabaseProfile(unittest.TestCase):
     system = None
     image_source = None
@@ -34,17 +24,6 @@ class TestRunAllDatabaseProfile(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        # dbconn.connect_to_test_db()
-        # image_manager = im_manager.DefaultImageManager(dbconn.image_file, allow_write=True)
-        # im_manager.set_image_manager(image_manager)
-        #
-        # # Ensure we have a clean slate in the database
-        # Task._mongometa.collection.drop()
-        # mock_types.MockTrialResult._mongometa.collection.drop()
-        # Image._mongometa.collection.drop()
-        # ImageCollection._mongometa.collection.drop()
-        # mock_types.MockSystem._mongometa.collection.drop()
-
         cls.system = mock_types.MockSystem()
         cls.image_source = mock_types.MockImageSource()
 
@@ -71,16 +50,6 @@ class TestRunAllDatabaseProfile(unittest.TestCase):
             )
             for idx, pixels in enumerate(image_data)
         ]
-
-    @classmethod
-    def tearDownClass(cls):
-        # Clean up after ourselves by dropping the collections for all the models used
-        # Image._mongometa.collection.drop()
-        # ImageCollection._mongometa.collection.drop()
-        # mock_types.MockSystem._mongometa.collection.drop()
-        # if os.path.isfile(dbconn.image_file):
-        #     os.remove(dbconn.image_file)
-        pass
 
     @mock.patch('arvet_slam.metrics.frame_error.frame_error_metric.autoload_modules')
     def test_profile(self, _):

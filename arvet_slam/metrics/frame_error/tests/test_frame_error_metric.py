@@ -2,6 +2,7 @@ import unittest
 import unittest.mock as mock
 import os
 import bson
+import itertools
 import numpy as np
 import transforms3d as tf3d
 
@@ -146,7 +147,7 @@ class TestFrameErrorMetricDatabase(unittest.TestCase):
 
         result = metric.measure_results([trial_result])
         # self.assertTrue(result.is_valid())
-        result.save()
+        result.save(True)
 
         all_entities = list(MetricResult.objects.all())
         self.assertEqual(len(all_entities), 1)
@@ -378,7 +379,7 @@ class TestFrameErrorMetricOutput(unittest.TestCase):
                     (1, 0, 0, 0), w_first=True
                 ),
                 estimated_pose=estimated_poses[idx],
-                tracking_state=TrackingState.OK,
+                tracking_state=TrackingState.OK if estimated_poses[idx] is not None else TrackingState.LOST,
                 num_features=np.random.randint(10, 1000),
                 num_matches=np.random.randint(10, 1000)
             )
@@ -396,7 +397,7 @@ class TestFrameErrorMetricOutput(unittest.TestCase):
                     (1, 0, 0, 0), w_first=True
                 ),
                 estimated_motion=estimated_motions[idx] if idx > 0 else None,
-                tracking_state=TrackingState.OK,
+                tracking_state=TrackingState.OK if estimated_motions[idx] is not None else TrackingState.LOST,
                 num_features=np.random.randint(10, 1000),
                 num_matches=np.random.randint(10, 1000)
             )
@@ -417,7 +418,8 @@ class TestFrameErrorMetricOutput(unittest.TestCase):
             has_scale=bool(has_scale)
         )
 
-    def test_measure_single_trial(self):
+    @mock.patch('arvet_slam.metrics.frame_error.frame_error_metric.autoload_modules')
+    def test_measure_single_trial(self, _):
         frame_results = self.make_frame_results_from_poses([
             Transform(location=(idx * 15.1, 1.01 * idx, 0))
             for idx in range(len(self.images))
@@ -428,13 +430,28 @@ class TestFrameErrorMetricOutput(unittest.TestCase):
         result = metric.measure_results([trial_result])
 
         self.assertTrue(result.success)
-        self.assertEqual(len(frame_results), len(result.errors))
-        for idx, frame_error in enumerate(result.errors):
+
+        # Tracking information
+        self.assertEqual([[]], result.frames_lost)
+        self.assertEqual([[len(self.images)]], result.frames_found)
+        self.assertEqual([[]], result.times_lost)
+        self.assertEqual([[
+            frame_results[-1].timestamp - frame_results[0].timestamp
+        ]], result.times_found)
+        self.assertEqual([[]], result.distance_lost)
+        self.assertEqual([[
+            sum(np.linalg.norm(frame_result.motion.location) for frame_result in frame_results)
+        ]], result.distance_found)
+
+        # Per-frame errors
+        self.assertEqual(1, len(result.errors))
+        self.assertEqual(len(frame_results), len(result.errors[0]))
+        for idx, frame_error in enumerate(result.errors[0]):
             frame_result = trial_result.results[idx]
             self.assertEqual(0, frame_error.repeat)
             self.assertEqual(frame_result.timestamp, frame_error.timestamp)
             self.assertEqual(frame_result.image, frame_error.image)
-            self.assertEqual(TrackingState.OK, frame_error.tracking)
+            self.assertEqual(frame_result.tracking_state, frame_error.tracking)
             self.assertEqual(frame_result.num_features, frame_error.num_features)
             self.assertEqual(frame_result.num_matches, frame_error.num_matches)
             self.assertIsNone(frame_error.noise)
@@ -455,7 +472,8 @@ class TestFrameErrorMetricOutput(unittest.TestCase):
                 self.assertAlmostEqual(np.sqrt(0.1 * 0.1 + 0.01 * 0.01), frame_error.relative_error.length, places=13)
                 self.assertEqual(0, frame_error.relative_error.rot)
 
-    def test_measure_single_trial_lost_at_the_beginning(self):
+    @mock.patch('arvet_slam.metrics.frame_error.frame_error_metric.autoload_modules')
+    def test_measure_single_trial_lost_at_the_beginning(self, _):
         start = 3
         frame_results = self.make_frame_results_from_poses([
             Transform(location=(idx * 15.1, 1.01 * idx, 0)) if idx >= start else None
@@ -467,13 +485,38 @@ class TestFrameErrorMetricOutput(unittest.TestCase):
         result = metric.measure_results([trial_result])
 
         self.assertTrue(result.success)
-        self.assertEqual(len(frame_results), len(result.errors))
-        for idx, frame_error in enumerate(result.errors):
+
+        # Tracking information
+        self.assertEqual([[start]], result.frames_lost)
+        self.assertEqual([[len(self.images) - start]], result.frames_found)
+        self.assertEqual([[
+            frame_results[start - 1].timestamp - frame_results[0].timestamp
+        ]], result.times_lost)
+        self.assertEqual([[
+            frame_results[-1].timestamp - frame_results[start - 1].timestamp
+        ]], result.times_found)
+        self.assertEqual([[
+            sum(np.linalg.norm(frame_result.motion.location) for frame_result in frame_results[:start])
+        ]], result.distance_lost)
+        self.assertEqual([[
+            sum(np.linalg.norm(frame_result.motion.location) for frame_result in frame_results[start:])
+        ]], result.distance_found)
+
+        # Sanity check the tracking information, the totals should be right
+        self.assertEqual(len(self.images), sum(itertools.chain(result.frames_lost[0], result.frames_found[0])))
+        self.assertAlmostEqual(frame_results[-1].timestamp - frame_results[0].timestamp,
+                               sum(itertools.chain(result.times_lost[0], result.times_found[0])), places=15)
+        self.assertEqual(np.linalg.norm(frame_results[-1].pose.location - frame_results[0].pose.location),
+                         sum(itertools.chain(result.distance_lost[0], result.distance_found[0])))
+
+        self.assertEqual(1, len(result.errors))
+        self.assertEqual(len(frame_results), len(result.errors[0]))
+        for idx, frame_error in enumerate(result.errors[0]):
             frame_result = trial_result.results[idx]
             self.assertEqual(0, frame_error.repeat)
             self.assertEqual(frame_result.timestamp, frame_error.timestamp)
             self.assertEqual(frame_result.image, frame_error.image)
-            self.assertEqual(TrackingState.OK, frame_error.tracking)
+            self.assertEqual(frame_result.tracking_state, frame_error.tracking)
             self.assertEqual(frame_result.num_features, frame_error.num_features)
             self.assertEqual(frame_result.num_matches, frame_error.num_matches)
             self.assertIsNone(frame_error.noise)
@@ -499,7 +542,8 @@ class TestFrameErrorMetricOutput(unittest.TestCase):
                 self.assertAlmostEqual(np.sqrt(0.1 * 0.1 + 0.01 * 0.01), frame_error.relative_error.length, places=13)
                 self.assertEqual(0, frame_error.relative_error.rot)
 
-    def test_measure_single_trial_lost_part_way_through(self):
+    @mock.patch('arvet_slam.metrics.frame_error.frame_error_metric.autoload_modules')
+    def test_measure_single_trial_lost_part_way_through(self, _):
         lost_start = 3
         lost_end = 7
         frame_results = self.make_frame_results_from_poses([
@@ -514,8 +558,35 @@ class TestFrameErrorMetricOutput(unittest.TestCase):
         result = metric.measure_results([trial_result])
 
         self.assertTrue(result.success)
-        self.assertEqual(len(frame_results), len(result.errors))
-        for idx, frame_error in enumerate(result.errors):
+
+        # Tracking information
+        self.assertEqual([[lost_end - lost_start]], result.frames_lost)
+        self.assertEqual([[lost_start, len(self.images) - lost_end]], result.frames_found)
+        self.assertEqual([[
+            frame_results[lost_end - 1].timestamp - frame_results[lost_start - 1].timestamp
+        ]], result.times_lost)
+        self.assertEqual([[
+            frame_results[lost_start - 1].timestamp - frame_results[0].timestamp,
+            frame_results[-1].timestamp - frame_results[lost_end - 1].timestamp
+        ]], result.times_found)
+        self.assertEqual([[
+            sum(np.linalg.norm(frame_result.motion.location) for frame_result in frame_results[lost_start:lost_end])
+        ]], result.distance_lost)
+        self.assertEqual([[
+            sum(np.linalg.norm(frame_result.motion.location) for frame_result in frame_results[:lost_start]),
+            sum(np.linalg.norm(frame_result.motion.location) for frame_result in frame_results[lost_end:])
+        ]], result.distance_found)
+
+        # Sanity check the tracking information, the totals should be right
+        self.assertEqual(len(self.images), sum(itertools.chain(result.frames_lost[0], result.frames_found[0])))
+        self.assertAlmostEqual(frame_results[-1].timestamp - frame_results[0].timestamp,
+                               sum(itertools.chain(result.times_lost[0], result.times_found[0])), places=14)
+        self.assertEqual(np.linalg.norm(frame_results[-1].pose.location - frame_results[0].pose.location),
+                         sum(itertools.chain(result.distance_lost[0], result.distance_found[0])))
+
+        self.assertEqual(1, len(result.errors))
+        self.assertEqual(len(frame_results), len(result.errors[0]))
+        for idx, frame_error in enumerate(result.errors[0]):
             frame_result = frame_results[idx]
             self.assertEqual(0, frame_error.repeat)
             self.assertEqual(frame_result.timestamp, frame_error.timestamp)
@@ -540,7 +611,8 @@ class TestFrameErrorMetricOutput(unittest.TestCase):
                 self.assertErrorsEqual(make_pose_error(frame_result.estimated_motion, frame_result.motion),
                                        frame_error.relative_error)
 
-    def test_measure_multiple_trials(self):
+    @mock.patch('arvet_slam.metrics.frame_error.frame_error_metric.autoload_modules')
+    def test_measure_multiple_trials(self, _):
         repeats = 3
 
         estimated_motions = [
@@ -553,21 +625,36 @@ class TestFrameErrorMetricOutput(unittest.TestCase):
         average_motions = [compute_average_pose(image_motions) for image_motions in estimated_motions]
 
         trial_results = []
+        expected_times_found = [[] for _ in range(repeats)]
+        expected_distance_found = [[] for _ in range(repeats)]
         for repeat in range(repeats):
             frame_results = self.make_frame_results_from_motions([
                 estimated_motions[idx][repeat]
                 for idx in range(len(self.images))
             ], set_initial_pose=True)
             trial_results.append(self.make_trial(frame_results))
+            expected_times_found[repeat] = [frame_results[-1].timestamp - frame_results[0].timestamp]
+            expected_distance_found[repeat] = [
+                sum(np.linalg.norm(frame_result.motion.location) for frame_result in frame_results)]
 
         metric = FrameErrorMetric()
         result = metric.measure_results(trial_results)
 
         self.assertTrue(result.success)
-        self.assertEqual(repeats * len(self.images), len(result.errors))
+
+        # Tracking information
+        self.assertEqual([[] for _ in range(repeats)], result.frames_lost)
+        self.assertEqual([[len(self.images)] for _ in range(repeats)], result.frames_found)
+        self.assertEqual([[] for _ in range(repeats)], result.times_lost)
+        self.assertEqual(expected_times_found, result.times_found)
+        self.assertEqual([[] for _ in range(repeats)], result.distance_lost)
+        self.assertEqual(expected_distance_found, result.distance_found)
+
+        self.assertEqual(repeats, len(result.errors))
         for repeat in range(repeats):
+            self.assertEqual(len(self.images), len(result.errors[repeat]))
             for idx in range(len(self.images)):
-                frame_error = result.errors[idx * len(trial_results) + repeat]
+                frame_error = result.errors[repeat][idx]
                 frame_result = trial_results[repeat].results[idx]
                 self.assertEqual(repeat, frame_error.repeat)
                 self.assertEqual(frame_result.timestamp, frame_error.timestamp)
@@ -586,7 +673,8 @@ class TestFrameErrorMetricOutput(unittest.TestCase):
                     self.assertErrorsEqual(make_pose_error(frame_result.estimated_motion, average_motions[idx]),
                                            frame_error.noise)
 
-    def test_measure_multiple_trials_lost_at_different_times(self):
+    @mock.patch('arvet_slam.metrics.frame_error.frame_error_metric.autoload_modules')
+    def test_measure_multiple_trials_lost_at_different_times(self, _):
         lost_start = 3
         lost_end = 6
         repeats = 3
@@ -617,15 +705,49 @@ class TestFrameErrorMetricOutput(unittest.TestCase):
         result = metric.measure_results(trial_results)
 
         self.assertTrue(result.success)
-        self.assertEqual(repeats * len(self.images), len(result.errors))
+
+        # Tracking information
         for repeat in range(repeats):
+            frame_results = trial_results[repeat].results
+            self.assertEqual([lost_end - lost_start], result.frames_lost[repeat])
+            self.assertEqual([lost_start + repeat, len(self.images) - lost_end - repeat], result.frames_found[repeat])
+            self.assertEqual([
+                frame_results[lost_end + repeat - 1].timestamp - frame_results[lost_start + repeat - 1].timestamp
+            ], result.times_lost[repeat])
+            self.assertEqual([
+                frame_results[lost_start + repeat - 1].timestamp - frame_results[0].timestamp,
+                frame_results[-1].timestamp - frame_results[lost_end + repeat - 1].timestamp
+            ], result.times_found[repeat])
+            self.assertEqual([sum(
+                np.linalg.norm(frame_result.motion.location)
+                for frame_result in frame_results[lost_start+repeat:lost_end+repeat]
+            )], result.distance_lost[repeat])
+            self.assertEqual([
+                sum(np.linalg.norm(frame_result.motion.location) for frame_result in frame_results[:lost_start+repeat]),
+                sum(np.linalg.norm(frame_result.motion.location) for frame_result in frame_results[lost_end+repeat:])
+            ], result.distance_found[repeat])
+
+            # Sanity check the tracking information, the totals should be right
+            self.assertEqual(len(self.images),
+                             sum(itertools.chain(result.frames_lost[repeat], result.frames_found[repeat])))
+            self.assertAlmostEqual(
+                frame_results[-1].timestamp - frame_results[0].timestamp,
+                sum(itertools.chain(result.times_lost[repeat], result.times_found[repeat])),
+                places=14
+            )
+            self.assertEqual(np.linalg.norm(frame_results[-1].pose.location - frame_results[0].pose.location),
+                             sum(itertools.chain(result.distance_lost[repeat], result.distance_found[repeat])))
+
+        self.assertEqual(repeats, len(result.errors))
+        for repeat in range(repeats):
+            self.assertEqual(len(self.images), len(result.errors[repeat]))
             for idx in range(len(self.images)):
-                frame_error = result.errors[idx * len(trial_results) + repeat]
+                frame_error = result.errors[repeat][idx]
                 frame_result = trial_results[repeat].results[idx]
                 self.assertEqual(repeat, frame_error.repeat)
                 self.assertEqual(frame_result.timestamp, frame_error.timestamp)
                 self.assertEqual(frame_result.image, frame_error.image)
-                self.assertEqual(TrackingState.OK, frame_error.tracking)
+                self.assertEqual(frame_result.tracking_state, frame_error.tracking)
                 self.assertEqual(frame_result.num_features, frame_error.num_features)
                 self.assertEqual(frame_result.num_matches, frame_error.num_matches)
 
@@ -690,10 +812,11 @@ class TestFrameErrorMetricOutput(unittest.TestCase):
         result = metric.measure_results(trial_results)
 
         self.assertTrue(result.success)
-        self.assertEqual(repeats * len(self.images), len(result.errors))
+        self.assertEqual(repeats, len(result.errors))
         for repeat in range(repeats):
+            self.assertEqual(len(self.images), len(result.errors[repeat]))
             for idx in range(len(self.images)):
-                frame_error = result.errors[idx * len(trial_results) + repeat]
+                frame_error = result.errors[repeat][idx]
                 frame_result = trial_results[repeat].results[idx]
                 self.assertEqual(repeat, frame_error.repeat)
                 self.assertEqual(frame_result.timestamp, frame_error.timestamp)
@@ -757,10 +880,11 @@ class TestFrameErrorMetricOutput(unittest.TestCase):
         result = metric.measure_results(trial_results)
 
         self.assertTrue(result.success)
-        self.assertEqual(repeats * len(self.images), len(result.errors))
+        self.assertEqual(repeats, len(result.errors))
         for repeat in range(repeats):
+            self.assertEqual(len(self.images), len(result.errors[repeat]))
             for idx in range(len(self.images)):
-                frame_error = result.errors[idx * len(trial_results) + repeat]
+                frame_error = result.errors[repeat][idx]
                 frame_result = trial_results[repeat].results[idx]
                 self.assertEqual(repeat, frame_error.repeat)
                 self.assertEqual(frame_result.timestamp, frame_error.timestamp)
@@ -801,10 +925,11 @@ class TestFrameErrorMetricOutput(unittest.TestCase):
         result = metric.measure_results(trial_results)
 
         self.assertTrue(result.success)
-        self.assertEqual(repeats * len(self.images), len(result.errors))
+        self.assertEqual(repeats, len(result.errors))
         for repeat in range(repeats):
+            self.assertEqual(len(self.images), len(result.errors[repeat]))
             for idx in range(len(self.images)):
-                frame_error = result.errors[idx * len(trial_results) + repeat]
+                frame_error = result.errors[repeat][idx]
                 frame_result = trial_results[repeat].results[idx]
                 self.assertEqual(repeat, frame_error.repeat)
                 self.assertEqual(frame_result.timestamp, frame_error.timestamp)
@@ -844,10 +969,11 @@ class TestFrameErrorMetricOutput(unittest.TestCase):
         result = metric.measure_results(trial_results)
 
         self.assertTrue(result.success)
-        self.assertEqual(repeats * len(self.images), len(result.errors))
+        self.assertEqual(repeats, len(result.errors))
         for repeat in range(repeats):
+            self.assertEqual(len(self.images), len(result.errors[repeat]))
             for idx in range(len(self.images)):
-                frame_error = result.errors[idx * len(trial_results) + repeat]
+                frame_error = result.errors[repeat][idx]
                 frame_result = trial_results[repeat].results[idx]
                 self.assertEqual(repeat, frame_error.repeat)
                 self.assertEqual(frame_result.timestamp, frame_error.timestamp)
@@ -922,16 +1048,17 @@ class TestFrameErrorMetricOutput(unittest.TestCase):
         result = metric.measure_results(trial_results)
 
         self.assertTrue(result.success)
-        self.assertEqual(repeats * len(self.images), len(result.errors))
+        self.assertEqual(repeats, len(result.errors))
         for repeat in range(repeats):
             has_been_lost = False
+            self.assertEqual(len(self.images), len(result.errors[repeat]))
             for idx in range(len(self.images)):
-                frame_error = result.errors[idx * len(trial_results) + repeat]
+                frame_error = result.errors[repeat][idx]
                 frame_result = trial_results[repeat].results[idx]
                 self.assertEqual(repeat, frame_error.repeat)
                 self.assertEqual(frame_result.timestamp, frame_error.timestamp)
                 self.assertEqual(frame_result.image, frame_error.image)
-                self.assertEqual(TrackingState.OK, frame_error.tracking)
+                self.assertEqual(frame_result.tracking_state, frame_error.tracking)
                 self.assertEqual(frame_result.num_features, frame_error.num_features)
                 self.assertEqual(frame_result.num_matches, frame_error.num_matches)
 
