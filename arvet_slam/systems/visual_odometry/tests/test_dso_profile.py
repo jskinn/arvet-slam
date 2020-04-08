@@ -2,7 +2,7 @@ import unittest
 from arvet.core.sequence_type import ImageSequenceType
 from arvet.metadata.camera_intrinsics import CameraIntrinsics
 from arvet_slam.systems.test_helpers.demo_image_builder import DemoImageBuilder, ImageMode
-from arvet_slam.systems.slam.direct_sparse_odometry import DSO, RectificationMode
+from arvet_slam.systems.visual_odometry.direct_sparse_odometry import DSO, RectificationMode
 
 
 @unittest.skip("Not running profiling")

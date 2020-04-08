@@ -24,7 +24,7 @@ from arvet.core.image import Image
 from arvet.core.system import VisionSystem
 
 from arvet_slam.trials.slam.visual_slam import SLAMTrialResult
-from arvet_slam.systems.slam.direct_sparse_odometry import DSO, RectificationMode, \
+from arvet_slam.systems.visual_odometry.direct_sparse_odometry import DSO, RectificationMode, \
     make_undistort_from_mode, make_undistort_from_out_intrinsics, make_pose
 
 
