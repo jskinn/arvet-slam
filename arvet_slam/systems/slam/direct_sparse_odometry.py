@@ -69,7 +69,6 @@ class DSO(VisionSystem):
 
         self._intrinsics = None
         self._framerate = 30
-        self._stereo_baseline = None
         self._has_photometric_calibration = False
 
         self._undistorter = None
@@ -84,12 +83,13 @@ class DSO(VisionSystem):
     @classmethod
     def is_deterministic(cls) -> StochasticBehaviour:
         """
-        I don't think DSO is deterministic, LSD-SLAM apparently wasn't.
-        This may change in response to testing or reading the source.
+        DSO is deterministic with multi-threading disabled.
+        There is a bug in one of the mutli-threaded accumulates that is order important,
+        so without it, the system is determinisitic.
 
-        :return: StochasticBehaviour.NON_DETERMINISTIC
+        :return: StochasticBehaviour.DETERMINISTIC
         """
-        return StochasticBehaviour.NON_DETERMINISTIC
+        return StochasticBehaviour.DETERMINISTIC
 
     def is_image_source_appropriate(self, image_source: ImageSource) -> bool:
         """
