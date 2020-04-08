@@ -959,7 +959,7 @@ class TestOrbSlam2(unittest.TestCase):
         k3 = random.uniform(0, 1)
         p1 = random.uniform(0, 1)
         p2 = random.uniform(0, 1)
-        framerate = float(random.randint(200, 600) / 64)
+        framerate = random.uniform(1, 30)
         stereo_offset = Transform(random.uniform(-1, 1, size=3))
 
         mock_tempfile.mkstemp.return_value = (12, 'my_temp_file.yml')
@@ -1002,7 +1002,8 @@ class TestOrbSlam2(unittest.TestCase):
         self.assertIn('Camera.p2: {0}'.format(p2), lines)
         self.assertIn('Camera.width: {0}'.format(width), lines)
         self.assertIn('Camera.height: {0}'.format(height), lines)
-        self.assertIn('Camera.fps: {0}'.format(framerate), lines)
+        # The framerate gets inverted twice, which shifts the float slightly
+        self.assertIn('Camera.fps: {0}'.format(1 / (1 / framerate)), lines)
         self.assertIn('Camera.bf: {0}'.format(-1 * stereo_offset.location[1] * fx), lines)
         self.assertIn('ThDepth: {0}'.format(subject.depth_threshold), lines)
         self.assertIn('ORBextractor.nFeatures: {0}'.format(subject.orb_num_features), lines)

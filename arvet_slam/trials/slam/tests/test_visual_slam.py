@@ -991,7 +991,7 @@ class TestSLAMTrialResult(ExtendedTestCase):
                 normalised_trajectory_pose = first_trajectory_pose.find_relative(estimated_trajectory[timestamp])
                 normalised_scaled_pose = first_scaled_pose.find_relative(scaled_pose)
                 self.assertNPClose(normalised_scaled_pose.location,
-                                   normalised_trajectory_pose.location, atol=0, rtol=1e-15)
+                                   normalised_trajectory_pose.location, atol=0, rtol=1e-14)
                 self.assertNPClose(normalised_scaled_pose.rotation_quat(True),
                                    normalised_trajectory_pose.rotation_quat(True), atol=0, rtol=1e-15)
 

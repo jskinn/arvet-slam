@@ -31,8 +31,14 @@ class TestFrameErrorMetricDatabase(unittest.TestCase):
         im_manager.set_image_manager(image_manager)
 
     def setUp(self):
-        # Remove the collection as the start of the test, so that we're sure it's empty
-        FrameErrorMetric._mongometa.collection.drop()
+        # Clear temporary data from the test database before each test, to prevent cross-contamination
+        FrameErrorMetric.objects.all().delete()
+        MetricResult.objects.all().delete()
+
+    def tearDown(self) -> None:
+        # Clear temporary data from the test database before each test, to prevent cross-contamination
+        FrameErrorMetric.objects.all().delete()
+        MetricResult.objects.all().delete()
 
     @classmethod
     def tearDownClass(cls):
@@ -101,6 +107,12 @@ class TestFrameErrorMetricDatabase(unittest.TestCase):
         self.assertEqual(all_entities[0], result)
         all_entities[0].delete()
 
+        # Clean up
+        metric.delete()
+        system1.delete()
+        system2.delete()
+        image_source.delete()
+
     def test_measure_results_returns_successful_result_that_can_be_saved(self):
         system = mock_types.MockSystem()
         image_source = mock_types.MockImageSource()
@@ -153,6 +165,11 @@ class TestFrameErrorMetricDatabase(unittest.TestCase):
         self.assertEqual(len(all_entities), 1)
         self.assertEqual(all_entities[0], result)
         all_entities[0].delete()
+
+        # Clean up
+        metric.delete()
+        system.delete()
+        image_source.delete()
 
 
 class TestFrameErrorMetric(unittest.TestCase):
@@ -508,7 +525,7 @@ class TestFrameErrorMetricOutput(unittest.TestCase):
         # Sanity check the tracking information, the totals should be right
         self.assertEqual(len(self.images), sum(itertools.chain(trial_error.frames_lost, trial_error.frames_found)))
         self.assertAlmostEqual(frame_results[-1].timestamp - frame_results[0].timestamp,
-                               sum(itertools.chain(trial_error.times_lost, trial_error.times_found)), places=15)
+                               sum(itertools.chain(trial_error.times_lost, trial_error.times_found)), places=14)
         self.assertEqual(np.linalg.norm(frame_results[-1].pose.location - frame_results[0].pose.location),
                          sum(itertools.chain(trial_error.distances_lost, trial_error.distances_found)))
 
@@ -585,7 +602,7 @@ class TestFrameErrorMetricOutput(unittest.TestCase):
         # Sanity check the tracking information, the totals should be right
         self.assertEqual(len(self.images), sum(itertools.chain(trial_error.frames_lost, trial_error.frames_found)))
         self.assertAlmostEqual(frame_results[-1].timestamp - frame_results[0].timestamp,
-                               sum(itertools.chain(trial_error.times_lost, trial_error.times_found)), places=15)
+                               sum(itertools.chain(trial_error.times_lost, trial_error.times_found)), places=14)
         self.assertEqual(np.linalg.norm(frame_results[-1].pose.location - frame_results[0].pose.location),
                          sum(itertools.chain(trial_error.distances_lost, trial_error.distances_found)))
 
