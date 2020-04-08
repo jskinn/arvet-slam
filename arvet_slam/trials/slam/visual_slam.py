@@ -226,8 +226,10 @@ class SLAMTrialResult(TrialResult):
         base_motion = self.results[index].estimated_motion
         if self.has_scale or base_motion is None:
             return base_motion
+        # Handle the system producing 0 motion estimates for every frame, so scale is 0
+        scale = (self.ground_truth_scale / self.estimated_scale) if self.estimated_scale != 0 else 1
         return Transform(
-            location=(self.ground_truth_scale / self.estimated_scale) * base_motion.location,
+            location=scale * base_motion.location,
             rotation=base_motion.rotation_quat(w_first=True),
             w_first=True
         )
@@ -247,25 +249,13 @@ class SLAMTrialResult(TrialResult):
         base_pose = self.results[index].estimated_pose
         if self.has_scale or base_pose is None:
             return base_pose
+        # Handle the system producing 0 motion estimates for every frame, so scale is 0
+        scale = (self.ground_truth_scale / self.estimated_scale) if self.estimated_scale != 0 else 1
         return Transform(
-            location=(self.ground_truth_scale / self.estimated_scale) * base_pose.location,
+            location=scale * base_pose.location,
             rotation=base_pose.rotation_quat(w_first=True),
             w_first=True
         )
-        # prev_pose = next((
-        #     self.results[idx].estimated_pose for idx in range(index - 1, -1, -1)
-        #     if self.results[idx].estimated_pose is not None
-        # ), None)
-        # if prev_pose is None:
-        #     return base_pose
-        # motion = prev_pose.find_relative(base_pose)
-        # return Transform(
-        #     location=prev_pose.find_independent(
-        #         (self.ground_truth_scale / self.estimated_scale) * motion.location
-        #     ),
-        #     rotation=base_pose.rotation_quat(w_first=True),
-        #     w_first=True
-        # )
 
     def get_computed_camera_poses(self, rescale: bool = True) -> typing.Mapping[float, Transform]:
         """
