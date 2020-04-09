@@ -93,7 +93,7 @@ class TUMManager:
                 expected_duration='8:00:00',
             )
             if import_dataset_task.is_finished:
-                return import_dataset_task.result
+                return import_dataset_task.get_result()
             else:
                 # Make sure the import dataset task gets done
                 import_dataset_task.save()
