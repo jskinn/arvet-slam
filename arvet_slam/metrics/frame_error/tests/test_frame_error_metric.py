@@ -159,7 +159,7 @@ class TestFrameErrorMetricDatabase(unittest.TestCase):
 
         result = metric.measure_results([trial_result])
         # self.assertTrue(result.is_valid())
-        result.save(True)
+        result.save(cascade=True)
 
         all_entities = list(MetricResult.objects.all())
         self.assertEqual(len(all_entities), 1)
@@ -855,7 +855,7 @@ class TestFrameErrorMetricOutput(unittest.TestCase):
                     self.assertIsNone(frame_error.relative_error)
                     self.assertIsNone(frame_error.noise)
                 else:
-                    self.assertErrorIsAlmostZero(frame_error.relative_error, rot_places=7)
+                    self.assertErrorIsAlmostZero(frame_error.relative_error, places=12, rot_places=7)
                     self.assertErrorIsAlmostZero(frame_error.noise, rot_places=7)
 
     def test_returns_zero_error_or_noise_for_misaligned_partial_trajectories(self):

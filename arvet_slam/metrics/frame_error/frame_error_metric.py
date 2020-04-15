@@ -172,9 +172,24 @@ class FrameErrorResult(MetricResult):
         """
         # Cascade the save to the frame errors
         if cascade or (self._mongometa.cascade and cascade is not False):
-            for trial_errors in self.errors:
-                for frame_error in trial_errors.frame_errors:
-                    frame_error.save(cascade, full_clean, force_insert)
+            frame_errors_to_create = [
+                frame_error
+                for trial_errors in self.errors
+                for frame_error in trial_errors.frame_errors
+                if frame_error.pk is None
+            ]
+            frame_errors_to_save = [
+                frame_error
+                for trial_errors in self.errors
+                for frame_error in trial_errors.frame_errors
+                if frame_error.pk is not None
+            ]
+            # Do error creation in bulk. Updates still happen individually.
+            new_ids = FrameError.objects.bulk_create(frame_errors_to_create, full_clean=full_clean)
+            for new_id, model in zip(new_ids, frame_errors_to_create):
+                model.pk = new_id
+            for frame_error in frame_errors_to_save:
+                frame_error.save(cascade, full_clean, force_insert)
         super(FrameErrorResult, self).save(cascade, full_clean, force_insert)
 
     def get_columns(self) -> typing.Set[str]:
