@@ -1,6 +1,7 @@
 import unittest
 import unittest.mock as mock
 import os.path
+import bson
 from shutil import rmtree
 from arvet_slam.dataset.euroc.euroc_manager import EuRoCManager, dataset_names
 
@@ -116,11 +117,13 @@ class TestEurocManager(unittest.TestCase):
         mock_euroc_loader.find_files.side_effect = lambda x: (x, None, None, None, None, None)
         mock_task = mock.Mock()
         mock_task.is_finished = True
+        result_id = bson.ObjectId()
+        mock_task.get_result.return_value = result_id
         mock_task_manager.get_import_dataset_task.return_value = mock_task
 
         subject = EuRoCManager(mock_dataset_root)
         result = subject.get_dataset('MH_01_easy')
-        self.assertEqual(mock_task.result, result)
+        self.assertEqual(result_id, result)
 
         # Clean up
         rmtree(mock_dataset_root)

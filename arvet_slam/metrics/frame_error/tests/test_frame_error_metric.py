@@ -961,7 +961,7 @@ class TestFrameErrorMetricOutput(unittest.TestCase):
 
                 # Errors should all be zero. We can be stricter on the rotation error in this test because
                 # the scale only affects the translation.
-                self.assertErrorIsAlmostZero(frame_error.absolute_error)
+                self.assertErrorIsAlmostZero(frame_error.absolute_error, places=12)
 
                 if idx <= 0:
                     # No relative error or noise on the first frame, because there is no motion

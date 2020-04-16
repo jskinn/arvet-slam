@@ -2,6 +2,7 @@ import unittest
 import unittest.mock as mock
 from pathlib import Path
 from shutil import rmtree
+import bson
 import arvet.database.tests.database_connection as dbconn
 from arvet.batch_analysis.task import Task
 from arvet.batch_analysis.tasks.import_dataset_task import ImportDatasetTask
@@ -116,11 +117,13 @@ class TestKITTIManager(unittest.TestCase):
         mock_kitti_loader.find_root.side_effect = lambda x, seq: x
         mock_task = mock.Mock()
         mock_task.is_finished = True
+        result_id = bson.ObjectId()
+        mock_task.get_result.return_value = result_id
         mock_task_manager.get_import_dataset_task.return_value = mock_task
 
         subject = KITTIManager(Path(__file__).parent)
         result = subject.get_dataset(2)
-        self.assertEqual(mock_task.result, result)
+        self.assertEqual(result_id, result)
 
     @mock.patch('arvet_slam.dataset.kitti.kitti_manager.task_manager', autospec=True)
     @mock.patch('arvet_slam.dataset.kitti.kitti_manager.kitti_loader', autospec=True)
@@ -140,17 +143,19 @@ class TestKITTIManager(unittest.TestCase):
         mock_kitti_loader.find_root.side_effect = lambda x, seq: x
         mock_task = mock.Mock()
         mock_task.is_finished = True
+        result_id = bson.ObjectId()
+        mock_task.get_result.return_value = result_id
         mock_task_manager.get_import_dataset_task.return_value = mock_task
 
         subject = KITTIManager(Path(__file__).parent)
         result = subject.get_dataset('2')
-        self.assertEqual(mock_task.result, result)
+        self.assertEqual(result_id, result)
 
         result = subject.get_dataset('00002')
-        self.assertEqual(mock_task.result, result)
+        self.assertEqual(result_id, result)
 
         result = subject.get_dataset('000002')
-        self.assertEqual(mock_task.result, result)
+        self.assertEqual(result_id, result)
 
     @mock.patch('arvet_slam.dataset.kitti.kitti_manager.kitti_loader', autospec=True)
     def test_get_missing_datasets_returns_dataset_names_not_in_found_roots(self, mock_kitti_loader):

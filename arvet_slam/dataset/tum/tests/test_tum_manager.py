@@ -3,6 +3,7 @@ import unittest
 import unittest.mock as mock
 import os.path
 import tarfile
+import bson
 from pathlib import Path
 from shutil import rmtree
 import arvet.database.tests.database_connection as dbconn
@@ -164,11 +165,13 @@ class TestTUMManager(unittest.TestCase):
         mock_tum_manager.find_files.side_effect = lambda x: (x, None, None, None, None, None)
         mock_task = mock.Mock()
         mock_task.is_finished = True
+        result_id = bson.ObjectId()
+        mock_task.get_result.return_value = result_id
         mock_task_manager.get_import_dataset_task.return_value = mock_task
 
         subject = TUMManager(mock_dataset_root)
         result = subject.get_dataset('rgbd_dataset_freiburg1_teddy')
-        self.assertEqual(mock_task.result, result)
+        self.assertEqual(result_id, result)
 
         # Clean up
         rmtree(mock_dataset_root)
