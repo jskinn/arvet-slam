@@ -1342,6 +1342,105 @@ class TestFrameErrorResultDatabase(unittest.TestCase):
         with self.assertRaises(ValidationError):
             result.save()
 
+    def test_stores_and_loads_frame_errors_if_cascade(self):
+        # make some unsaved frame and trial errors
+        all_trial_errors = []
+        for repeat in range(3):
+            frame_errors = []
+            tracking_start = repeat
+            for idx, image in enumerate(self.images):
+                true_pose = Transform(
+                    location=(3.5 * idx, 0.7 * idx, 0),
+                    rotation=tf3d.quaternions.axangle2quat((1, 2, 3), idx * np.pi / 12),
+                    w_first=True
+                )
+                est_pose = Transform(
+                    location=((3.6 + 0.1 * repeat) * idx, (0.8 - 0.15 * repeat) * idx, -0.01 * idx),
+                    rotation=tf3d.quaternions.axangle2quat((1, 2, 3), 1.1 * idx * np.pi / 12),
+                    w_first=True
+                )
+                true_motion = Transform(
+                    location=(3.5 * (idx - 1), 0.7 * (idx - 1), 0),
+                    rotation=tf3d.quaternions.axangle2quat((1, 2, 3), (idx - 1) * np.pi / 12),
+                    w_first=True
+                ).find_relative(true_pose)
+                est_motion = Transform(
+                    location=((3.6 + 0.1 * repeat) * (idx - 1), 0.6 * (idx - 1), -0.01 * (idx - 1)),
+                    rotation=tf3d.quaternions.axangle2quat((1, 2, 3), 1.1 * (idx - 1) * np.pi / 12),
+                    w_first=True
+                ).find_relative(est_pose)
+                avg_pose = Transform(
+                    location=(3.6 * idx, 0.65 * idx, -0.015 * idx),
+                    rotation=tf3d.quaternions.axangle2quat((1, 2, 3), 1.1 * idx * np.pi / 12),
+                    w_first=True
+                )
+                frame_error = FrameError(
+                    trial_result=self.trial_result,
+                    repeat=repeat,
+                    timestamp=1.3 * idx,
+                    image=image,
+                    motion=true_motion,
+                    tracking=TrackingState.OK if idx > tracking_start else TrackingState.LOST,
+                    num_features=423 - 6 * (repeat * idx),
+                    num_matches=int(638 * (idx + 1) / (repeat + 3)),
+                    absolute_error=make_pose_error(est_pose, true_pose) if idx > tracking_start else None,
+                    relative_error=make_pose_error(est_motion, true_motion) if idx > tracking_start else None,
+                    noise=make_pose_error(est_pose, avg_pose) if idx > tracking_start else None
+                )
+                frame_errors.append(frame_error)
+            all_trial_errors.append(TrialErrors(
+                frame_errors=frame_errors,
+                frames_lost=[tracking_start],
+                frames_found=[len(self.images) - tracking_start],
+                times_lost=[1.3 * tracking_start],
+                times_found=[1.3 * (len(self.images) - tracking_start)],
+                distances_lost=[float(np.linalg.norm((
+                    3.5 * tracking_start,
+                    0.7 * tracking_start,
+                    0
+                )))],
+                distances_found=[float(np.linalg.norm((
+                    3.5 * (len(self.images) - tracking_start),
+                    0.7 * (len(self.images) - tracking_start),
+                    0
+                )))]
+            ))
+
+        # Save the model, which should also save the trial and frame errors.
+        result = FrameErrorResult(
+            metric=self.metric,
+            trial_results=[self.trial_result],
+            success=True,
+            system=self.system,
+            image_source=self.image_source,
+            errors=all_trial_errors
+        )
+        result.save(cascade=True)
+
+        # Load all the entities
+        all_entities = list(FrameErrorResult.objects.all())
+        self.assertGreaterEqual(len(all_entities), 1)
+        loaded_result = all_entities[0]
+        self.assertEqual(loaded_result, result)
+
+        # Check the referenced trial and fame results are the same
+        self.assertEqual(len(all_trial_errors), len(loaded_result.errors))
+        for trial_errors, loaded_trial_errors in zip(all_trial_errors, loaded_result.errors):
+            self.assertEqual(trial_errors.frames_lost, loaded_trial_errors.frames_lost)
+            self.assertEqual(trial_errors.frames_found, loaded_trial_errors.frames_found)
+            self.assertEqual(trial_errors.times_lost, loaded_trial_errors.times_lost)
+            self.assertEqual(trial_errors.times_found, loaded_trial_errors.times_found)
+            self.assertEqual(trial_errors.distances_lost, loaded_trial_errors.distances_lost)
+            self.assertEqual(trial_errors.distances_found, loaded_trial_errors.distances_found)
+            self.assertEqual(len(trial_errors.frame_errors), len(loaded_trial_errors.frame_errors))
+
+            for frame_error, loaded_frame_error in zip(trial_errors.frame_errors, loaded_trial_errors.frame_errors):
+                self.assertEqual(frame_error.pk, loaded_frame_error.pk)
+                self.assertEqual(frame_error, loaded_frame_error)
+
+        # Clean up
+        result.delete()
+
     def test_delete_removes_frame_errors(self):
         trial_errors = []
         all_frame_errors = []
