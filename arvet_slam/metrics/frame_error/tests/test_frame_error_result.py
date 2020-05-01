@@ -1,6 +1,6 @@
 import unittest
 import unittest.mock as mock
-import os
+from pathlib import Path
 import bson
 import pymodm
 from pymodm.errors import ValidationError
@@ -14,10 +14,50 @@ from arvet.metadata.image_metadata import make_metadata, ImageSourceType
 import arvet.core.tests.mock_types as mock_types
 from arvet.core.image import Image
 from arvet.core.system import VisionSystem
-from arvet.core.trial_result import TrialResult
 from arvet_slam.trials.slam.tracking_state import TrackingState
-from arvet_slam.metrics.frame_error.frame_error_metric import make_pose_error, PoseError, FrameError, TrialErrors, \
-    FrameErrorResult
+from arvet_slam.trials.slam.visual_slam import SLAMTrialResult, FrameResult
+from arvet_slam.metrics.frame_error.frame_error_result import make_pose_error, PoseError, make_frame_error, FrameError,\
+    TrialErrors, make_frame_error_result, FrameErrorResult
+
+
+class CountedImageSource(mock_types.MockImageSource):
+    instance_count = 0
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        CountedImageSource.instance_count += 1
+
+
+class CountedImage(Image):
+    instance_count = 0
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        CountedImage.instance_count += 1
+
+
+class CountedSystem(mock_types.MockSystem):
+    instance_count = 0
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        CountedSystem.instance_count += 1
+
+
+class CountedTrialResult(SLAMTrialResult):
+    instance_count = 0
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        CountedTrialResult.instance_count += 1
+
+
+class CountedMetric(mock_types.MockMetric):
+    instance_count = 0
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        CountedMetric.instance_count += 1
 
 
 class TestMakePoseError(unittest.TestCase):
@@ -189,18 +229,18 @@ def mock_system_get_properties(columns=None, settings=None):
     return properties
 
 
-class TestFrameErrorGetProperties(unittest.TestCase):
+class TestFrameError(unittest.TestCase):
 
     def setUp(self) -> None:
         self.system = mock.Mock(spec=VisionSystem)
+        self.system.pk = bson.ObjectId()
         self.system.get_columns.return_value = {'system_column', 'runtime_column'}
         self.system.get_properties.side_effect = mock_system_get_properties
-        self.trial = mock.Mock(spec=TrialResult)
-        self.trial.system = self.system
-        self.trial.settings = {'runtime_column': 42}
+        self.trial = mock_types.MockTrialResult(system=self.system, settings={'runtime_column': 42})
 
         self.pixels = np.array([[1, 2, 3], [4, 5, 6], [7, 8, 9]])
         self.image = Image(
+            _id=bson.ObjectId(),
             pixels=self.pixels,
             metadata=make_metadata(self.pixels)
         )
@@ -215,6 +255,20 @@ class TestFrameErrorGetProperties(unittest.TestCase):
         self.processing_time = 0.568
         self.num_features = 423
         self.num_matches = 238
+
+        frame_result = FrameResult(
+            timestamp=self.timestamp,
+            image=self.image,
+            processing_time=self.processing_time,
+            pose=self.image.camera_pose,
+            motion=self.motion,
+            estimated_pose=Transform(),
+            estimated_motion=Transform(),
+            tracking_state=self.tracking,
+            num_features=self.num_features,
+            num_matches=self.num_matches
+        )
+
         self.absolute_error = PoseError(
             x=10,
             y=11,
@@ -240,16 +294,12 @@ class TestFrameErrorGetProperties(unittest.TestCase):
             rot=np.pi / 16
         )
 
-        self.frame_error = FrameError(
-            repeat=self.repeat,
-            timestamp=self.timestamp,
+        self.frame_error = make_frame_error(
+            repeat_index=self.repeat,
             image=self.image,
             trial_result=self.trial,
-            processing_time=self.processing_time,
-            tracking=self.tracking,
-            motion=self.motion,
-            num_features=self.num_features,
-            num_matches=self.num_matches,
+            system=self.system,
+            frame_result=frame_result,
             absolute_error=self.absolute_error,
             relative_error=self.relative_error,
             noise=self.noise
@@ -389,13 +439,112 @@ class TestFrameErrorGetProperties(unittest.TestCase):
             extra_properties
         ))
 
-    def test_get_properties_returns_properties_with_minimal_parameters(self):
-        frame_error = FrameError(
-            repeat=self.repeat,
+    def test_make_frame_error_uses_image_from_frame_result_if_None(self):
+        frame_result = FrameResult(
             timestamp=self.timestamp,
-            trial_result=self.trial,
             image=self.image,
-            motion=self.motion
+            processing_time=self.processing_time,
+            pose=self.image.camera_pose,
+            motion=self.motion,
+            estimated_pose=Transform(),
+            estimated_motion=Transform(),
+            tracking_state=self.tracking,
+            num_features=self.num_features,
+            num_matches=self.num_matches
+        )
+        pose_error = PoseError(
+            x=10, y=11, z=12,
+            length=np.sqrt(100 + 121 + 144),
+            direction=np.pi / 7, rot=np.pi / 5
+        )
+        frame_error = make_frame_error(
+            trial_result=self.trial,
+            frame_result=frame_result,
+            image=None,
+            system=None,
+            repeat_index=self.repeat,
+            absolute_error=pose_error,
+            relative_error=pose_error,
+            noise=pose_error
+        )
+        self.assertEqual(self.image, frame_error.image)
+
+    def test_make_frame_error_uses_image_from_frame_result_if_doesnt_match(self):
+        image2 = Image(
+            _id=bson.ObjectId(), pixels=self.pixels, metadata=make_metadata(self.pixels)
+        )
+        frame_result = FrameResult(
+            timestamp=self.timestamp,
+            image=self.image,
+            processing_time=self.processing_time,
+            pose=self.image.camera_pose,
+            motion=self.motion,
+            estimated_pose=Transform(),
+            estimated_motion=Transform(),
+            tracking_state=self.tracking,
+            num_features=self.num_features,
+            num_matches=self.num_matches
+        )
+        pose_error = PoseError(
+            x=10, y=11, z=12,
+            length=np.sqrt(100 + 121 + 144),
+            direction=np.pi / 7, rot=np.pi / 5
+        )
+        frame_error = make_frame_error(
+            trial_result=self.trial,
+            frame_result=frame_result,
+            image=image2,
+            system=None,
+            repeat_index=self.repeat,
+            absolute_error=pose_error,
+            relative_error=pose_error,
+            noise=pose_error
+        )
+        self.assertEqual(self.image, frame_error.image)
+
+    def test_make_frame_error_fills_out_necessary_data_for_properties(self):
+        frame_result = FrameResult(
+            timestamp=self.timestamp,
+            image=self.image,
+            processing_time=self.processing_time,
+            pose=self.image.camera_pose,
+            motion=self.motion,
+            estimated_pose=Transform(),
+            estimated_motion=Transform(),
+            tracking_state=self.tracking,
+            num_features=self.num_features,
+            num_matches=self.num_matches
+        )
+        absolute_error = PoseError(
+            x=10, y=11, z=12,
+            length=np.sqrt(100 + 121 + 144),
+            direction=np.pi / 7, rot=np.pi / 5
+        )
+        relative_error = PoseError(
+            x=13,
+            y=14,
+            z=15,
+            length=np.sqrt(169 + 196 + 225),
+            direction=np.pi / 36,
+            rot=np.pi / 2
+        )
+        noise = PoseError(
+            x=16,
+            y=17,
+            z=18,
+            length=np.sqrt(256 + 289 + 324),
+            direction=np.pi / 8,
+            rot=np.pi / 16
+        )
+        frame_error = make_frame_error(
+            trial_result=self.trial,
+            frame_result=frame_result,
+            image=None,
+            system=None,
+            repeat_index=self.repeat,
+            absolute_error=absolute_error,
+            relative_error=relative_error,
+            noise=noise
         )
         expected_properties = dict(self.image.get_properties())
         expected_properties.update(self.system.get_properties(self.trial.settings))
@@ -403,41 +552,106 @@ class TestFrameErrorGetProperties(unittest.TestCase):
             'repeat': self.repeat,
             'timestamp': self.timestamp,
             'tracking': True,
-            'processing_time': np.nan,
+            'processing_time': self.processing_time,
             'motion_x': self.motion.x,
             'motion_y': self.motion.y,
             'motion_z': self.motion.z,
             'motion_roll': self.motion.euler[0],
             'motion_pitch': self.motion.euler[1],
             'motion_yaw': self.motion.euler[2],
-            'num_features': 0,
-            'num_matches': 0,
+            'num_features': self.num_features,
+            'num_matches': self.num_matches,
 
-            'abs_error_x': np.nan,
-            'abs_error_y': np.nan,
-            'abs_error_z': np.nan,
-            'abs_error_length': np.nan,
-            'abs_error_direction': np.nan,
-            'abs_rot_error': np.nan,
+            'abs_error_x': absolute_error.x,
+            'abs_error_y': absolute_error.y,
+            'abs_error_z': absolute_error.z,
+            'abs_error_length': absolute_error.length,
+            'abs_error_direction': absolute_error.direction,
+            'abs_rot_error': absolute_error.rot,
 
-            'trans_error_x': np.nan,
-            'trans_error_y': np.nan,
-            'trans_error_z': np.nan,
-            'trans_error_length': np.nan,
-            'trans_error_direction': np.nan,
-            'rot_error': np.nan,
+            'trans_error_x': relative_error.x,
+            'trans_error_y': relative_error.y,
+            'trans_error_z': relative_error.z,
+            'trans_error_length': relative_error.length,
+            'trans_error_direction': relative_error.direction,
+            'rot_error': relative_error.rot,
 
-            'trans_noise_x': np.nan,
-            'trans_noise_y': np.nan,
-            'trans_noise_z': np.nan,
-            'trans_noise_length': np.nan,
-            'trans_noise_direction': np.nan,
-            'rot_noise': np.nan,
+            'trans_noise_x': noise.x,
+            'trans_noise_y': noise.y,
+            'trans_noise_z': noise.z,
+            'trans_noise_length': noise.length,
+            'trans_noise_direction': noise.direction,
+            'rot_noise': noise.rot,
 
             'system_column': 823.3,
             'runtime_column': 42
         })
         self.assertEqual(expected_properties, frame_error.get_properties())
+
+    def test_make_frame_error_uses_settings_from_system_from_trial_result_if_None(self):
+        frame_result = FrameResult(
+            timestamp=self.timestamp,
+            image=self.image,
+            processing_time=self.processing_time,
+            pose=self.image.camera_pose,
+            motion=self.motion,
+            estimated_pose=Transform(),
+            estimated_motion=Transform(),
+            tracking_state=self.tracking,
+            num_features=self.num_features,
+            num_matches=self.num_matches
+        )
+        pose_error = PoseError(
+            x=10, y=11, z=12,
+            length=np.sqrt(100 + 121 + 144),
+            direction=np.pi / 7, rot=np.pi / 5
+        )
+        frame_error = make_frame_error(
+            trial_result=self.trial,
+            frame_result=frame_result,
+            image=None,
+            system=None,
+            repeat_index=self.repeat,
+            absolute_error=pose_error,
+            relative_error=pose_error,
+            noise=pose_error
+        )
+        expected_properties = self.system.get_properties(None, self.trial.settings)
+        self.assertEqual(expected_properties, frame_error.system_properties)
+
+    def test_make_frame_error_uses_settings_from_system_from_trial_result_if_doesnt_match(self):
+        alt_system = mock.Mock(spec=VisionSystem)
+        alt_system.pk = bson.ObjectId()
+        alt_system.get_properties.return_value = {'foo': 'bar', 'baz': 1066}
+        frame_result = FrameResult(
+            timestamp=self.timestamp,
+            image=self.image,
+            processing_time=self.processing_time,
+            pose=self.image.camera_pose,
+            motion=self.motion,
+            estimated_pose=Transform(),
+            estimated_motion=Transform(),
+            tracking_state=self.tracking,
+            num_features=self.num_features,
+            num_matches=self.num_matches
+        )
+        pose_error = PoseError(
+            x=10, y=11, z=12,
+            length=np.sqrt(100 + 121 + 144),
+            direction=np.pi / 7, rot=np.pi / 5
+        )
+        frame_error = make_frame_error(
+            trial_result=self.trial,
+            frame_result=frame_result,
+            image=None,
+            system=alt_system,
+            repeat_index=self.repeat,
+            absolute_error=pose_error,
+            relative_error=pose_error,
+            noise=pose_error
+        )
+        expected_properties = self.system.get_properties(None, self.trial.settings)
+        self.assertEqual(expected_properties, frame_error.system_properties)
 
 
 class TestFrameErrorDatabase(unittest.TestCase):
@@ -470,8 +684,9 @@ class TestFrameErrorDatabase(unittest.TestCase):
         FrameError.objects.all().delete()
         Image._mongometa.collection.drop()
         im_manager.set_image_manager(None)
-        if os.path.isfile(dbconn.image_file):
-            os.remove(dbconn.image_file)
+        image_file_path = Path(dbconn.image_file)
+        if image_file_path.exists():
+            image_file_path.unlink()
 
     def test_stores_and_loads(self):
         pixels = np.array([[1, 2, 3], [4, 5, 6], [7, 8, 9]])
@@ -653,146 +868,350 @@ class TestFrameErrorDatabase(unittest.TestCase):
         # restore the image manager
         im_manager.set_image_manager(prev_image_manager)
 
+    def test_make_frame_error_output_stores_and_loads(self):
+        pixels = np.array([[1, 2, 3], [4, 5, 6], [7, 8, 9]])
+        image = Image(
+            pixels=pixels,
+            metadata=make_metadata(pixels, source_type=ImageSourceType.SYNTHETIC)
+        )
+        image.save()
+        frame_result = FrameResult(
+            timestamp=1.3,
+            image=image,
+            processing_time=0.223,
+            pose=Transform(),
+            motion=Transform((1.2, 0.1, -0.03), (0, 1, 0, 0)),
+            estimated_pose=Transform(),
+            estimated_motion=Transform(),
+            tracking_state=TrackingState.OK,
+            num_features=423,
+            num_matches=238
+        )
+
+        frame_error = make_frame_error(
+            trial_result=self.trial_result,
+            frame_result=frame_result,
+            image=image,
+            system=self.trial_result.system,
+            repeat_index=1,
+            absolute_error=PoseError(
+                x=10,
+                y=11,
+                z=12,
+                length=np.sqrt(100 + 121 + 144),
+                direction=np.pi / 7,
+                rot=np.pi / 5
+            ),
+            relative_error=PoseError(
+                x=13,
+                y=14,
+                z=15,
+                length=np.sqrt(169 + 196 + 225),
+                direction=np.pi / 36,
+                rot=np.pi / 2
+            ),
+            noise=PoseError(
+                x=16,
+                y=17,
+                z=18,
+                length=np.sqrt(256 + 289 + 324),
+                direction=np.pi / 8,
+                rot=np.pi / 16
+            )
+        )
+
+        # Clear the models
+        FrameError.objects.all().delete()
+
+        # Save the model
+        frame_error.save()
+
+        # Load all the entities
+        all_entities = list(FrameError.objects.all())
+        self.assertEqual(len(all_entities), 1)
+
+        loaded_frame_error = all_entities[0]
+        self.assertEqual(frame_error.image, loaded_frame_error.image)
+        self.assertEqual(frame_error.trial_result, loaded_frame_error.trial_result)
+        self.assertEqual(frame_error.repeat, loaded_frame_error.repeat)
+        self.assertEqual(frame_error.timestamp, loaded_frame_error.timestamp)
+        self.assertEqual(frame_error.motion, loaded_frame_error.motion)
+        self.assertEqual(frame_error.processing_time, loaded_frame_error.processing_time)
+        self.assertEqual(frame_error.num_features, loaded_frame_error.num_features)
+        self.assertEqual(frame_error.num_matches, loaded_frame_error.num_matches)
+        self.assertEqual(frame_error.tracking, loaded_frame_error.tracking)
+        self.assertEqual(frame_error.absolute_error, loaded_frame_error.absolute_error)
+        self.assertEqual(frame_error.relative_error, loaded_frame_error.relative_error)
+        self.assertEqual(frame_error.noise, loaded_frame_error.noise)
+        self.assertEqual(frame_error.system_properties, loaded_frame_error.system_properties)
+        self.assertEqual(frame_error.image_properties, loaded_frame_error.image_properties)
+        loaded_frame_error.delete()
+
+    def test_make_frame_error_doesnt_dereference_frame_result_image_if_valid(self):
+        pixels = np.array([[1, 2, 3], [4, 5, 6], [7, 8, 9]])
+        image = CountedImage(
+            pixels=pixels,
+            metadata=make_metadata(pixels, source_type=ImageSourceType.SYNTHETIC)
+        )
+        image.save()
+
+        system = mock_types.MockSystem()
+        system.save()
+
+        image_source = mock_types.MockImageSource()
+        image_source.save()
+
+        trial_result = SLAMTrialResult(
+            system=system,
+            image_source=image_source,
+            success=True,
+            settings={'foo': 'bar'},
+            has_scale=True,
+            results=[FrameResult(
+                timestamp=0.1,
+                image=image,
+                processing_time=0.023,
+                pose=Transform(),
+                motion=Transform(),
+                estimated_pose=Transform(),
+                estimated_motion=None,
+                tracking_state=TrackingState.OK,
+                num_features=23,
+                num_matches=12
+            )],
+        )
+        trial_result.save()
+        trial_result_id = trial_result.pk
+        del trial_result    # Remove both the SLAM trial result and the frame result from memory, so it must be loaded
+
+        CountedImage.instance_count = 0
+        trial_result = SLAMTrialResult.objects.get({'_id': trial_result_id})
+        self.assertEqual(0, CountedImage.instance_count)
+
+        make_frame_error(
+            trial_result=trial_result,
+            frame_result=trial_result.results[0],
+            image=image,
+            system=system,
+            repeat_index=1,
+            absolute_error=PoseError(
+                x=10,
+                y=11,
+                z=12,
+                length=np.sqrt(100 + 121 + 144),
+                direction=np.pi / 7,
+                rot=np.pi / 5
+            ),
+            relative_error=PoseError(
+                x=13,
+                y=14,
+                z=15,
+                length=np.sqrt(169 + 196 + 225),
+                direction=np.pi / 36,
+                rot=np.pi / 2
+            ),
+            noise=PoseError(
+                x=16,
+                y=17,
+                z=18,
+                length=np.sqrt(256 + 289 + 324),
+                direction=np.pi / 8,
+                rot=np.pi / 16
+            )
+        )
+        self.assertEqual(0, CountedImage.instance_count)
+
+        trial_result.delete()
+        system.delete()
+        image_source.delete()
+        image.delete()
+
+    def test_make_frame_error_doesnt_dereference_system_if_valid(self):
+        pixels = np.array([[1, 2, 3], [4, 5, 6], [7, 8, 9]])
+        image = Image(
+            pixels=pixels,
+            metadata=make_metadata(pixels, source_type=ImageSourceType.SYNTHETIC)
+        )
+        image.save()
+
+        system = CountedSystem()
+        system.save()
+
+        image_source = mock_types.MockImageSource()
+        image_source.save()
+
+        # This needs to be the most recently defined subclass for the no_auto_dereference to work
+        trial_result = CountedTrialResult(
+            system=system,
+            image_source=image_source,
+            success=True,
+            settings={'foo': 'bar'},
+            has_scale=True,
+            results=[FrameResult(
+                timestamp=0.1,
+                image=image,
+                processing_time=0.023,
+                pose=Transform(),
+                motion=Transform(),
+                estimated_pose=Transform(),
+                estimated_motion=None,
+                tracking_state=TrackingState.OK,
+                num_features=23,
+                num_matches=12
+            )],
+        )
+        trial_result.save()
+        trial_result_id = trial_result.pk
+        del trial_result    # Remove both the SLAM trial result and the frame result from memory, so it must be loaded
+
+        CountedSystem.instance_count = 0
+        trial_result = CountedTrialResult.objects.get({'_id': trial_result_id})
+        self.assertEqual(0, CountedSystem.instance_count)
+
+        make_frame_error(
+            trial_result=trial_result,
+            frame_result=trial_result.results[0],
+            image=image,
+            system=system,
+            repeat_index=1,
+            absolute_error=PoseError(
+                x=10,
+                y=11,
+                z=12,
+                length=np.sqrt(100 + 121 + 144),
+                direction=np.pi / 7,
+                rot=np.pi / 5
+            ),
+            relative_error=PoseError(
+                x=13,
+                y=14,
+                z=15,
+                length=np.sqrt(169 + 196 + 225),
+                direction=np.pi / 36,
+                rot=np.pi / 2
+            ),
+            noise=PoseError(
+                x=16,
+                y=17,
+                z=18,
+                length=np.sqrt(256 + 289 + 324),
+                direction=np.pi / 8,
+                rot=np.pi / 16
+            )
+        )
+        self.assertEqual(0, CountedSystem.instance_count)
+
+        trial_result.delete()
+        system.delete()
+        image_source.delete()
+
+    def test_get_properties_doesnt_dereference_image_or_trial_result(self):
+        pixels = np.array([[1, 2, 3], [4, 5, 6], [7, 8, 9]])
+        image = CountedImage(
+            pixels=pixels,
+            metadata=make_metadata(pixels, source_type=ImageSourceType.SYNTHETIC)
+        )
+        image.save()
+
+        system = mock_types.MockSystem()
+        system.save()
+
+        image_source = mock_types.MockImageSource()
+        image_source.save()
+
+        frame_result = FrameResult(
+            timestamp=0.1,
+            image=image,
+            processing_time=0.023,
+            pose=Transform(),
+            motion=Transform(),
+            estimated_pose=Transform(),
+            estimated_motion=None,
+            tracking_state=TrackingState.OK,
+            num_features=23,
+            num_matches=12
+        )
+
+        trial_result = CountedTrialResult(system=system, image_source=image_source,
+                                          success=True, results=[frame_result])
+        trial_result.save()
+
+        frame_error = make_frame_error(
+            trial_result=trial_result,
+            frame_result=frame_result,
+            image=image,
+            system=system,
+            repeat_index=1,
+            absolute_error=PoseError(
+                x=10,
+                y=11,
+                z=12,
+                length=np.sqrt(100 + 121 + 144),
+                direction=np.pi / 7,
+                rot=np.pi / 5
+            ),
+            relative_error=PoseError(
+                x=13,
+                y=14,
+                z=15,
+                length=np.sqrt(169 + 196 + 225),
+                direction=np.pi / 36,
+                rot=np.pi / 2
+            ),
+            noise=PoseError(
+                x=16,
+                y=17,
+                z=18,
+                length=np.sqrt(256 + 289 + 324),
+                direction=np.pi / 8,
+                rot=np.pi / 16
+            )
+        )
+        frame_error.save()
+        frame_error_id = frame_error.pk
+        del frame_error    # Delete the frame_error to clear it's references
+
+        CountedImage.instance_count = 0
+        CountedTrialResult.instance_count = 0
+        frame_error = FrameError.objects.get({'_id': frame_error_id})
+        self.assertEqual(0, CountedImage.instance_count)
+        self.assertEqual(0, CountedTrialResult.instance_count)
+        frame_error.get_properties()    # Get all the properties
+        self.assertEqual(0, CountedImage.instance_count)
+        self.assertEqual(0, CountedTrialResult.instance_count)
+
+        frame_error.delete()
+        trial_result.delete()
+        system.delete()
+        image_source.delete()
+        image.delete()
+
 
 # ------------------------- FRAME ERROR RESULT -------------------------
 
 
 class TestFrameErrorResult(unittest.TestCase):
 
-    @staticmethod
-    def make_trial_errors(mock_trial, mock_images):
-        return [
-            TrialErrors(
-                frame_errors=[
-                    FrameError(
-                        repeat=repeat,
-                        timestamp=1.3 * idx,
-                        image=mock_image,
-                        trial_result=mock_trial,
-                        tracking=TrackingState.OK,
-                        motion=Transform((1.2, 0.1, -0.03), (-0.5, 0.5, -0.5, -0.5)),
-                        num_features=423,
-                        num_matches=238,
-                        absolute_error=make_pose_error(Transform((1.1 * idx, 0, 0)), Transform((idx, 0, 0))),
-                        relative_error=make_pose_error(Transform((1.1, 0, 0)), Transform((1, 0, 0))),
-                        noise=make_pose_error(Transform((1.05, 0, 0)), Transform((1, 0, 0)))
-                    ) for idx, mock_image in enumerate(mock_images)
-                ]
-            ) for repeat in range(2)
-        ]
-
-    def test_get_columns_includes_system_columns(self):
-        mock_system = mock.create_autospec(mock_types.MockSystem)
-        mock_image_source = mock.create_autospec(mock_types.MockImageSource)
-        mock_metric = mock.create_autospec(mock_types.MockMetric)
-        mock_system.get_columns.return_value = {'mock_column_1', 'mock_column_2'}
-        mock_image_source.get_columns.return_value = set()
-        mock_metric.get_columns.return_value = set()
-
-        result = FrameErrorResult(system=mock_system, image_source=mock_image_source, metric=mock_metric)
+    def test_get_columns_includes_image_source_properties_keys(self):
+        result = FrameErrorResult(image_source_properties={'mock_column_1': 'foo', 'mock_column_2': 28})
         columns = result.get_columns()
         self.assertIn('mock_column_1', columns)
         self.assertIn('mock_column_2', columns)
 
-    def test_get_columns_includes_image_source_columns(self):
-        mock_system = mock.create_autospec(mock_types.MockSystem)
-        mock_image_source = mock.create_autospec(mock_types.MockImageSource)
-        mock_metric = mock.create_autospec(mock_types.MockMetric)
-        mock_system.get_columns.return_value = set()
-        mock_image_source.get_columns.return_value = {'mock_column_1', 'mock_column_2'}
-        mock_metric.get_columns.return_value = set()
-
-        result = FrameErrorResult(system=mock_system, image_source=mock_image_source, metric=mock_metric)
-        columns = result.get_columns()
-        self.assertIn('mock_column_1', columns)
-        self.assertIn('mock_column_2', columns)
-
-    def test_get_columns_includes_metric_columns(self):
-        mock_system = mock.create_autospec(mock_types.MockSystem)
-        mock_image_source = mock.create_autospec(mock_types.MockImageSource)
-        mock_metric = mock.create_autospec(mock_types.MockMetric)
-        mock_system.get_columns.return_value = set()
-        mock_image_source.get_columns.return_value = set()
-        mock_metric.get_columns.return_value = {'mock_column_1', 'mock_column_2'}
-
-        result = FrameErrorResult(system=mock_system, image_source=mock_image_source, metric=mock_metric)
+    def test_get_columns_includes_metric_properties_keys(self):
+        result = FrameErrorResult(metric_properties={'mock_column_1': 'foo', 'mock_column_2': 28})
         columns = result.get_columns()
         self.assertIn('mock_column_1', columns)
         self.assertIn('mock_column_2', columns)
 
     def test_get_columns_includes_frame_error_columns(self):
-        mock_system = mock.create_autospec(mock_types.MockSystem)
-        mock_image_source = mock.create_autospec(mock_types.MockImageSource)
-        mock_metric = mock.create_autospec(mock_types.MockMetric)
-        mock_system.get_columns.return_value = set()
-        mock_image_source.get_columns.return_value = set()
-        mock_metric.get_columns.return_value = set()
-
-        result = FrameErrorResult(system=mock_system, image_source=mock_image_source, metric=mock_metric)
-        columns = result.get_columns()
-        for column in {
-            'repeat',
-            'timestamp',
-            'tracking',
-            'processing_time',
-            'motion_x',
-            'motion_y',
-            'motion_z',
-            'motion_roll',
-            'motion_pitch',
-            'motion_yaw',
-            'num_features',
-            'num_matches',
-
-            'abs_error_x',
-            'abs_error_y',
-            'abs_error_z',
-            'abs_error_length',
-            'abs_error_direction',
-            'abs_rot_error',
-
-            'trans_error_x',
-            'trans_error_y',
-            'trans_error_z',
-            'trans_error_length',
-            'trans_error_direction',
-            'rot_error',
-
-            'trans_noise_x',
-            'trans_noise_y',
-            'trans_noise_z',
-            'trans_noise_length',
-            'trans_noise_direction',
-            'rot_noise',
-
-            'num_features',
-            'num_matches',
-        }:
-            self.assertIn(column, columns)
-
-    def test_get_columns_includes_image_columns(self):
-        mock_system = mock.create_autospec(mock_types.MockSystem)
-        mock_image_source = mock.create_autospec(mock_types.MockImageSource)
-        mock_metric = mock.create_autospec(mock_types.MockMetric)
-        mock_system.get_columns.return_value = set()
-        mock_image_source.get_columns.return_value = set()
-        mock_metric.get_columns.return_value = set()
-
-        result = FrameErrorResult(system=mock_system, image_source=mock_image_source, metric=mock_metric,
-                                  image_columns=['mock_column_1', 'mock_column_2'])
+        result = FrameErrorResult(frame_columns=['mock_column_1', 'mock_column_2'])
         columns = result.get_columns()
         self.assertIn('mock_column_1', columns)
         self.assertIn('mock_column_2', columns)
 
     def test_get_columns_includes_values_computable_from_the_tracking_state(self):
-        mock_system = mock.create_autospec(mock_types.MockSystem)
-        mock_image_source = mock.create_autospec(mock_types.MockImageSource)
-        mock_metric = mock.create_autospec(mock_types.MockMetric)
-        mock_system.get_columns.return_value = set()
-        mock_image_source.get_columns.return_value = set()
-        mock_metric.get_columns.return_value = set()
-
-        result = FrameErrorResult(system=mock_system, image_source=mock_image_source, metric=mock_metric)
+        result = FrameErrorResult()
         columns = result.get_columns()
         for column in {
             'min_frames_lost',
@@ -828,6 +1247,137 @@ class TestFrameErrorResult(unittest.TestCase):
         }:
             self.assertIn(column, columns)
 
+
+class TestMakeFrameErrorResult(unittest.TestCase):
+
+    def test_make_frame_error_result_links_to_system_from_trial_result(self):
+        system = mock_types.MockSystem()
+        image_source = mock_types.MockImageSource()
+        metric = mock_types.MockMetric()
+        trial_result = mock_types.MockTrialResult(system=system, image_source=image_source)
+
+        result = make_frame_error_result(metric=metric, trial_results=[trial_result], errors=[])
+        self.assertEqual(system, result.system)
+
+    def test_make_frame_error_result_copies_image_source_properties(self):
+        system = mock_types.MockSystem()
+        image_source = mock.create_autospec(mock_types.MockImageSource)
+        metric = mock_types.MockMetric()
+        trial_result = mock_types.MockTrialResult(system=system, image_source=image_source)
+
+        image_source_properties = {'foo': 'bar', 'baz': 22}
+        image_source.get_properties.return_value = image_source_properties
+
+        result = make_frame_error_result(metric=metric, trial_results=[trial_result], errors=[])
+        self.assertEqual(image_source_properties, result.image_source_properties)
+        columns = result.get_columns()
+        self.assertIn('foo', columns)
+        self.assertIn('baz', columns)
+
+    def test_make_frame_error_result_copies_metric_properties(self):
+        system = mock_types.MockSystem()
+        image_source = mock_types.MockImageSource()
+        metric = mock.create_autospec(mock_types.MockMetric)
+        trial_result = mock_types.MockTrialResult(system=system, image_source=image_source)
+
+        metric_properties = {'metric_property_1': 'bar', 'metric_property_2': 22}
+        metric.get_properties.return_value = metric_properties
+
+        result = make_frame_error_result(metric=metric, trial_results=[trial_result], errors=[])
+        self.assertEqual(metric_properties, result.metric_properties)
+        columns = result.get_columns()
+        self.assertIn('metric_property_1', columns)
+        self.assertIn('metric_property_2', columns)
+
+    def test_make_frame_error_result_caches_frame_error_columns(self):
+        image = mock.create_autospec(Image)
+        system = mock.create_autospec(mock_types.MockSystem)
+        image_source = mock_types.MockImageSource()
+        metric = mock_types.MockMetric()
+        trial_result = mock_types.MockTrialResult(system=system, image_source=image_source)
+
+        frame_result = FrameResult(
+            timestamp=0.1,
+            image=image,
+            processing_time=0.023,
+            pose=Transform(),
+            motion=Transform(),
+            estimated_pose=Transform(),
+            estimated_motion=None,
+            tracking_state=TrackingState.OK,
+            num_features=23,
+            num_matches=12
+        )
+        pose_error = PoseError(
+            x=10, y=11, z=12,
+            length=np.sqrt(100 + 121 + 144),
+            direction=np.pi / 7, rot=np.pi / 5
+        )
+
+        # Make two frame errors with different set of columns
+        system.get_properties.return_value = {'system_property_1': 'foobar'}
+        image.get_properties.return_value = {'image_property_A': 3.14159}
+        frame_error_1 = make_frame_error(
+            trial_result=trial_result,
+            frame_result=frame_result,
+            image=image,
+            system=system,
+            repeat_index=1,
+            absolute_error=pose_error,
+            relative_error=pose_error,
+            noise=pose_error
+        )
+
+        system.get_properties.return_value = {'system_property_2': 65535}
+        image.get_properties.return_value = {'image_property_charlie': "they're in the trees"}
+        frame_error_2 = make_frame_error(
+            trial_result=trial_result,
+            frame_result=frame_result,
+            image=image,
+            system=system,
+            repeat_index=1,
+            absolute_error=pose_error,
+            relative_error=pose_error,
+            noise=pose_error
+        )
+        self.assertNotEqual(frame_error_1.get_columns(), frame_error_2.get_columns())
+
+        result = make_frame_error_result(metric=metric, trial_results=[trial_result],
+                                         errors=[TrialErrors(frame_errors=[frame_error_1, frame_error_2])])
+        columns = result.get_columns()
+        # All the columns from all the frame errors should show up in get_columns. It promises to be quite a list.
+        for column in frame_error_1.get_columns():
+            self.assertIn(column, columns)
+        for column in frame_error_2.get_columns():
+            self.assertIn(column, columns)
+
+
+class TestFrameErrorResultGetResults(unittest.TestCase):
+
+    @staticmethod
+    def make_trial_errors(mock_trial, mock_images):
+        return [
+            TrialErrors(
+                frame_errors=[
+                    FrameError(
+                        repeat=repeat,
+                        timestamp=1.3 * idx,
+                        image=mock_image,
+                        trial_result=mock_trial,
+                        tracking=TrackingState.OK,
+                        motion=Transform((1.2, 0.1, -0.03), (-0.5, 0.5, -0.5, -0.5)),
+                        num_features=423,
+                        num_matches=238,
+                        absolute_error=make_pose_error(Transform((1.1 * idx, 0, 0)), Transform((idx, 0, 0))),
+                        relative_error=make_pose_error(Transform((1.1, 0, 0)), Transform((1, 0, 0))),
+                        noise=make_pose_error(Transform((1.05, 0, 0)), Transform((1, 0, 0))),
+                        system_properties={'system_property': 'BAZ', f"setting_{repeat}": f"BLUE_{repeat * 8}"},
+                        image_properties={'image_property': idx * 3.5}
+                    ) for idx, mock_image in enumerate(mock_images)
+                ]
+            ) for repeat in range(2)
+        ]
+
     def test_get_results_returns_a_result_for_each_frame_error(self):
         mock_system = mock.create_autospec(mock_types.MockSystem)
         mock_image_source = mock.create_autospec(mock_types.MockImageSource)
@@ -842,43 +1392,8 @@ class TestFrameErrorResult(unittest.TestCase):
         mock_metric.get_columns.return_value = set()
         mock_metric.get_properties.return_value = {}
         mock_trial.system = mock_system
+        mock_trial.image_source = mock_image_source
         mock_trial.settings = {}
-
-        error_columns = {
-            'repeat',
-            'timestamp',
-            'tracking',
-            'processing_time',
-            'motion_x',
-            'motion_y',
-            'motion_z',
-            'motion_roll',
-            'motion_pitch',
-            'motion_yaw',
-            'num_features',
-            'num_matches',
-
-            'abs_error_x',
-            'abs_error_y',
-            'abs_error_z',
-            'abs_error_length',
-            'abs_error_direction',
-            'abs_rot_error',
-
-            'trans_error_x',
-            'trans_error_y',
-            'trans_error_z',
-            'trans_error_length',
-            'trans_error_direction',
-            'rot_error',
-
-            'trans_noise_x',
-            'trans_noise_y',
-            'trans_noise_z',
-            'trans_noise_length',
-            'trans_noise_direction',
-            'rot_noise'
-        }
 
         # Make images and errors
         mock_images = [mock.create_autospec(Image) for _ in range(3)]
@@ -887,14 +1402,29 @@ class TestFrameErrorResult(unittest.TestCase):
             mock_image.get_properties.return_value = {}
         trial_errors = self.make_trial_errors(mock_trial, mock_images)
 
-        subject = FrameErrorResult(system=mock_system, image_source=mock_image_source,
-                                   metric=mock_metric, errors=trial_errors)
+        subject = make_frame_error_result(
+            metric=mock_metric,
+            trial_results=[mock_trial],
+            errors=trial_errors
+        )
         results = subject.get_results()
 
         self.assertEqual(len(trial_errors) * len(mock_images), len(results))
-        for result in results:
-            for column in error_columns:
-                self.assertIn(column, result)
+        for errors in trial_errors:
+            for frame_error in errors.frame_errors:
+                properties = frame_error.get_properties()
+                found = False
+                for result in results:
+                    if all(
+                            column in result and
+                            (result[column] == properties[column] or (
+                                    np.isnan(result[column]) and np.isnan(properties[column])
+                            ))
+                            for column in properties.keys()
+                    ):
+                        found = True
+                        break
+                self.assertTrue(found, f"Could not find frame result {properties} in {results}")
 
     def test_get_results_returns_only_requested_properties(self):
         mock_system = mock.create_autospec(mock_types.MockSystem)
@@ -924,204 +1454,16 @@ class TestFrameErrorResult(unittest.TestCase):
             mock_image.get_properties.return_value = {}
         trial_errors = self.make_trial_errors(mock_trial, mock_images)
 
-        subject = FrameErrorResult(system=mock_system, image_source=mock_image_source,
-                                   metric=mock_metric, errors=trial_errors)
+        subject = make_frame_error_result(
+            metric=mock_metric,
+            trial_results=[mock_trial],
+            errors=trial_errors
+        )
         results = subject.get_results(error_columns)
 
         self.assertEqual(len(trial_errors) * len(mock_images), len(results))
         for result in results:
             self.assertEqual(error_columns, set(result.keys()))
-
-    def test_get_results_returns_system_properties_on_all_results(self):
-        system_properties = {'mock_column_1': 'foo', 'mock_column_2': 12.33}
-
-        mock_system = mock.create_autospec(mock_types.MockSystem)
-        mock_image_source = mock.create_autospec(mock_types.MockImageSource)
-        mock_metric = mock.create_autospec(mock_types.MockMetric)
-        mock_system.get_properties.return_value = system_properties
-        mock_image_source.get_properties.return_value = {}
-        mock_metric.get_properties.return_value = {}
-        mock_trial = mock_types.MockTrialResult(system=mock_system, image_source=mock_image_source)
-
-        # Make images and errors
-        mock_images = [mock.create_autospec(Image) for _ in range(3)]
-        for mock_image in mock_images:
-            mock_image.pk = bson.ObjectId()
-            mock_image.get_properties.return_value = {}
-        trial_errors = self.make_trial_errors(mock_trial, mock_images)
-
-        subject = FrameErrorResult(system=mock_system, image_source=mock_image_source,
-                                   metric=mock_metric, errors=trial_errors)
-        results = subject.get_results()
-        for result in results:
-            for column_name, value in system_properties.items():
-                self.assertIn(column_name, result)
-                self.assertEqual(value, result[column_name])
-
-    def test_get_results_passes_column_list_and_settings_through_to_system_get_properties(self):
-        columns = {'trans_error_x', 'mock_column_1'}
-        settings = {'in_fx': 320, 'in_fy': 319.2}
-
-        mock_system = mock.create_autospec(mock_types.MockSystem)
-        mock_image_source = mock.create_autospec(mock_types.MockImageSource)
-        mock_metric = mock.create_autospec(mock_types.MockMetric)
-        mock_system.get_properties.return_value = {'mock_column_1': 'foo', 'mock_column_2': 12.33}
-        mock_image_source.get_properties.return_value = {}
-        mock_metric.get_properties.return_value = {}
-        mock_trial = mock_types.MockTrialResult(system=mock_system, image_source=mock_image_source, settings=settings)
-
-        # Make images and errors
-        mock_images = [mock.create_autospec(Image) for _ in range(3)]
-        for mock_image in mock_images:
-            mock_image.get_properties.return_value = {}
-        trial_errors = self.make_trial_errors(mock_trial, mock_images)
-
-        subject = FrameErrorResult(system=mock_system, image_source=mock_image_source,
-                                   metric=mock_metric, errors=trial_errors)
-        subject.get_results(columns)
-        self.assertEqual(mock.call(columns, settings), mock_system.get_properties.call_args)
-
-    def test_get_results_returns_image_source_properties_on_all_results(self):
-        image_source_properties = {'mock_column_1': 'foo', 'mock_column_2': 12.33}
-
-        mock_system = mock.create_autospec(mock_types.MockSystem)
-        mock_image_source = mock.create_autospec(mock_types.MockImageSource)
-        mock_metric = mock.create_autospec(mock_types.MockMetric)
-        mock_system.get_properties.return_value = {}
-        mock_image_source.get_properties.return_value = image_source_properties
-        mock_metric.get_properties.return_value = {}
-        mock_trial = mock_types.MockTrialResult(system=mock_system, image_source=mock_image_source)
-
-        # Make images and errors
-        mock_images = [mock.create_autospec(Image) for _ in range(3)]
-        for mock_image in mock_images:
-            mock_image.get_properties.return_value = {}
-        trial_errors = self.make_trial_errors(mock_trial, mock_images)
-
-        subject = FrameErrorResult(system=mock_system, image_source=mock_image_source,
-                                   metric=mock_metric, errors=trial_errors)
-        results = subject.get_results()
-        for result in results:
-            for column_name, value in image_source_properties.items():
-                self.assertIn(column_name, result)
-                self.assertEqual(value, result[column_name])
-
-    def test_get_results_passes_column_list_through_to_image_source_get_properties(self):
-        columns = {'trans_error_x', 'mock_column_1'}
-
-        mock_system = mock.create_autospec(mock_types.MockSystem)
-        mock_image_source = mock.create_autospec(mock_types.MockImageSource)
-        mock_metric = mock.create_autospec(mock_types.MockMetric)
-        mock_system.get_properties.return_value = {}
-        mock_image_source.get_properties.return_value = {}
-        mock_metric.get_properties.return_value = {}
-        mock_trial = mock_types.MockTrialResult(system=mock_system, image_source=mock_image_source)
-
-        # Make images and errors
-        mock_images = [mock.create_autospec(Image) for _ in range(3)]
-        for mock_image in mock_images:
-            mock_image.get_properties.return_value = {}
-        trial_errors = self.make_trial_errors(mock_trial, mock_images)
-
-        subject = FrameErrorResult(system=mock_system, image_source=mock_image_source,
-                                   metric=mock_metric, errors=trial_errors)
-        subject.get_results(columns)
-        self.assertEqual(mock.call(columns), mock_image_source.get_properties.call_args)
-
-    def test_get_results_returns_metric_properties_on_all_results(self):
-        metric_properties = {'mock_column_1': 'foo', 'mock_column_2': 12.33}
-
-        mock_system = mock.create_autospec(mock_types.MockSystem)
-        mock_image_source = mock.create_autospec(mock_types.MockImageSource)
-        mock_metric = mock.create_autospec(mock_types.MockMetric)
-        mock_system.get_properties.return_value = {}
-        mock_image_source.get_properties.return_value = {}
-        mock_metric.get_properties.return_value = metric_properties
-        mock_trial = mock_types.MockTrialResult(system=mock_system, image_source=mock_image_source)
-
-        # Make images and errors
-        mock_images = [mock.create_autospec(Image) for _ in range(3)]
-        for mock_image in mock_images:
-            mock_image.get_properties.return_value = {}
-        trial_errors = self.make_trial_errors(mock_trial, mock_images)
-
-        subject = FrameErrorResult(system=mock_system, image_source=mock_image_source,
-                                   metric=mock_metric, errors=trial_errors)
-        results = subject.get_results()
-        for result in results:
-            for column_name, value in metric_properties.items():
-                self.assertIn(column_name, result)
-                self.assertEqual(value, result[column_name])
-
-    def test_get_results_passes_column_list_through_to_metric_get_properties(self):
-        columns = {'trans_error_x', 'mock_column_1'}
-
-        mock_system = mock.create_autospec(mock_types.MockSystem)
-        mock_image_source = mock.create_autospec(mock_types.MockImageSource)
-        mock_metric = mock.create_autospec(mock_types.MockMetric)
-        mock_system.get_properties.return_value = {}
-        mock_image_source.get_properties.return_value = {}
-        mock_metric.get_properties.return_value = {}
-        mock_trial = mock_types.MockTrialResult(system=mock_system, image_source=mock_image_source)
-
-        # Make images and errors
-        mock_images = [mock.create_autospec(Image) for _ in range(3)]
-        for mock_image in mock_images:
-            mock_image.get_properties.return_value = {}
-        trial_errors = self.make_trial_errors(mock_trial, mock_images)
-
-        subject = FrameErrorResult(system=mock_system, image_source=mock_image_source,
-                                   metric=mock_metric, errors=trial_errors)
-        subject.get_results(columns)
-        self.assertEqual(mock.call(columns), mock_metric.get_properties.call_args)
-
-    def test_get_results_returns_image_properties_on_all_results(self):
-        image_properties = {'mock_column_1': 'foo', 'mock_column_2': 12.33}
-
-        mock_system = mock.create_autospec(mock_types.MockSystem)
-        mock_image_source = mock.create_autospec(mock_types.MockImageSource)
-        mock_metric = mock.create_autospec(mock_types.MockMetric)
-        mock_system.get_properties.return_value = {}
-        mock_image_source.get_properties.return_value = {}
-        mock_metric.get_properties.return_value = {}
-        mock_trial = mock_types.MockTrialResult(system=mock_system, image_source=mock_image_source)
-
-        # Make images and errors
-        mock_images = [mock.create_autospec(Image) for _ in range(3)]
-        for idx, mock_image in enumerate(mock_images):
-            mock_image.get_properties.return_value = image_properties
-        trial_errors = self.make_trial_errors(mock_trial, mock_images)
-
-        subject = FrameErrorResult(system=mock_system, image_source=mock_image_source,
-                                   metric=mock_metric, errors=trial_errors)
-        results = subject.get_results()
-        for result in results:
-            for column_name, value in image_properties.items():
-                self.assertIn(column_name, result)
-                self.assertEqual(value, result[column_name])
-
-    def test_get_results_passes_column_list_through_to_image_get_properties(self):
-        columns = {'trans_error_x', 'mock_column_1'}
-
-        mock_system = mock.create_autospec(mock_types.MockSystem)
-        mock_image_source = mock.create_autospec(mock_types.MockImageSource)
-        mock_metric = mock.create_autospec(mock_types.MockMetric)
-        mock_system.get_properties.return_value = {}
-        mock_image_source.get_properties.return_value = {}
-        mock_metric.get_properties.return_value = {}
-        mock_trial = mock_types.MockTrialResult(system=mock_system, image_source=mock_image_source)
-
-        # Make images and errors
-        mock_images = [mock.create_autospec(Image) for _ in range(3)]
-        for mock_image in mock_images:
-            mock_image.get_properties.return_value = {}
-        trial_errors = self.make_trial_errors(mock_trial, mock_images)
-
-        subject = FrameErrorResult(system=mock_system, image_source=mock_image_source,
-                                   metric=mock_metric, errors=trial_errors)
-        subject.get_results(columns)
-        for mock_image in mock_images:
-            self.assertEqual(mock.call(columns), mock_image.get_properties.call_args)
 
 
 class TestFrameErrorResultDatabase(unittest.TestCase):
@@ -1224,8 +1566,9 @@ class TestFrameErrorResultDatabase(unittest.TestCase):
         mock_types.MockTrialResult.objects.all().delete()
         FrameError._mongometa.collection.drop()
         Image._mongometa.collection.drop()
-        if os.path.isfile(dbconn.image_file):
-            os.remove(dbconn.image_file)
+        image_file_path = Path(dbconn.image_file)
+        if image_file_path.exists():
+            image_file_path.unlink()
 
     def test_stores_and_loads(self):
         # Save the model
@@ -1239,11 +1582,10 @@ class TestFrameErrorResultDatabase(unittest.TestCase):
         )
         result.save(cascade=True)
 
-        # Load all the entities
-        all_entities = list(FrameErrorResult.objects.all())
-        self.assertGreaterEqual(len(all_entities), 1)
-        self.assertEqual(all_entities[0], result)
-        all_entities[0].delete()
+        # Re-load the entity
+        loaded_result = FrameErrorResult.objects.get({'_id': result.pk})
+        self.assertEqual(loaded_result, result)
+        result.delete()
 
     def test_stores_and_loads_failed(self):
         # Save the model
@@ -1257,11 +1599,10 @@ class TestFrameErrorResultDatabase(unittest.TestCase):
         )
         result.save()
 
-        # Load all the entities
-        all_entities = list(FrameErrorResult.objects.all())
-        self.assertGreaterEqual(len(all_entities), 1)
-        self.assertEqual(all_entities[0], result)
-        all_entities[0].delete()
+        # Re-load the entity
+        loaded_result = FrameErrorResult.objects.get({'_id': result.pk})
+        self.assertEqual(loaded_result, result)
+        result.delete()
 
     def test_required_fields_are_required(self):
         # no metric
@@ -1417,10 +1758,8 @@ class TestFrameErrorResultDatabase(unittest.TestCase):
         )
         result.save(cascade=True)
 
-        # Load all the entities
-        all_entities = list(FrameErrorResult.objects.all())
-        self.assertGreaterEqual(len(all_entities), 1)
-        loaded_result = all_entities[0]
+        # Re-load the entity
+        loaded_result = FrameErrorResult.objects.get({'_id': result.pk})
         self.assertEqual(loaded_result, result)
 
         # Check the referenced trial and fame results are the same
@@ -1511,3 +1850,108 @@ class TestFrameErrorResultDatabase(unittest.TestCase):
 
         self.assertEqual(0, FrameError.objects.raw({'_id': {'$in': frame_error_ids}}).count())
         self.assertEqual(0, FrameErrorResult.objects.raw({'_id': result_id}).count())
+
+    def test_make_frame_error_result_returns_a_result_that_can_be_saved(self):
+        result = make_frame_error_result(
+            metric=self.metric,
+            trial_results=[self.trial_result],
+            errors=self.trial_errors
+        )
+        result.save(cascade=True)
+
+        # Re-load the entity
+        loaded_result = FrameErrorResult.objects.get({'_id': result.pk})
+        self.assertEqual(loaded_result, result)
+        result.delete()
+
+    def test_get_results_does_not_dereference_referenced_objects(self):
+        pixels = np.array([[1, 2, 3], [4, 5, 6], [7, 8, 9]])
+        image = CountedImage(
+            pixels=pixels,
+            metadata=make_metadata(pixels, source_type=ImageSourceType.SYNTHETIC)
+        )
+        image.save()
+
+        image_source = CountedImageSource()
+        image_source.save()
+
+        system = CountedSystem()
+        system.save()
+
+        trial_result = CountedTrialResult(
+            system=system,
+            image_source=image_source,
+            success=True,
+            settings={'foo': 'bar'},
+            has_scale=True,
+            results=[FrameResult(
+                timestamp=0.1,
+                image=image,
+                processing_time=0.023,
+                pose=Transform(),
+                motion=Transform(),
+                estimated_pose=Transform(),
+                estimated_motion=None,
+                tracking_state=TrackingState.OK,
+                num_features=23,
+                num_matches=12
+            )],
+        )
+        trial_result.save()
+
+        metric = CountedMetric()
+        metric.save()
+
+        result = make_frame_error_result(
+            metric=metric,
+            trial_results=[trial_result],
+            errors=[TrialErrors(
+                frame_errors=[make_frame_error(
+                    trial_result=trial_result,
+                    frame_result=trial_result.results[0],
+                    image=image,
+                    system=system,
+                    repeat_index=1,
+                    absolute_error=PoseError(
+                        x=10,
+                        y=11,
+                        z=12,
+                        length=np.sqrt(100 + 121 + 144),
+                        direction=np.pi / 7,
+                        rot=np.pi / 5
+                    ),
+                    relative_error=PoseError(
+                        x=13,
+                        y=14,
+                        z=15,
+                        length=np.sqrt(169 + 196 + 225),
+                        direction=np.pi / 36,
+                        rot=np.pi / 2
+                    ),
+                    noise=PoseError(
+                        x=16,
+                        y=17,
+                        z=18,
+                        length=np.sqrt(256 + 289 + 324),
+                        direction=np.pi / 8,
+                        rot=np.pi / 16
+                    )
+                )]
+            )]
+        )
+        result.save(cascade=True)
+        result_id = result.pk
+        del result  # Clear the object and all its references. This will force them to be re-loaded from the database
+
+        CountedSystem.instance_count = 0
+        CountedImageSource.instance_count = 0
+        CountedImage.instance_count = 0
+        CountedTrialResult.instance_count = 0
+        CountedMetric.instance_count = 0
+        result = FrameErrorResult.objects.get({'_id': result_id})
+        result.get_results()
+        self.assertEqual(0, CountedSystem.instance_count)
+        self.assertEqual(0, CountedImageSource.instance_count)
+        self.assertEqual(0, CountedImage.instance_count)
+        self.assertEqual(0, CountedTrialResult.instance_count)
+        self.assertEqual(0, CountedMetric.instance_count)

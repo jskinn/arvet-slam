@@ -325,52 +325,6 @@ class TestFrameErrorMetric(unittest.TestCase):
         self.assertIn(mock.call(VisionSystem, []), mock_autoload.call_args_list)
         self.assertIn(mock.call(ImageSource, []), mock_autoload.call_args_list)
 
-    @mock.patch('arvet_slam.metrics.frame_error.frame_error_metric.autoload_modules')
-    def test_stores_superset_of_all_image_properties_in_result(self, _):
-        system = mock_types.MockSystem()
-        image_source = mock_types.MockImageSource()
-
-        images = [
-            mock.create_autospec(Image)  # Even though autospecs are slow, if it isn't an Image we can't store it
-            for _ in range(10)
-        ]
-        for image in images:
-            image.get_columns.return_value = set()
-        images[0].get_columns.return_value = {'my_column_1'}
-        images[1].get_columns.return_value = {'my_column_2'}
-
-        frame_results = [
-            FrameResult(
-                timestamp=idx + np.random.normal(0, 0.01),
-                image=image,
-                processing_time=np.random.uniform(0.01, 1),
-                pose=Transform(
-                    (idx * 15 + np.random.normal(0, 1), idx + np.random.normal(0, 0.1), np.random.normal(0, 1)),
-                    (1, 0, 0, 0)
-                ),
-                estimated_pose=Transform(
-                    (idx * 15 + np.random.normal(0, 1), idx + np.random.normal(0, 0.1), np.random.normal(0, 1)),
-                    (1, 0, 0, 0)
-                ),
-                tracking_state=TrackingState.OK,
-                num_features=np.random.randint(10, 1000),
-                num_matches=np.random.randint(10, 1000)
-            )
-            for idx, image in enumerate(images)
-        ]
-        trial_result = SLAMTrialResult(
-            system=system,
-            image_source=image_source,
-            success=True,
-            results=frame_results,
-            has_scale=True
-        )
-
-        metric = FrameErrorMetric()
-        result = metric.measure_results([trial_result])
-
-        self.assertEqual({'my_column_1', 'my_column_2'}, set(result.image_columns))
-
 
 class TestFrameErrorMetricOutput(unittest.TestCase):
 
