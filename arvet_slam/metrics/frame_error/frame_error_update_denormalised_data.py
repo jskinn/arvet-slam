@@ -63,15 +63,12 @@ def update_frame_error_image_information(only_missing: bool = False, batch_size:
     autoload_modules(Image, ids=image_ids)
 
     # Work out how many batches to do. Images will be loaded in a batch to create a single bulk_write
-    num_batches = len(image_ids) // batch_size
-    if len(image_ids) > num_batches * batch_size:
-        num_batches += 1
     logging.getLogger(__name__).info(f"Found {len(image_ids)} images, "
-                                     f"updating information {len(image_ids) // num_batches} images at a time "
+                                     f"updating information {batch_size} images at a time "
                                      f"({time.time() - start_time}s) ...")
     n_updated = 0
     updates_sent = 0
-    for batch_ids in grouper(image_ids, num_batches):
+    for batch_ids in grouper(image_ids, batch_size):
         # For each image, update all frame error objects that link to it
         images = Image.objects.raw({'_id': {'$in': batch_ids}})
         write_operations = [
