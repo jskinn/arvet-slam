@@ -124,6 +124,59 @@ class TestUpdateFrameError(unittest.TestCase):
             system_properties = {str(k): json_value(v) for k, v in system_properties.items()}
             self.assertEqual(system_properties, frame_error.system_properties)
 
+    def test_update_system_information_only_missing(self):
+        random = np.random.RandomState(13)
+        system = SystemWithProperties(properties={'my_system_property': random.randint(10, 420)})
+        system.save()
+        metric = MockMetric()
+        metric.save()
+        image_collection = make_image_collection(10)
+        trial_results = make_trials(system, image_collection, 3, random)
+
+        trial_errors = []
+        all_frame_errors = []
+        for repeat_idx, trial_result in enumerate(trial_results):
+            frame_errors = []
+            for frame_result in trial_result.results:
+                frame_error = FrameError(
+                    trial_result=trial_result,
+                    image=frame_result.image,
+                    repeat=repeat_idx,
+                    timestamp=frame_result.timestamp,
+                    motion=frame_result.motion,
+                    processing_time=frame_result.processing_time,
+                    num_features=frame_result.num_features,
+                    num_matches=frame_result.num_matches,
+                    tracking=frame_result.tracking_state,
+                    absolute_error=None,
+                    relative_error=None,
+                    noise=None
+                )
+                frame_error.save()
+                frame_errors.append(frame_error)
+                all_frame_errors.append(frame_error)
+            trial_errors.append(TrialErrors(
+                frame_errors=frame_errors
+            ))
+        # Trial results are found based on the metric results, so we need to make that
+        metric_result = make_frame_error_result(
+            metric=metric,
+            trial_results=trial_results,
+            errors=trial_errors
+        )
+        metric_result.save()
+
+        update_data.update_frame_errors_system_properties()
+
+        # Check that the image properties have been updated
+        for frame_error in all_frame_errors:
+            frame_error.refresh_from_db()
+            system_properties = frame_error.trial_result.system.get_properties(
+                None, frame_error.trial_result.settings)
+            # Convert the properties to a JSON serialisable value
+            system_properties = {str(k): json_value(v) for k, v in system_properties.items()}
+            self.assertEqual(system_properties, frame_error.system_properties)
+
     def test_update_image_information(self):
         random = np.random.RandomState(13)
         system = MockSystem()
@@ -162,6 +215,63 @@ class TestUpdateFrameError(unittest.TestCase):
             # Convert the properties to a JSON serialisable value
             image_properties = {str(k): json_value(v) for k, v in image_properties.items()}
             self.assertEqual(image_properties, frame_error.image_properties)
+
+    def test_update_image_information_only_missing(self):
+        random = np.random.RandomState(13)
+        system = MockSystem()
+        system.save()
+        metric = MockMetric()
+        metric.save()
+        image_collection = make_image_collection(10)
+        trial_results = make_trials(system, image_collection, 3, random)
+
+        non_updated_ids = set()
+        frame_errors = []
+        for repeat_idx, trial_result in enumerate(trial_results):
+            for frame_idx, frame_result in enumerate(trial_result.results):
+                frame_error = FrameError(
+                    trial_result=trial_result,
+                    image=frame_result.image,
+                    repeat=repeat_idx,
+                    timestamp=frame_result.timestamp,
+                    motion=frame_result.motion,
+                    processing_time=frame_result.processing_time,
+                    num_features=frame_result.num_features,
+                    num_matches=frame_result.num_matches,
+                    tracking=frame_result.tracking_state,
+                    absolute_error=None,
+                    relative_error=None,
+                    noise=None
+                )
+                if int(frame_idx) % 4 == 3:
+                    # These properties should remain
+                    frame_error.image_properties = {
+                        'default_property_1': 1.2, 'default_property_2': str(frame_result.image.pk)
+                    }
+                    non_updated_ids.add(frame_result.image.pk)
+                elif int(frame_error.repeat + frame_error.timestamp) % 4 == 0:
+                    # These ones should be overriden because there will be at least one other
+                    # frame error that is missing these properties, and we update them all at once
+                    frame_error.image_properties = {
+                        'overwritten_property_1': 3.2, 'overwritten_property_2': str(frame_result.image.pk)
+                    }
+                frame_error.save()
+                frame_errors.append(frame_error)
+
+        update_data.update_frame_error_image_information(only_missing=True)
+
+        # Check that the image properties have been updated
+        for frame_error in frame_errors:
+            frame_error.refresh_from_db()
+            image_properties = frame_error.image.get_properties()
+            # Convert the properties to a JSON serialisable value
+            image_properties = {str(k): json_value(v) for k, v in image_properties.items()}
+            if frame_error.image.pk in non_updated_ids:
+                self.assertEqual({
+                    'default_property_1': 1.2, 'default_property_2': str(frame_error.image.pk)
+                }, frame_error.image_properties)
+            else:
+                self.assertEqual(image_properties, frame_error.image_properties)
 
 
 class TestUpdateFrameErrorResult(unittest.TestCase):

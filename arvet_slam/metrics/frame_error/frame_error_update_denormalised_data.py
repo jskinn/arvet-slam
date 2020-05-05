@@ -1,6 +1,7 @@
 import logging
 import time
-from itertools import chain
+from itertools import chain, zip_longest
+from pymongo import UpdateMany
 from pymodm.context_managers import no_auto_dereference
 from arvet.core.system import VisionSystem
 from arvet.core.trial_result import TrialResult
@@ -43,31 +44,48 @@ def update_frame_errors_system_properties():
     logging.getLogger(__name__).info(f"Updated {n_updated} FrameError objects in {time.time() - start_time}s ")
 
 
-def update_frame_error_image_information():
+def update_frame_error_image_information(only_missing: bool = False, batch_size: int = 5000):
     """
-
+    Update
     :return:
     """
     # Find the ids
     start_time = time.time()
     logging.getLogger(__name__).info("Updating 'image_properties' for all FrameError objects ...")
     logging.getLogger(__name__).info("Loading set of referenced image IDs...")
-    image_ids = FrameError._mongometa.collection.distinct('image')
+    if only_missing:
+        image_ids = FrameError._mongometa.collection.find({'image_properties': {'$exists': False}}).distinct('image')
+    else:
+        image_ids = FrameError._mongometa.collection.distinct('image')
 
     # Autoload the image type. Just in case.
     logging.getLogger(__name__).info(f"Autoloading image types ({time.time() - start_time}s) ...")
     autoload_modules(Image, ids=image_ids)
 
-    logging.getLogger(__name__).info(f"Found {len(image_ids)} images, updating information "
+    # Work out how many batches to do. Images will be loaded in a batch to create a single bulk_write
+    num_batches = len(image_ids) // batch_size
+    if len(image_ids) > num_batches * batch_size:
+        num_batches += 1
+    logging.getLogger(__name__).info(f"Found {len(image_ids)} images, "
+                                     f"updating information {len(image_ids) // num_batches} images at a time "
                                      f"({time.time() - start_time}s) ...")
     n_updated = 0
-    for image_id in image_ids:
+    updates_sent = 0
+    for batch_ids in grouper(image_ids, num_batches):
         # For each image, update all frame error objects that link to it
-        image = Image.objects.get({'_id': image_id})
-        image_properties = image.get_properties()
-        n_updated += FrameError.objects.raw({'image': image_id}).update({
-            '$set': {'image_properties': {str(k): json_value(v) for k, v in image_properties.items()}}
-        }, upsert=False)    # We definitely don't want to upsert
+        images = Image.objects.raw({'_id': {'$in': batch_ids}})
+        write_operations = [
+            UpdateMany(
+                {'image': image.pk},
+                {'$set': {'image_properties': {str(k): json_value(v) for k, v in image.get_properties().items()}}}
+            )
+            for image in images
+        ]
+        result = FrameError._mongometa.collection.bulk_write(write_operations, ordered=False)
+        n_updated += result.modified_count
+        updates_sent += len(write_operations)
+        logging.getLogger(__name__).info(f"Updates sent for {updates_sent} images, updating {n_updated} FrameErrors "
+                                         f"in {time.time() - start_time}s ...")
     logging.getLogger(__name__).info(f"Updated {n_updated} FrameError objects in {time.time() - start_time}s ")
 
 
@@ -143,3 +161,18 @@ def update_frame_error_result_columns():
             '$set': {'frame_columns': frame_error_columns}
         }, upsert=False)
     logging.getLogger(__name__).info(f"Updated {n_updated} FrameErrorResult objects in {time.time() - start_time}s ")
+
+
+def grouper(iterable, n):
+    """
+    Collect data into fixed-length chunks or blocks
+    Adjusted from the itertools recipes in the documentation
+    :param iterable:
+    :param n:
+    :return:
+    """
+    args = [iter(iterable)] * n
+    return (
+        [e for e in group if e is not None]
+        for group in zip_longest(*args, fillvalue=None)
+    )
