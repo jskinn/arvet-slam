@@ -1,0 +1,23 @@
+{
+	"camera_settings": [
+		{
+			"name": "Viewpoint",
+			"horizontal_fov": 90,
+			"intrinsic_settings":
+			{
+				"resX": 640,
+				"resY": 480,
+				"fx": 517.29998779296875,
+				"fy": 516.5,
+				"cx": 318.60000610351563,
+				"cy": 255.30000305175781,
+				"s": 0
+			},
+			"captured_image_size":
+			{
+				"width": 640,
+				"height": 480
+			}
+		}
+	]
+}
