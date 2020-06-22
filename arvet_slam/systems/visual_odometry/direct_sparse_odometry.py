@@ -101,8 +101,10 @@ class DSO(VisionSystem):
         :return: True iff the particular dataset is appropriate for this vision system.
         :rtype: bool
         """
-        return image_source.sequence_type == ImageSequenceType.SEQUENTIAL and \
+        return image_source.sequence_type == ImageSequenceType.SEQUENTIAL and (
+            self.rectification_mode is not RectificationMode.NONE or
             check_resolution(image_source.camera_intrinsics)
+        )
 
     def get_columns(self) -> typing.Set[str]:
         """
@@ -216,7 +218,6 @@ class DSO(VisionSystem):
         self._system = DSOSystem()
         self._system.outputWrapper.append(self._output_wrapper)
 
-        # TODO: Build a listener for getting out values
         self._start_time = time.time()
         self._image_index = 0
 
@@ -351,6 +352,10 @@ class DSO(VisionSystem):
             raise ValueError("Cannot search for DSO without rectification mode")
         if rectification_intrinsics is None:
             raise ValueError("Cannot search for DSO without intrinsics")
+        if rectification_mode is not RectificationMode.NONE and not check_resolution(rectification_intrinsics):
+            # Check the resolution we're rectifying to. If it will be invalid, raise an exception
+            raise ValueError(f"Cannot {rectification_mode.name} to resolution "
+                             f"{rectification_intrinsics.width}x{rectification_intrinsics.height}, it is invalid")
         # Look for existing objects with the same settings
         query = {
             'rectification_mode': rectification_mode.name,

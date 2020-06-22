@@ -173,11 +173,87 @@ class TestDSODatabase(unittest.TestCase):
             with self.assertRaises(ValueError):
                 DSO.get_instance(rectification_mode=rectification_mode)
 
+    def test_get_instance_throws_exception_if_cropping_to_invalid_resolution(self):
+        with self.assertRaises(ValueError):
+            # Width not a multiple of 4
+            DSO.get_instance(
+                rectification_mode=RectificationMode.CROP,
+                rectification_intrinsics=CameraIntrinsics(
+                    width=642,
+                    height=480,
+                    fx=320,
+                    fy=320,
+                    cx=320,
+                    cy=240
+                ))
+        with self.assertRaises(ValueError):
+            # Height not a multiple of 4
+            DSO.get_instance(
+                rectification_mode=RectificationMode.CROP,
+                rectification_intrinsics=CameraIntrinsics(
+                    width=640,
+                    height=482,
+                    fx=320,
+                    fy=320,
+                    cx=320,
+                    cy=240
+                ))
+        with self.assertRaises(ValueError):
+            # Too small
+            DSO.get_instance(
+                rectification_mode=RectificationMode.CROP,
+                rectification_intrinsics=CameraIntrinsics(
+                    width=160,
+                    height=120,
+                    fx=320,
+                    fy=320,
+                    cx=320,
+                    cy=240
+                ))
+
+    def test_get_instance_throws_exception_if_calibrating_to_invalid_resolution(self):
+        with self.assertRaises(ValueError):
+            # Width not a multiple of 4
+            DSO.get_instance(
+                rectification_mode=RectificationMode.CALIB,
+                rectification_intrinsics=CameraIntrinsics(
+                    width=642,
+                    height=480,
+                    fx=320,
+                    fy=320,
+                    cx=320,
+                    cy=240
+                ))
+        with self.assertRaises(ValueError):
+            # Height not a multiple of 4
+            DSO.get_instance(
+                rectification_mode=RectificationMode.CALIB,
+                rectification_intrinsics=CameraIntrinsics(
+                    width=640,
+                    height=482,
+                    fx=320,
+                    fy=320,
+                    cx=320,
+                    cy=240
+                ))
+        with self.assertRaises(ValueError):
+            # Too small
+            DSO.get_instance(
+                rectification_mode=RectificationMode.CALIB,
+                rectification_intrinsics=CameraIntrinsics(
+                    width=160,
+                    height=120,
+                    fx=320,
+                    fy=320,
+                    cx=320,
+                    cy=240
+                ))
+
     def test_get_instance_can_create_an_instance(self):
         rectification_mode = np.random.choice([RectificationMode.CALIB, RectificationMode.NONE, RectificationMode.CROP])
         intrinsics = CameraIntrinsics(
-            width=int(np.random.randint(100, 500)),
-            height=int(np.random.randint(100, 500)),
+            width=4 * int(np.random.randint(100, 500)),
+            height=4 * int(np.random.randint(100, 500)),
             fx=int(np.random.randint(100, 500)),
             fy=int(np.random.randint(100, 500)),
             cx=int(np.random.randint(100, 500)),
@@ -196,8 +272,8 @@ class TestDSODatabase(unittest.TestCase):
 
     def test_get_instance_returns_an_existing_instance(self):
         intrinsics = CameraIntrinsics(
-            width=int(np.random.randint(100, 500)),
-            height=int(np.random.randint(100, 500)),
+            width=4 * int(np.random.randint(100, 500)),
+            height=4 * int(np.random.randint(100, 500)),
             fx=int(np.random.randint(100, 500)),
             fy=int(np.random.randint(100, 500)),
             cx=int(np.random.randint(100, 500)),
@@ -214,8 +290,8 @@ class TestDSODatabase(unittest.TestCase):
 
     def test_get_instance_only_checks_width_height_for_crop_and_none_rectification(self):
         intrinsics = CameraIntrinsics(
-            width=int(np.random.randint(100, 500)),
-            height=int(np.random.randint(100, 500)),
+            width=4 * int(np.random.randint(100, 500)),
+            height=4 * int(np.random.randint(100, 500)),
             fx=int(np.random.randint(100, 500)),
             fy=int(np.random.randint(100, 500)),
             cx=int(np.random.randint(100, 500)),
@@ -240,8 +316,8 @@ class TestDSODatabase(unittest.TestCase):
 
     def test_get_instance_ignores_distortion_for_calib_rectification(self):
         intrinsics = CameraIntrinsics(
-            width=int(np.random.randint(100, 500)),
-            height=int(np.random.randint(100, 500)),
+            width=4 * int(np.random.randint(100, 500)),
+            height=4 * int(np.random.randint(100, 500)),
             fx=int(np.random.randint(100, 500)),
             fy=int(np.random.randint(100, 500)),
             cx=int(np.random.randint(100, 500)),
@@ -309,13 +385,7 @@ class TestDSO(unittest.TestCase):
         mock_image_source.sequence_type = ImageSequenceType.SEQUENTIAL
         self.assertTrue(subject.is_image_source_appropriate(mock_image_source))
 
-        mock_image_source.sequence_type = ImageSequenceType.NON_SEQUENTIAL
-        self.assertFalse(subject.is_image_source_appropriate(mock_image_source))
-
-        mock_image_source.sequence_type = ImageSequenceType.INTERACTIVE
-        self.assertFalse(subject.is_image_source_appropriate(mock_image_source))
-
-    def test_is_image_source_appropriate_returns_true_for_image_resolutions_that_are_valid(self):
+    def test_is_image_source_appropriate_returns_false_for_non_sequential_image_sources(self):
         subject = DSO(
             rectification_mode=RectificationMode.CROP,
             rectification_intrinsics=CameraIntrinsics(
@@ -328,29 +398,120 @@ class TestDSO(unittest.TestCase):
             )
         )
         mock_image_source = mock.create_autospec(ImageSource)
+        mock_image_source.camera_intrinsics = mock.Mock()
+        mock_image_source.camera_intrinsics.width = 640
+        mock_image_source.camera_intrinsics.height = 480
+
+        mock_image_source.sequence_type = ImageSequenceType.NON_SEQUENTIAL
+        self.assertFalse(subject.is_image_source_appropriate(mock_image_source))
+
+        mock_image_source.sequence_type = ImageSequenceType.INTERACTIVE
+        self.assertFalse(subject.is_image_source_appropriate(mock_image_source))
+
+    def test_is_image_source_appropriate_returns_false_if_not_rectifying_and_resolution_is_invalid(self):
+        subject = DSO(
+            rectification_mode=RectificationMode.NONE,
+            rectification_intrinsics=CameraIntrinsics(
+                width=280,
+                height=280,
+                fx=320,
+                fy=320,
+                cx=320,
+                cy=240
+            )
+        )
+        mock_image_source = mock.create_autospec(ImageSource)
         mock_image_source.sequence_type = ImageSequenceType.SEQUENTIAL
         mock_image_source.camera_intrinsics = mock.Mock()
 
+        # Not a multiple of 4
+        mock_image_source.camera_intrinsics.width = 642
         mock_image_source.camera_intrinsics.height = 480
-
-        # DSO requires at least a 3 layer pyramid from resolution halving
-        # Valid dimensions can be halved at least 2 times, with resolutions greater than 5000 pixels
-        # - 16 is too small, it can be halved, but isn't enough pixels
-        # - 202 cannot be halved twice
-        # - 480 is valid
-        mock_image_source.camera_intrinsics.height = 640
-        for width in [16, 202, 480]:
-            mock_image_source.camera_intrinsics.width = width
-            self.assertEqual(width % 4 == 0 and (width / 4) * (640 / 4) > 5000,
-                             subject.is_image_source_appropriate(mock_image_source),
-                             f"Failed with resolution {width}x640")
+        self.assertFalse(subject.is_image_source_appropriate(mock_image_source))
 
         mock_image_source.camera_intrinsics.width = 640
-        for height in [16, 202, 480]:
-            mock_image_source.camera_intrinsics.height = height
-            self.assertEqual(height % 4 == 0 and (height / 4) * (640 / 4) > 5000,
-                             subject.is_image_source_appropriate(mock_image_source),
-                             f"Failed with resolution 640x{height}")
+        mock_image_source.camera_intrinsics.height = 482
+        self.assertFalse(subject.is_image_source_appropriate(mock_image_source))
+
+        # Too small, lowest resolution is under 5000 px (is 4800 px)
+        mock_image_source.camera_intrinsics.width = 160
+        mock_image_source.camera_intrinsics.height = 120
+        self.assertFalse(subject.is_image_source_appropriate(mock_image_source))
+
+    def test_is_image_source_appropriate_returns_true_if_not_rectifying_and_resolution_is_valid(self):
+        subject = DSO(
+            rectification_mode=RectificationMode.NONE,
+            rectification_intrinsics=CameraIntrinsics(
+                width=280,
+                height=280,
+                fx=320,
+                fy=320,
+                cx=320,
+                cy=240
+            )
+        )
+        mock_image_source = mock.create_autospec(ImageSource)
+        mock_image_source.sequence_type = ImageSequenceType.SEQUENTIAL
+        mock_image_source.camera_intrinsics = mock.Mock()
+
+        mock_image_source.camera_intrinsics.width = 640
+        mock_image_source.camera_intrinsics.height = 480
+        self.assertTrue(subject.is_image_source_appropriate(mock_image_source))
+
+    def test_is_image_source_appropriate_returns_true_if_cropping_to_valid_resolution(self):
+        subject = DSO(
+            rectification_mode=RectificationMode.CROP,
+            rectification_intrinsics=CameraIntrinsics(
+                width=280,
+                height=280,
+                fx=320,
+                fy=320,
+                cx=320,
+                cy=240
+            )
+        )
+        mock_image_source = mock.create_autospec(ImageSource)
+        mock_image_source.sequence_type = ImageSequenceType.SEQUENTIAL
+        mock_image_source.camera_intrinsics = mock.Mock()
+
+        # This resolution cannot be halved twice, but we're cropping so it can
+        mock_image_source.camera_intrinsics.width = 1241
+        mock_image_source.camera_intrinsics.height = 376
+        self.assertTrue(subject.is_image_source_appropriate(mock_image_source))
+
+        mock_image_source.camera_intrinsics.width = 1240
+        mock_image_source.camera_intrinsics.height = 377
+        self.assertTrue(subject.is_image_source_appropriate(mock_image_source))
+
+    def test_is_image_source_appropriate_returns_true_if_reprojecting_to_valid_resolution(self):
+        subject = DSO(
+            rectification_mode=RectificationMode.CALIB,
+            rectification_intrinsics=CameraIntrinsics(
+                width=280,
+                height=280,
+                fx=320,
+                fy=320,
+                cx=320,
+                cy=240
+            )
+        )
+        mock_image_source = mock.create_autospec(ImageSource)
+        mock_image_source.sequence_type = ImageSequenceType.SEQUENTIAL
+        mock_image_source.camera_intrinsics = mock.Mock()
+
+        # This resolution cannot be halved twice, but we're reprojecting so it can
+        mock_image_source.camera_intrinsics.width = 1241
+        mock_image_source.camera_intrinsics.height = 376
+        self.assertTrue(subject.is_image_source_appropriate(mock_image_source))
+
+        mock_image_source.camera_intrinsics.width = 1240
+        mock_image_source.camera_intrinsics.height = 377
+        self.assertTrue(subject.is_image_source_appropriate(mock_image_source))
+
+        # This would be too small, but we're reprojecting
+        mock_image_source.camera_intrinsics.width = 160
+        mock_image_source.camera_intrinsics.height = 120
+        self.assertTrue(subject.is_image_source_appropriate(mock_image_source))
 
     def test_start_trial_raises_exception_for_non_sequential_image_sources(self):
         subject = DSO(
