@@ -340,7 +340,7 @@ class TestFrameErrorMetricOutput(unittest.TestCase):
             image.get_columns.return_value = set()
 
     def make_frame_results_from_poses(self, estimated_poses):
-        return [
+        frame_results = [
             FrameResult(
                 timestamp=idx + np.random.normal(0, 0.01),
                 image=image,
@@ -352,10 +352,23 @@ class TestFrameErrorMetricOutput(unittest.TestCase):
                 estimated_pose=estimated_poses[idx],
                 tracking_state=TrackingState.OK if estimated_poses[idx] is not None else TrackingState.LOST,
                 num_features=np.random.randint(10, 1000),
-                num_matches=np.random.randint(10, 1000)
+                num_matches=np.random.randint(10, 1000),
+                loop_edges=[]
             )
             for idx, image in enumerate(self.images)
         ]
+        # Infer loop closures when an estimate returns from being lost (but not when first initialised)
+        last_found_timestamp = None
+        was_lost_prev = False
+        for idx in range(len(frame_results)):
+            if estimated_poses[idx] is not None:
+                if was_lost_prev and last_found_timestamp is not None:
+                    frame_results[idx].loop_edges.append(last_found_timestamp)
+                last_found_timestamp = frame_results[idx].timestamp
+                was_lost_prev = False
+            else:
+                was_lost_prev = True
+        return frame_results
 
     def make_frame_results_from_motions(self, estimated_motions, set_initial_pose=False):
         results = [
@@ -374,10 +387,23 @@ class TestFrameErrorMetricOutput(unittest.TestCase):
             )
             for idx, image in enumerate(self.images)
         ]
+        # Optionally set an origin for the first pose
         if isinstance(set_initial_pose, Transform):
             results[0].estimated_pose = set_initial_pose
         elif bool(set_initial_pose):
             results[0].estimated_pose = Transform()
+
+        # Infer loop closures when the motion stops being none
+        last_found_timestamp = None
+        was_lost_prev = False
+        for idx in range(len(results)):
+            if results[idx].estimated_motion is not None:
+                if was_lost_prev and last_found_timestamp is not None:
+                    results[idx].loop_edges.append(last_found_timestamp)
+                last_found_timestamp = results[idx].timestamp
+                was_lost_prev = False
+            else:
+                was_lost_prev = True
         return results
 
     def make_trial(self, frame_results, has_scale=True):
@@ -426,6 +452,8 @@ class TestFrameErrorMetricOutput(unittest.TestCase):
             self.assertEqual(frame_result.tracking_state, frame_error.tracking)
             self.assertEqual(frame_result.num_features, frame_error.num_features)
             self.assertEqual(frame_result.num_matches, frame_error.num_matches)
+            self.assertEqual(len(frame_result.loop_edges), len(frame_error.loop_distances))
+            self.assertEqual(len(frame_result.loop_edges), len(frame_error.loop_angles))
             self.assertIsNone(frame_error.noise)
 
             self.assertAlmostEqual(0.1 * idx, frame_error.absolute_error.x, places=13)
@@ -493,6 +521,8 @@ class TestFrameErrorMetricOutput(unittest.TestCase):
             self.assertEqual(frame_result.tracking_state, frame_error.tracking)
             self.assertEqual(frame_result.num_features, frame_error.num_features)
             self.assertEqual(frame_result.num_matches, frame_error.num_matches)
+            self.assertEqual(len(frame_result.loop_edges), len(frame_error.loop_distances))
+            self.assertEqual(len(frame_result.loop_edges), len(frame_error.loop_angles))
             self.assertIsNone(frame_error.noise)
 
             # Absolute error should be 0 when both estimates appear, and grow after that
@@ -638,6 +668,8 @@ class TestFrameErrorMetricOutput(unittest.TestCase):
                 self.assertEqual(TrackingState.OK, frame_error.tracking)
                 self.assertEqual(frame_result.num_features, frame_error.num_features)
                 self.assertEqual(frame_result.num_matches, frame_error.num_matches)
+                self.assertEqual(len(frame_result.loop_edges), len(frame_error.loop_distances))
+                self.assertEqual(len(frame_result.loop_edges), len(frame_error.loop_angles))
                 self.assertErrorsEqual(make_pose_error(frame_result.estimated_pose, frame_result.pose),
                                        frame_error.absolute_error)
                 if idx == 0:
@@ -725,6 +757,8 @@ class TestFrameErrorMetricOutput(unittest.TestCase):
                 self.assertEqual(frame_result.tracking_state, frame_error.tracking)
                 self.assertEqual(frame_result.num_features, frame_error.num_features)
                 self.assertEqual(frame_result.num_matches, frame_error.num_matches)
+                self.assertEqual(len(frame_result.loop_edges), len(frame_error.loop_distances))
+                self.assertEqual(len(frame_result.loop_edges), len(frame_error.loop_angles))
 
                 # Absolute error should be none after it becomes lost, since we don't have a reference to bring it back
                 if lost_start + repeat <= idx:
@@ -799,6 +833,8 @@ class TestFrameErrorMetricOutput(unittest.TestCase):
                 self.assertEqual(TrackingState.OK, frame_error.tracking)
                 self.assertEqual(frame_result.num_features, frame_error.num_features)
                 self.assertEqual(frame_result.num_matches, frame_error.num_matches)
+                self.assertEqual(len(frame_result.loop_edges), len(frame_error.loop_distances))
+                self.assertEqual(len(frame_result.loop_edges), len(frame_error.loop_angles))
 
                 # Errors should all be close to zero.
                 # We need more leeway on the rotation error, because it is fed through an arccos,
@@ -867,6 +903,8 @@ class TestFrameErrorMetricOutput(unittest.TestCase):
                 self.assertEqual(TrackingState.OK, frame_error.tracking)
                 self.assertEqual(frame_result.num_features, frame_error.num_features)
                 self.assertEqual(frame_result.num_matches, frame_error.num_matches)
+                self.assertEqual(len(frame_result.loop_edges), len(frame_error.loop_distances))
+                self.assertEqual(len(frame_result.loop_edges), len(frame_error.loop_angles))
 
                 # Errors should all be zero, when
                 if idx % 4 == 3:
@@ -912,6 +950,8 @@ class TestFrameErrorMetricOutput(unittest.TestCase):
                 self.assertEqual(TrackingState.OK, frame_error.tracking)
                 self.assertEqual(frame_result.num_features, frame_error.num_features)
                 self.assertEqual(frame_result.num_matches, frame_error.num_matches)
+                self.assertEqual(len(frame_result.loop_edges), len(frame_error.loop_distances))
+                self.assertEqual(len(frame_result.loop_edges), len(frame_error.loop_angles))
 
                 # Errors should all be zero. We can be stricter on the rotation error in this test because
                 # the scale only affects the translation.
@@ -956,6 +996,8 @@ class TestFrameErrorMetricOutput(unittest.TestCase):
                 self.assertEqual(TrackingState.OK, frame_error.tracking)
                 self.assertEqual(frame_result.num_features, frame_error.num_features)
                 self.assertEqual(frame_result.num_matches, frame_error.num_matches)
+                self.assertEqual(len(frame_result.loop_edges), len(frame_error.loop_distances))
+                self.assertEqual(len(frame_result.loop_edges), len(frame_error.loop_angles))
 
                 # Errors should all be non-zero. We can be stricter on the rotation error in this test because
                 # the scale only affects the translation.
@@ -1036,6 +1078,8 @@ class TestFrameErrorMetricOutput(unittest.TestCase):
                 self.assertEqual(frame_result.tracking_state, frame_error.tracking)
                 self.assertEqual(frame_result.num_features, frame_error.num_features)
                 self.assertEqual(frame_result.num_matches, frame_error.num_matches)
+                self.assertEqual(len(frame_result.loop_edges), len(frame_error.loop_distances))
+                self.assertEqual(len(frame_result.loop_edges), len(frame_error.loop_angles))
 
                 # Absolute error should be none after it becomes lost, since we don't have a reference to bring it back
                 if idx > 0 and (estimated_motions[idx][repeat] is None or has_been_lost):

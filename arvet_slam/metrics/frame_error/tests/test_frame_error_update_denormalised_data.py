@@ -17,7 +17,7 @@ from arvet.core.tests.mock_types import make_image, MockSystem, MockMetric
 from arvet_slam.trials.slam.tracking_state import TrackingState
 from arvet_slam.trials.slam.visual_slam import SLAMTrialResult, FrameResult
 from arvet_slam.metrics.frame_error.frame_error_metric import FrameErrorMetric
-from arvet_slam.metrics.frame_error.frame_error_result import make_pose_error, PoseError, make_frame_error, FrameError,\
+from arvet_slam.metrics.frame_error.frame_error_result import make_frame_error, FrameError,\
     TrialErrors, make_frame_error_result, FrameErrorResult, json_value
 import arvet_slam.metrics.frame_error.frame_error_update_denormalised_data as update_data
 
@@ -317,6 +317,8 @@ class TestUpdateFrameErrorResult(unittest.TestCase):
                     image=None,
                     system=None,
                     repeat_index=repeat_idx,
+                    loop_distances=[],
+                    loop_angles=[],
                     absolute_error=None,
                     relative_error=None,
                     noise=None
@@ -363,6 +365,8 @@ class TestUpdateFrameErrorResult(unittest.TestCase):
                     image=None,
                     system=None,
                     repeat_index=repeat_idx,
+                    loop_distances=[],
+                    loop_angles=[],
                     absolute_error=None,
                     relative_error=None,
                     noise=None
@@ -410,6 +414,8 @@ class TestUpdateFrameErrorResult(unittest.TestCase):
                     image=None,
                     system=None,
                     repeat_index=repeat_idx,
+                    loop_distances=[],
+                    loop_angles=[],
                     absolute_error=None,
                     relative_error=None,
                     noise=None

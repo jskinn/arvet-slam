@@ -1,19 +1,20 @@
 # Copyright (c) 2018, John Skinner
 import typing
+
+import arvet.util.transform as tf
 import bson
 import numpy as np
+from arvet.core.image_source import ImageSource
+from arvet.core.metric import Metric, MetricResult, check_trial_collection
+from arvet.core.system import VisionSystem
+from arvet.core.trial_result import TrialResult
+from arvet.database.autoload_modules import autoload_modules
 from pymodm.context_managers import no_auto_dereference
 
-from arvet.database.autoload_modules import autoload_modules
-from arvet.core.system import VisionSystem
-from arvet.core.image_source import ImageSource
-from arvet.core.trial_result import TrialResult
-from arvet.core.metric import Metric, MetricResult, check_trial_collection
-import arvet.util.transform as tf
-from arvet_slam.trials.slam.tracking_state import TrackingState
-from arvet_slam.trials.slam.visual_slam import SLAMTrialResult
 from arvet_slam.metrics.frame_error.frame_error_result import make_pose_error, make_frame_error, \
     TrialErrors, make_frame_error_result, FrameErrorResult
+from arvet_slam.trials.slam.tracking_state import TrackingState
+from arvet_slam.trials.slam.visual_slam import SLAMTrialResult
 
 
 class FrameErrorMetric(Metric):
@@ -90,6 +91,12 @@ class FrameErrorMetric(Metric):
         # Pre-load the image objects in a batch, to avoid loading them piecemeal later
         images = [image for _, image in trial_results[0].image_source]
 
+        # Build mappings between frame result timestamps and poses for each trial
+        timestamps_to_pose = [{
+            frame_result.timestamp: frame_result.pose
+            for frame_result in trial_result.results
+        } for trial_result in trial_results]
+
         # Then, tally all the errors for all the computed trajectories
         estimate_errors = [[] for _ in range(len(trial_results))]
         image_columns = set()
@@ -132,7 +139,7 @@ class FrameErrorMetric(Metric):
                 # This aligns the two maps, even if it didn't start at the same place
                 if estimate_origins[repeat_idx] is None and scaled_poses[repeat_idx] is not None:
                     estimate_origins[repeat_idx] = scaled_poses[repeat_idx]
-                    ground_truth_origins[repeat_idx] = frame_results[repeat_idx].pose
+                    ground_truth_origins[repeat_idx] = frame_result.pose
 
                 # Record how long the current tracking state has persisted
                 if frame_idx <= 0:
@@ -163,6 +170,19 @@ class FrameErrorMetric(Metric):
                 tracking_distances[repeat_idx] += np.linalg.norm(frame_result.motion.location)
                 current_tracking_time[repeat_idx] = frame_result.timestamp
 
+                # Turn loop closures into distances. We don't need to worry about origins because everything is GT frame
+                if len(frame_result.loop_edges) > 0:
+                    loop_distances, loop_angles = compute_loop_distances_and_angles(
+                        frame_result.pose,
+                        (
+                            timestamps_to_pose[repeat_idx][timestamp]
+                            for timestamp in frame_result.loop_edges
+                            if timestamp in timestamps_to_pose[repeat_idx]  # they should all be in there, but for safety, check
+                        )
+                    )
+                else:
+                    loop_distances, loop_angles = [], []
+
                 # Build the frame error
                 frame_error = make_frame_error(
                     trial_result=trial_results[repeat_idx],
@@ -170,6 +190,8 @@ class FrameErrorMetric(Metric):
                     image=images[frame_idx],
                     system=system,
                     repeat_index=repeat_idx,
+                    loop_distances=loop_distances,
+                    loop_angles=loop_angles,
                     # Compute the error in the absolute estimated pose (if available)
                     absolute_error=make_pose_error(
                         estimate_origins[repeat_idx].find_relative(scaled_poses[repeat_idx]),
@@ -224,3 +246,18 @@ class FrameErrorMetric(Metric):
                 for repeat, trial_result in enumerate(trial_results)
             ]
         )
+
+
+def compute_loop_distances_and_angles(current_pose: tf.Transform, linked_poses: typing.Iterable[tf.Transform]) -> \
+        typing.Tuple[typing.List[float], typing.List[float]]:
+    relative_poses = [
+        current_pose.find_relative(linked_pose)
+        for linked_pose in linked_poses
+    ]
+    return [
+        np.linalg.norm(relative_pose.location)
+        for relative_pose in relative_poses
+    ], [
+        tf.quat_angle(relative_pose.rotation_quat(w_first=True))
+        for relative_pose in relative_poses
+    ]

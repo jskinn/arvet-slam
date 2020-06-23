@@ -253,6 +253,8 @@ class TestFrameError(unittest.TestCase):
         self.timestamp = 1.3
         self.tracking = TrackingState.OK
         self.processing_time = 0.568
+        self.loop_distances = [0.223, 1.93]
+        self.loop_angles = [np.pi / 22, np.pi / 180]
         self.num_features = 423
         self.num_matches = 238
 
@@ -300,6 +302,8 @@ class TestFrameError(unittest.TestCase):
             trial_result=self.trial,
             system=self.system,
             frame_result=frame_result,
+            loop_distances=self.loop_distances,
+            loop_angles=self.loop_angles,
             absolute_error=self.absolute_error,
             relative_error=self.relative_error,
             noise=self.noise
@@ -321,6 +325,15 @@ class TestFrameError(unittest.TestCase):
             'motion_yaw': self.motion.euler[2],
             'num_features': self.num_features,
             'num_matches': self.num_matches,
+
+            'is_loop_closure': len(self.loop_distances) > 0,
+            'num_loop_closures': len(self.loop_distances),
+            'max_loop_closure_distance': max(self.loop_distances),
+            'min_loop_closure_distance': min(self.loop_distances),
+            'mean_loop_closure_distance': np.mean(self.loop_distances),
+            'max_loop_closure_angle': max(self.loop_angles),
+            'min_loop_closure_angle': min(self.loop_angles),
+            'mean_loop_closure_angle': np.mean(self.loop_angles),
 
             'abs_error_x': self.absolute_error.x,
             'abs_error_y': self.absolute_error.y,
@@ -463,6 +476,8 @@ class TestFrameError(unittest.TestCase):
             image=None,
             system=None,
             repeat_index=self.repeat,
+            loop_distances=self.loop_distances,
+            loop_angles=self.loop_angles,
             absolute_error=pose_error,
             relative_error=pose_error,
             noise=pose_error
@@ -496,6 +511,8 @@ class TestFrameError(unittest.TestCase):
             image=image2,
             system=None,
             repeat_index=self.repeat,
+            loop_distances=self.loop_distances,
+            loop_angles=self.loop_angles,
             absolute_error=pose_error,
             relative_error=pose_error,
             noise=pose_error
@@ -542,6 +559,8 @@ class TestFrameError(unittest.TestCase):
             image=None,
             system=None,
             repeat_index=self.repeat,
+            loop_distances=self.loop_distances,
+            loop_angles=self.loop_angles,
             absolute_error=absolute_error,
             relative_error=relative_error,
             noise=noise
@@ -561,6 +580,15 @@ class TestFrameError(unittest.TestCase):
             'motion_yaw': self.motion.euler[2],
             'num_features': self.num_features,
             'num_matches': self.num_matches,
+
+            'is_loop_closure': len(self.loop_distances) > 0,
+            'num_loop_closures': len(self.loop_distances),
+            'max_loop_closure_distance': max(self.loop_distances),
+            'min_loop_closure_distance': min(self.loop_distances),
+            'mean_loop_closure_distance': np.mean(self.loop_distances),
+            'max_loop_closure_angle': max(self.loop_angles),
+            'min_loop_closure_angle': min(self.loop_angles),
+            'mean_loop_closure_angle': np.mean(self.loop_angles),
 
             'abs_error_x': absolute_error.x,
             'abs_error_y': absolute_error.y,
@@ -611,6 +639,8 @@ class TestFrameError(unittest.TestCase):
             frame_result=frame_result,
             image=None,
             system=None,
+            loop_distances=self.loop_distances,
+            loop_angles=self.loop_angles,
             repeat_index=self.repeat,
             absolute_error=pose_error,
             relative_error=pose_error,
@@ -646,12 +676,41 @@ class TestFrameError(unittest.TestCase):
             image=None,
             system=alt_system,
             repeat_index=self.repeat,
+            loop_distances=self.loop_distances,
+            loop_angles=self.loop_angles,
             absolute_error=pose_error,
             relative_error=pose_error,
             noise=pose_error
         )
         expected_properties = self.system.get_properties(None, self.trial.settings)
         self.assertEqual(expected_properties, frame_error.system_properties)
+
+    def test_make_frame_error_raises_exception_if_loop_distances_does_not_match_loop_angles(self):
+        frame_result = FrameResult(
+            timestamp=self.timestamp,
+            image=self.image,
+            processing_time=self.processing_time,
+            pose=self.image.camera_pose,
+            motion=self.motion,
+            estimated_pose=Transform(),
+            estimated_motion=Transform(),
+            tracking_state=self.tracking,
+            num_features=self.num_features,
+            num_matches=self.num_matches
+        )
+        with self.assertRaises(ValueError):
+            make_frame_error(
+                repeat_index=self.repeat,
+                image=self.image,
+                trial_result=self.trial,
+                system=self.system,
+                frame_result=frame_result,
+                loop_distances=self.loop_distances,
+                loop_angles=self.loop_angles + [np.pi / 47],
+                absolute_error=self.absolute_error,
+                relative_error=self.relative_error,
+                noise=self.noise
+            )
 
 
 class TestFrameErrorDatabase(unittest.TestCase):
@@ -894,6 +953,8 @@ class TestFrameErrorDatabase(unittest.TestCase):
             image=image,
             system=self.trial_result.system,
             repeat_index=1,
+            loop_distances=[22.3, 0.166],
+            loop_angles=[np.pi / 38, 16 * np.pi / 237],
             absolute_error=PoseError(
                 x=10,
                 y=11,
@@ -940,6 +1001,8 @@ class TestFrameErrorDatabase(unittest.TestCase):
         self.assertEqual(frame_error.num_features, loaded_frame_error.num_features)
         self.assertEqual(frame_error.num_matches, loaded_frame_error.num_matches)
         self.assertEqual(frame_error.tracking, loaded_frame_error.tracking)
+        self.assertEqual(frame_error.loop_distances, loaded_frame_error.loop_distances)
+        self.assertEqual(frame_error.loop_angles, loaded_frame_error.loop_angles)
         self.assertEqual(frame_error.absolute_error, loaded_frame_error.absolute_error)
         self.assertEqual(frame_error.relative_error, loaded_frame_error.relative_error)
         self.assertEqual(frame_error.noise, loaded_frame_error.noise)
@@ -994,6 +1057,8 @@ class TestFrameErrorDatabase(unittest.TestCase):
             image=image,
             system=system,
             repeat_index=1,
+            loop_distances=[],
+            loop_angles=[],
             absolute_error=PoseError(
                 x=10,
                 y=11,
@@ -1074,6 +1139,8 @@ class TestFrameErrorDatabase(unittest.TestCase):
             image=image,
             system=system,
             repeat_index=1,
+            loop_distances=[],
+            loop_angles=[],
             absolute_error=PoseError(
                 x=10,
                 y=11,
@@ -1142,6 +1209,8 @@ class TestFrameErrorDatabase(unittest.TestCase):
             image=image,
             system=system,
             repeat_index=1,
+            loop_distances=[],
+            loop_angles=[],
             absolute_error=PoseError(
                 x=10,
                 y=11,
@@ -1323,6 +1392,8 @@ class TestMakeFrameErrorResult(unittest.TestCase):
             image=image,
             system=system,
             repeat_index=1,
+            loop_distances=[],
+            loop_angles=[],
             absolute_error=pose_error,
             relative_error=pose_error,
             noise=pose_error
@@ -1336,6 +1407,8 @@ class TestMakeFrameErrorResult(unittest.TestCase):
             image=image,
             system=system,
             repeat_index=1,
+            loop_distances=[],
+            loop_angles=[],
             absolute_error=pose_error,
             relative_error=pose_error,
             noise=pose_error
@@ -1912,6 +1985,8 @@ class TestFrameErrorResultDatabase(unittest.TestCase):
                     image=image,
                     system=system,
                     repeat_index=1,
+                    loop_distances=[],
+                    loop_angles=[],
                     absolute_error=PoseError(
                         x=10,
                         y=11,

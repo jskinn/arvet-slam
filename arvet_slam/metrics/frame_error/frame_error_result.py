@@ -87,6 +87,8 @@ class FrameError(pymodm.MongoModel):
     timestamp = fields.FloatField(required=True)
     motion = TransformField(required=True)
     processing_time = fields.FloatField(default=np.nan)
+    loop_distances = fields.ListField(fields.FloatField(), blank=True)
+    loop_angles = fields.ListField(fields.FloatField(), blank=True)
     num_features = fields.IntegerField(default=0)
     num_matches = fields.IntegerField(default=0)
 
@@ -111,6 +113,15 @@ class FrameError(pymodm.MongoModel):
         motion_yaw=lambda obj: obj.motion.euler[2],
         num_features=attrgetter('num_features'),
         num_matches=attrgetter('num_matches'),
+
+        is_loop_closure=lambda obj: len(obj.loop_distances) > 0,
+        num_loop_closures=lambda obj: len(obj.loop_distances),
+        max_loop_closure_distance=lambda obj: np.max(obj.loop_distances) if len(obj.loop_distances) > 0 else np.nan,
+        min_loop_closure_distance=lambda obj: np.min(obj.loop_distances) if len(obj.loop_distances) > 0 else np.nan,
+        mean_loop_closure_distance=lambda obj: np.mean(obj.loop_distances) if len(obj.loop_distances) > 0 else np.nan,
+        max_loop_closure_angle=lambda obj: np.max(obj.loop_angles) if len(obj.loop_angles) > 0 else np.nan,
+        min_loop_closure_angle=lambda obj: np.min(obj.loop_angles) if len(obj.loop_angles) > 0 else np.nan,
+        mean_loop_closure_angle=lambda obj: np.mean(obj.loop_angles) if len(obj.loop_angles) > 0 else np.nan,
 
         abs_error_x=lambda obj: obj.absolute_error.x if obj.absolute_error is not None else np.nan,
         abs_error_y=lambda obj: obj.absolute_error.y if obj.absolute_error is not None else np.nan,
@@ -187,7 +198,9 @@ def make_frame_error(
         repeat_index: int,
         absolute_error: typing.Union[None, PoseError],
         relative_error: typing.Union[None, PoseError],
-        noise: typing.Union[None, PoseError]
+        noise: typing.Union[None, PoseError],
+        loop_distances: typing.Iterable[float],
+        loop_angles: typing.Iterable[float]
 ) -> FrameError:
     """
     Construct a frame_error object from a context
@@ -208,6 +221,8 @@ def make_frame_error(
     :param absolute_error: The error in the estimated pose, in an absolute reference frame.
     :param relative_error: The error in teh estimated motion, relative to the previous frame.
     :param noise: The error between this particular motion estimate, and the average motion estimate from all trials.
+    :param loop_distances: The distance to other images to which this image has a loop closure. Will usually be empty.
+    :param loop_angles: The angle to other images to which this image has a loop closure.
     :return: A FrameError object, containing the errors, and related metadata.
     """
     # Make sure the image we're given is the same as the one from the frame_result, without reloading it
@@ -234,6 +249,13 @@ def make_frame_error(
         if system_id != system.pk:
             system = trial_result.system
 
+    # Check that the loop distances and angles are the same
+    loop_distances = list(loop_distances)
+    loop_angles = list(loop_angles)
+    if len(loop_distances) != len(loop_angles):
+        raise ValueError("Loop distances and loop angles must always be the same length, "
+                         f"was {loop_distances} and {loop_angles}")
+
     # Read the system properties from the trial result
     system_properties = system.get_properties(None, trial_result.settings)
     image_properties = image.get_properties()
@@ -244,6 +266,8 @@ def make_frame_error(
         timestamp=frame_result.timestamp,
         motion=frame_result.motion,
         processing_time=frame_result.processing_time,
+        loop_distances=loop_distances,
+        loop_angles=loop_angles,
         num_features=frame_result.num_features,
         num_matches=frame_result.num_matches,
         tracking=frame_result.tracking_state,
