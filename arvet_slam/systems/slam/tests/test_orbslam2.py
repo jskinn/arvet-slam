@@ -324,15 +324,15 @@ class TestOrbSlam2ResultDatabase(unittest.TestCase):
     def test_result_saves_mono(self, mock_multiprocessing):
         # Make an image collection with some number of images
         images = []
-        num_images = 10
-        for time in range(num_images):
+        times = [0.122 * idx + 0.09 * idx * idx for idx in range(10)]
+        for time in times:
             image = make_image(SensorMode.MONOCULAR)
             image.metadata.camera_pose = Transform((0.25 * (14 - time), -1.1 * time, 0.11 * time))
             image.save()
             images.append(image)
         image_collection = ImageCollection(
             images=images,
-            timestamps=list(range(len(images))),
+            timestamps=times,
             sequence_type=ImageSequenceType.SEQUENTIAL
         )
         image_collection.save()
@@ -343,7 +343,7 @@ class TestOrbSlam2ResultDatabase(unittest.TestCase):
         mock_queue.get.side_effect = [
             'ORBSLAM Ready!',
             {
-                idx: [
+                time: [
                     0.122 + 0.09 * idx,  # Processing Time
                     15 + idx,  # Number of features
                     6 + idx,  # Number of matches
@@ -352,9 +352,10 @@ class TestOrbSlam2ResultDatabase(unittest.TestCase):
                         [1, 0, 0, idx],
                         [0, 1, 0, -0.1 * idx],
                         [0, 0, 1, 0.22 * (14 - idx)]
-                    ]
+                    ],
+                    [times[other_idx] for other_idx in (idx - 1, idx + 1) if 0 <= other_idx < len(times)]
                 ]
-                for idx in range(10)
+                for idx, time in enumerate(times)
             }
         ]
         mock_multiprocessing.Queue.return_value = mock_queue
@@ -395,9 +396,9 @@ class TestOrbSlam2ResultDatabase(unittest.TestCase):
     def test_result_saves_stereo(self, mock_multiprocessing):
         # Make an image collection with some number of images
         images = []
-        num_images = 10
+        times = [0.122 * idx + 0.09 * idx * idx for idx in range(10)]
         stereo_offset = Transform([0, 0.12, 0])
-        for time in range(num_images):
+        for time in times:
             image = make_image(SensorMode.STEREO)
             img_pose = Transform((0.25 * (14 - time), -1.1 * time, 0.11 * time))
             image.metadata.camera_pose = img_pose
@@ -406,7 +407,7 @@ class TestOrbSlam2ResultDatabase(unittest.TestCase):
             images.append(image)
         image_collection = ImageCollection(
             images=images,
-            timestamps=list(range(len(images))),
+            timestamps=times,
             sequence_type=ImageSequenceType.SEQUENTIAL
         )
         image_collection.save()
@@ -417,7 +418,7 @@ class TestOrbSlam2ResultDatabase(unittest.TestCase):
         mock_queue.get.side_effect = [
             'ORBSLAM Ready!',
             {
-                idx: [
+                time: [
                     0.122 + 0.09 * idx,  # Processing Time
                     15 + idx,  # Number of features
                     6 + idx,  # Number of matches
@@ -426,9 +427,10 @@ class TestOrbSlam2ResultDatabase(unittest.TestCase):
                         [1, 0, 0, idx],
                         [0, 1, 0, -0.1 * idx],
                         [0, 0, 1, 0.22 * (14 - idx)]
-                    ]
+                    ],
+                    [times[other_idx] for other_idx in (idx - 1, idx + 1) if 0 <= other_idx < len(times)]
                 ]
-                for idx in range(10)
+                for idx, time in enumerate(times)
             }
         ]
         mock_multiprocessing.Queue.return_value = mock_queue
@@ -470,8 +472,8 @@ class TestOrbSlam2ResultDatabase(unittest.TestCase):
     def test_result_saves_rgbd(self, mock_multiprocessing):
         # Make an image collection with some number of images
         images = []
-        num_images = 10
-        for time in range(num_images):
+        times = [0.122 * idx + 0.09 * idx * idx for idx in range(10)]
+        for time in times:
             image = make_image(SensorMode.RGBD)
             img_pose = Transform((0.25 * (14 - time), -1.1 * time, 0.11 * time))
             image.metadata.camera_pose = img_pose
@@ -479,7 +481,7 @@ class TestOrbSlam2ResultDatabase(unittest.TestCase):
             images.append(image)
         image_collection = ImageCollection(
             images=images,
-            timestamps=list(range(len(images))),
+            timestamps=times,
             sequence_type=ImageSequenceType.SEQUENTIAL
         )
         image_collection.save()
@@ -490,7 +492,7 @@ class TestOrbSlam2ResultDatabase(unittest.TestCase):
         mock_queue.get.side_effect = [
             'ORBSLAM Ready!',
             {
-                idx: [
+                time: [
                     0.122 + 0.09 * idx,  # Processing Time
                     15 + idx,  # Number of features
                     6 + idx,  # Number of matches
@@ -499,9 +501,10 @@ class TestOrbSlam2ResultDatabase(unittest.TestCase):
                         [1, 0, 0, idx],
                         [0, 1, 0, -0.1 * idx],
                         [0, 0, 1, 0.22 * (14 - idx)]
-                    ]
+                    ],
+                    [times[other_idx] for other_idx in (idx - 1, idx + 1) if 0 <= other_idx < len(times)]
                 ]
-                for idx in range(10)
+                for idx, time in enumerate(times)
             }
         ]
         mock_multiprocessing.Queue.return_value = mock_queue
@@ -1184,6 +1187,7 @@ class TestOrbSlam2(unittest.TestCase):
 
     @mock.patch('arvet_slam.systems.slam.orbslam2.multiprocessing', autospec=multiprocessing)
     def test_finish_trial_joins_subprocess(self, mock_multiprocessing):
+        mock_image = make_image(SensorMode.MONOCULAR)
         mock_process = mock.create_autospec(multiprocessing.Process)
         mock_multiprocessing.Process.return_value = mock_process
         mock_queue = mock.create_autospec(multiprocessing.queues.Queue)
@@ -1194,10 +1198,11 @@ class TestOrbSlam2(unittest.TestCase):
                 1.3 * idx: [
                     0.122, 15, 6, TrackingState.OK,
                     [
-                        1, 0, 0, idx,
-                        0, 1, 0, -0.1 * idx,
-                        0, 0, 1, 0.22 * (14 - idx)
-                    ]
+                        [1, 0, 0, idx],
+                        [0, 1, 0, -0.1 * idx],
+                        [0, 0, 1, 0.22 * (14 - idx)]
+                    ],
+                    [1.3 * other_idx for other_idx in (idx - 1, idx + 1) if 0 <= other_idx < 10]
                 ]
                 for idx in range(10)
             }
@@ -1210,7 +1215,9 @@ class TestOrbSlam2(unittest.TestCase):
 
         with mock.patch('arvet_slam.systems.slam.orbslam2.open', mock.mock_open(), create=True):
             subject.start_trial(ImageSequenceType.SEQUENTIAL)
-
+        # Send images for procesing. This prepares the set of expected timestamps.
+        for idx in range(10):
+            subject.process_image(mock_image, 1.3 * idx)
         subject.finish_trial()
         self.assertTrue(mock_queue.put.called)
         self.assertIsNone(mock_queue.put.call_args[0][0])
@@ -1232,7 +1239,8 @@ class TestOrbSlam2(unittest.TestCase):
                         [1, 0, 0, idx],
                         [0, 1, 0, -0.1 * idx],
                         [0, 0, 1, 0.22 * (14 - idx)]
-                    ]
+                    ],
+                    [1.3 * other_idx for other_idx in (idx - 1, idx + 1) if 0 <= other_idx < 10]
                 ]
                 for idx in range(10)
             }
@@ -1322,7 +1330,8 @@ class TestOrbSlam2(unittest.TestCase):
                         1, 0, 0, idx,
                         0, 1, 0, -0.1 * idx,
                         0, 0, 1, 0.22 * (14 - idx)
-                    ]
+                    ],
+                    [1.3 * other_idx for other_idx in (idx - 1, idx + 1) if 0 <= other_idx < 10]
                 ]
                 for idx in range(10)
             }

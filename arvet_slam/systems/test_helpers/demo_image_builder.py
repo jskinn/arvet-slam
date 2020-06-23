@@ -27,44 +27,39 @@ class DemoImageBuilder:
         self.focal_length = max(focal_length, 1.0) if focal_length is not None else width / 2
         self.stereo_offset = stereo_offset
         self.colour = bool(colour)
-        random = np.random.RandomState(seed=seed)
+        random = np.random.default_rng(seed=seed)
 
-        # z values for stars beyond the end of the motion
+        # Z values for stars in two groups
+        # The first are those that can only be seen during part of the sequence, and the other can be seen for all of it
+        # By similar triangles, the depth at which a point is visible for the entire sequence is
+        # (0.5 * width) / focal_length = (0.5 * length) / z
+        # z = (length / width) * focal_length
+        close_z = self.focal_length * length / self.width
         z_values = sorted((
-            random.uniform(length + corridor_width, 10 * (length + corridor_width))
-            for _ in range(int((1 - close_ratio) * num_stars))
+            close_z + random.exponential(2 * close_z, size=int((1 - close_ratio) * num_stars))
         ), reverse=True)
         # z values for stars within the range of the motion, evenly distributed
-        z_values = z_values + list(np.arange(length, 0, -1 * length / (num_stars - len(z_values))))
+        z_values = z_values + list(np.arange(close_z, corridor_width, -1 * close_z / (num_stars - len(z_values))))
 
         # Create some random rectangular sprites whose midpoints are in frame from the first frame
         lim_x = width / (2 * self.focal_length)
         lim_y = height / (2 * self.focal_length)
         self.stars = [{
             'pos': (
-                random.uniform(-lim_x * z_value, lim_x * z_value),
+                random.uniform(-lim_x * z_value, lim_x * z_value + length),
                 random.uniform(-lim_y * z_value, lim_y * z_value),
                 z_value
             ),
-            'colour': random.randint(20, 256, size=3 if colour else 1)
+            'colour': random.integers(20, 256, size=3 if colour else 1)
         } for idx, z_value in enumerate(z_values) if z_value > 0]
 
         # Having placed the stars, choose a size such that they are visible but not too close to the camera
         for star in self.stars:
             x, y, z = star['pos']
-            if z > length:
-                # Distant, don't need to worry about corridor
-                width_at_nearest = (z - length) / self.focal_length
-                star['width'] = random.uniform(min_size * width_at_nearest, max_size * width_at_nearest)
-                star['height'] = random.uniform(min_size * width_at_nearest, max_size * width_at_nearest)
-            else:
-                # closest z is when z = 2 * x * f / W or z = 2 * y * f / H
-                # min_dim = min_size * z / f
-                # cancel f from both equations
-                closest_z = 2 * abs(x) / width
-                star['width'] = random.uniform(min_size * closest_z, max_size * closest_z)
-                closest_z = 2 * abs(y) / height
-                star['height'] = random.uniform(min_size * closest_z, max_size * closest_z)
+            # Since we're not moving forward, we need only ensure the star is visible based on its depth
+            ratio = z / self.focal_length
+            star['width'] = random.uniform(min_size * ratio, max_size * ratio)
+            star['height'] = random.uniform(min_size * ratio, max_size * ratio)
 
     def get_camera_intrinsics(self) -> CameraIntrinsics:
         return CameraIntrinsics(
@@ -91,7 +86,7 @@ class DemoImageBuilder:
 
         for star in self.stars:
             x, y, z = star['pos']
-            z -= self.speed * time
+            x -= self.speed * time
             if z <= 0:
                 break   # Stars are sorted by z value, so once they're past the camera, stop.
 
@@ -133,8 +128,7 @@ class DemoImageBuilder:
             right_frame = np.zeros(img_shape, dtype=np.uint8)
             for star in self.stars:
                 x, y, z = star['pos']
-                x -= self.stereo_offset
-                z -= self.speed * time
+                x -= self.stereo_offset + self.speed * time
                 if z <= 0:
                     break
 

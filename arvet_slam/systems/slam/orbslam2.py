@@ -9,6 +9,7 @@ import re
 import queue
 import multiprocessing
 import enum
+import itertools
 from operator import attrgetter
 import tempfile
 from pathlib import Path
@@ -17,7 +18,6 @@ from orbslam2 import VocabularyBuilder
 
 import arvet.util.transform as tf
 import arvet.util.image_utils as image_utils
-from arvet.util.associate import associate
 from arvet.util.column_list import ColumnList
 from arvet.config.path_manager import PathManager
 from arvet.database.enum_field import EnumField
@@ -283,7 +283,8 @@ class OrbSlam2(VisionSystem):
                 self._input_queue.put((image_utils.convert_to_grey(image.left_pixels),
                                        image_utils.convert_to_grey(image.right_pixels), timestamp))
             elif self.mode == SensorMode.RGBD:
-                self._input_queue.put((image_utils.convert_to_grey(image.pixels), image.depth.astype(np.float32), timestamp))
+                self._input_queue.put((image_utils.convert_to_grey(image.pixels),
+                                       image.depth.astype(np.float32), timestamp))
 
     def finish_trial(self) -> SLAMTrialResult:
         """
@@ -318,36 +319,56 @@ class OrbSlam2(VisionSystem):
             raise RuntimeError("Failed to stop ORBSLAM2, timed out after {0} seconds".format(timeout))
 
         # Merge the frame statistics with the partial frame results
-        matches = associate(self._partial_frame_results, frame_statistics, offset=0, max_difference=0.1)
-        unrecognised_timestamps = set(frame_statistics.keys())
-        for local_stamp, subprocess_stamp in matches:
-            frame_result = self._partial_frame_results[local_stamp]
-            frame_stats = frame_statistics[subprocess_stamp]
+        timestamps = set(self._partial_frame_results.keys())
+        if not all(timestamp in timestamps for timestamp in frame_statistics.keys()):
+            if len(timestamps) <= 0:
+                # No known timestamps, log them all
+                logging.getLogger(__name__).warning(
+                    "Subprocess returned estimates for times, but the parent process has recieved no images. "
+                    f"(times were {sorted(frame_statistics.keys())})")
+                frame_statistics = {}
+            else:
+                timestamps_arr = np.array(list(timestamps))
+                rekey_map = {
+                    subprocess_stamp: find_closest(subprocess_stamp, timestamps_arr)
+                    for subprocess_stamp in frame_statistics.keys()
+                }
+                frame_statistics = {
+                    rekey_map[subprocess_stamp]: frame_statistics[subprocess_stamp]
+                    for subprocess_stamp in frame_statistics.keys()
+                    if rekey_map[subprocess_stamp] is not None
+                }
+                # Log the subprocess timestamps that do not appear in our known list
+                unknown_keys = [
+                    subprocess_stamp for subprocess_stamp in rekey_map.keys()
+                    if rekey_map[subprocess_stamp] is None
+                ]
+                if len(unknown_keys) > 0:
+                    logging.getLogger(__name__).warning(
+                        "The following timestamps were returned by the subprocess, "
+                        "but do not match any image timstamp known by the parent process: " + str(unknown_keys))
+
+        # Merge the data from the subprocess with the partial frame results
+        for timestamp, frame_stats in frame_statistics.items():
+            frame_result = self._partial_frame_results[timestamp]
             if frame_stats[0] is not None:
                 frame_result.processing_time = frame_stats[0]
                 frame_result.num_features = frame_stats[1]
                 frame_result.num_matches = frame_stats[2]
                 frame_result.tracking_state = frame_stats[3]
+                frame_result.loop_edges = list(frame_stats[5])
                 if frame_stats[4] is not None:
                     estimated_pose = np.identity(4)
                     estimated_pose[0:3, :] = frame_stats[4]
                     frame_result.estimated_pose = make_relative_pose(estimated_pose)
-                unrecognised_timestamps.remove(subprocess_stamp)
-        if len(unrecognised_timestamps) > 0:
-            valid_timestamps = np.array(list(self._partial_frame_results.keys()))
-            logging.getLogger(__name__).warning("Got inconsistent timestamps:\n" + '\n'.join(
-                '{0} (closest was {1})'.format(
-                    unrecognised_timestamp,
-                    _find_closest(unrecognised_timestamp, valid_timestamps)
-                )
-                for unrecognised_timestamp in unrecognised_timestamps
-            ))
+                if not all(loop_timestamp in timestamps for loop_timestamp in frame_result.loop_edges):
+                    logging.getLogger(__name__).warning(f"Loop closures for {timestamp} didn't match a known timestamp")
 
         result = SLAMTrialResult(
             system=self.pk,
             success=len(self._partial_frame_results) > 0,
             results=[self._partial_frame_results[timestamp]
-                     for timestamp in sorted(self._partial_frame_results.keys())],
+                     for timestamp in sorted(timestamps)],
             has_scale=(self.mode != SensorMode.MONOCULAR),
             settings={
                 'in_fx': self._intrinsics.fx,
@@ -707,19 +728,6 @@ def make_relative_pose(pose_matrix: np.ndarray) -> tf.Transform:
     return tf.Transform(pose)
 
 
-def _find_closest(value, options):
-    """
-    A quick helper for finding the closest timestamp to the
-    :param value:
-    :param options:
-    :return:
-    """
-    if options.size <= 0:
-        return None
-    idx = (np.abs(options - value)).argmin()
-    return options[idx]
-
-
 def check_feature_pyramid_settings(img_width: int, img_height: int, orb_scale_factor: float, orb_num_levels: int) \
         -> bool:
     """
@@ -906,8 +914,8 @@ def run_orbslam(output_queue, input_queue, vocab_file, settings_file, mode):
 
     frame_statistics = {}
     running = True
-    # prev_timestamp = None
-    # prev_actual_time = 0
+    prev_timestamp = None
+    prev_actual_time = 0
     while running:
         in_data = input_queue.get(block=True)
         if isinstance(in_data, tuple) and len(in_data) == 3:
@@ -915,12 +923,12 @@ def run_orbslam(output_queue, input_queue, vocab_file, settings_file, mode):
             img1, img2, timestamp = in_data
 
             # Wait for the timestamp after the first frame
-            # if prev_timestamp is not None:
-            #     delay = max(0, timestamp - prev_timestamp - time.time() + prev_actual_time)
-            #     if delay > 0:
-            #         time.sleep(delay)
-            # prev_timestamp = timestamp
-            # prev_actual_time = time.time()
+            if prev_timestamp is not None:
+                delay = timestamp - prev_timestamp - time.time() + prev_actual_time
+                if delay > 0:
+                    time.sleep(delay)
+            prev_timestamp = timestamp
+            prev_actual_time = time.time()
 
             processing_start = time.time()
             if mode == SensorMode.MONOCULAR:
@@ -940,21 +948,38 @@ def run_orbslam(output_queue, input_queue, vocab_file, settings_file, mode):
                 num_features,
                 num_matches,
                 tracking_mapping[current_state],
-                None
+                None,
+                []
             ]
         else:
             # Non-matching input indicates the end of processing, stop the main loop
             logging.getLogger(__name__).info("Got terminate input, finishing up and sending results.")
             running = False
 
+    known_timestamps = np.array(list(frame_statistics.keys()))
+
     # Get the trajectory from orbslam
     trajectory = orbslam_system.get_trajectory_points()
 
     # Associate the trajectory with the collected frame statistics
-    trajectory = {est.timestamp: make_pose_mat(est) for est in trajectory}
-    matches = associate(frame_statistics, trajectory, 0, max_difference=0.1)
-    for frame_stamp, traj_stamp in matches:
-        frame_statistics[frame_stamp][4] = trajectory[traj_stamp]
+    for estimate in trajectory:
+        frame_stamp = find_closest(estimate.timestamp, known_timestamps, max_difference=0.1)
+        if frame_stamp in frame_statistics:
+            frame_statistics[frame_stamp][4] = make_pose_mat(estimate)
+        else:
+            logging.getLogger(__name__).warning("No timestamp close enough (within 0.1) of "
+                                                f"trajectory timestamp {estimate.timestamp}")
+
+    # Get the list of loop closures from orbslam
+    loop_closures = orbslam_system.get_loop_closures()
+
+    # Associate the trajectory with the collected frame statistics
+    for timestamp, links in itertools.groupby(loop_closures, attrgetter('origin_kf')):
+        frame_stamp = find_closest(timestamp, known_timestamps, max_difference=0.1)
+        if frame_stamp in frame_statistics:
+            frame_statistics[frame_stamp][5] = [find_closest(link.linked_kf, known_timestamps) for link in links]
+        else:
+            logging.getLogger(__name__).warning(f"Loop closure timestamp {timestamp} does not match a frame")
 
     # send the final trajectory to the parent
     output_queue.put(frame_statistics)
@@ -975,3 +1000,11 @@ def make_pose_mat(est):
         [est.r10, est.r11, est.r12, est.t1],
         [est.r20, est.r21, est.r22, est.t2]
     ]
+
+
+def find_closest(value: float, candidates: np.ndarray, max_difference: float = 0.1) -> typing.Union[None, float]:
+    diffs = np.abs(candidates - value)
+    best_idx = np.argmin(diffs)
+    if diffs[best_idx] < max_difference:
+        return candidates[best_idx]
+    return None

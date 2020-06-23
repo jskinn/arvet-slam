@@ -59,6 +59,7 @@ class TestPoseErrorDatabase(unittest.TestCase):
             estimated_pose=Transform((-1, -2, -3), (-4, -5, -6, 7)),
             estimated_motion=Transform((2, -1, 3), (8, -5, -6, -6)),
             tracking_state=TrackingState.NOT_INITIALIZED,
+            loop_edges=[6.223],
             num_features=53,
             num_matches=6
         )
@@ -202,9 +203,10 @@ class TestSLAMTrialResult(ExtendedTestCase):
         image_source = mock_types.MockImageSource()
         mock_image = mock.create_autospec(Image)
 
+        timestamps = [(-1 ** idx) * idx + np.random.normal(0, 0.01) for idx in range(10)]
         results = [
             FrameResult(
-                timestamp=(-1 ** idx) * idx + np.random.normal(0, 0.01),
+                timestamp=timestamp,
                 image=mock_image,
                 processing_time=np.random.uniform(0.01, 1),
                 pose=Transform(
@@ -224,10 +226,11 @@ class TestSLAMTrialResult(ExtendedTestCase):
                     tf3d.quaternions.axangle2quat((1, 2, 3), idx * np.pi / 36), w_first=True
                 ),
                 tracking_state=TrackingState.OK,
+                loop_edges=[np.random.choice(timestamps)],
                 num_features=np.random.randint(10, 1000),
                 num_matches=np.random.randint(10, 1000)
             )
-            for idx in range(10)
+            for idx, timestamp in enumerate(timestamps)
         ]
         obj = SLAMTrialResult(
             system=system,
@@ -240,14 +243,60 @@ class TestSLAMTrialResult(ExtendedTestCase):
         for idx in range(1, len(results)):
             self.assertGreater(obj.results[idx].timestamp, obj.results[idx - 1].timestamp)
 
+    def test_throws_exception_if_loop_edges_refer_to_missing_timestamp(self):
+        system = mock_types.MockSystem()
+        image_source = mock_types.MockImageSource()
+        mock_image = mock.create_autospec(Image)
+
+        timestamps = [(-1 ** idx) * idx + np.random.normal(0, 0.01) for idx in range(10)]
+        results = [
+            FrameResult(
+                timestamp=timestamp,
+                image=mock_image,
+                processing_time=np.random.uniform(0.01, 1),
+                pose=Transform(
+                    (idx * 15 + np.random.normal(0, 1), idx + np.random.normal(0, 0.1), np.random.normal(0, 1)),
+                    tf3d.quaternions.axangle2quat((1, 2, 3), idx * np.pi / 6), w_first=True
+                ),
+                motion=Transform(
+                    (np.random.normal(0, 1), np.random.normal(0, 0.1), np.random.normal(0, 1)),
+                    tf3d.quaternions.axangle2quat((1, 2, 3), np.pi / 6), w_first=True
+                ),
+                estimated_pose=Transform(
+                    (idx * 15 + np.random.normal(0, 1), idx + np.random.normal(0, 0.1), np.random.normal(0, 1)),
+                    tf3d.quaternions.axangle2quat((1, 2, 3), 9 * idx * np.pi / 36), w_first=True
+                ),
+                estimated_motion=Transform(
+                    (np.random.normal(0, 1), np.random.normal(0, 0.1), np.random.normal(0, 1)),
+                    tf3d.quaternions.axangle2quat((1, 2, 3), idx * np.pi / 36), w_first=True
+                ),
+                tracking_state=TrackingState.OK,
+                loop_edges=[np.random.choice(timestamps)],
+                num_features=np.random.randint(10, 1000),
+                num_matches=np.random.randint(10, 1000)
+            )
+            for idx, timestamp in enumerate(timestamps)
+        ]
+        results[3].loop_edges.append(max(timestamps) + 0.23)
+        with self.assertRaises(ValueError):
+            SLAMTrialResult(
+                system=system,
+                image_source=image_source,
+                success=True,
+                settings={'key': 'value'},
+                results=results,
+                has_scale=True
+            )
+
     def test_infers_motion_from_pose(self):
         system = mock_types.MockSystem()
         image_source = mock_types.MockImageSource()
         mock_image = mock.create_autospec(Image)
 
+        timestamps = [idx + np.random.normal(0, 0.01) for idx in range(10)]
         results = [
             FrameResult(
-                timestamp=idx + np.random.normal(0, 0.01),
+                timestamp=timestamp,
                 image=mock_image,
                 processing_time=np.random.uniform(0.01, 1),
                 pose=Transform(
@@ -255,10 +304,11 @@ class TestSLAMTrialResult(ExtendedTestCase):
                     tf3d.quaternions.axangle2quat((1, 2, 3), idx * np.pi / 36), w_first=True
                 ),
                 tracking_state=TrackingState.OK,
+                loop_edges=[np.random.choice(timestamps)],
                 num_features=np.random.randint(10, 1000),
                 num_matches=np.random.randint(10, 1000)
             )
-            for idx in range(10)
+            for idx, timestamp in enumerate(timestamps)
         ]
         obj = SLAMTrialResult(
             system=system,
@@ -280,9 +330,10 @@ class TestSLAMTrialResult(ExtendedTestCase):
         image_source = mock_types.MockImageSource()
         mock_image = mock.create_autospec(Image)
 
+        timestamps = [idx + np.random.normal(0, 0.01) for idx in range(10)]
         results = [
             FrameResult(
-                timestamp=idx + np.random.normal(0, 0.01),
+                timestamp=timestamp,
                 image=mock_image,
                 processing_time=np.random.uniform(0.01, 1),
                 motion=Transform(
@@ -290,10 +341,11 @@ class TestSLAMTrialResult(ExtendedTestCase):
                     tf3d.quaternions.axangle2quat((1, 2, 3), idx * np.pi / 36), w_first=True
                 ),
                 tracking_state=TrackingState.OK,
+                loop_edges=[np.random.choice(timestamps)],
                 num_features=np.random.randint(10, 1000),
                 num_matches=np.random.randint(10, 1000)
             )
-            for idx in range(10)
+            for idx, timestamp in enumerate(timestamps)
         ]
         obj = SLAMTrialResult(
             system=system,
@@ -315,9 +367,10 @@ class TestSLAMTrialResult(ExtendedTestCase):
         image_source = mock_types.MockImageSource()
         mock_image = mock.create_autospec(Image)
 
+        timestamps = [idx + np.random.normal(0, 0.01) for idx in range(10)]
         results = [
             FrameResult(
-                timestamp=idx + np.random.normal(0, 0.01),
+                timestamp=timestamp,
                 image=mock_image,
                 processing_time=np.random.uniform(0.01, 1),
                 pose=Transform(
@@ -329,10 +382,11 @@ class TestSLAMTrialResult(ExtendedTestCase):
                     tf3d.quaternions.axangle2quat((1, 2, 3), 9 * idx * np.pi / 288), w_first=True
                 ),
                 tracking_state=TrackingState.OK,
+                loop_edges=[np.random.choice(timestamps)],
                 num_features=np.random.randint(10, 1000),
                 num_matches=np.random.randint(10, 1000)
             )
-            for idx in range(10)
+            for idx, timestamp in enumerate(timestamps)
         ]
         obj = SLAMTrialResult(
             system=system,
@@ -355,9 +409,10 @@ class TestSLAMTrialResult(ExtendedTestCase):
         image_source = mock_types.MockImageSource()
         mock_image = mock.create_autospec(Image)
 
+        timestamps = [(-1 ** idx) * idx + np.random.normal(0, 0.01) for idx in range(10)]
         results = [
             FrameResult(
-                timestamp=idx + np.random.normal(0, 0.01),
+                timestamp=timestamp,
                 image=mock_image,
                 processing_time=np.random.uniform(0.01, 1),
                 pose=Transform(
@@ -369,10 +424,11 @@ class TestSLAMTrialResult(ExtendedTestCase):
                     tf3d.quaternions.axangle2quat((1, 2, 3), idx * np.pi / 36), w_first=True
                 ),
                 tracking_state=TrackingState.OK,
+                loop_edges=[np.random.choice(timestamps)],
                 num_features=np.random.randint(10, 1000),
                 num_matches=np.random.randint(10, 1000)
             )
-            for idx in range(10)
+            for idx, timestamp in enumerate(timestamps)
         ]
         obj = SLAMTrialResult(
             system=system,
@@ -407,9 +463,10 @@ class TestSLAMTrialResult(ExtendedTestCase):
         mock_image = mock.create_autospec(Image)
         estimate_start = 5
 
+        timestamps = [idx + np.random.normal(0, 0.01) for idx in range(10)]
         results = [
             FrameResult(
-                timestamp=idx + np.random.normal(0, 0.01),
+                timestamp=timestamp,
                 image=mock_image,
                 processing_time=np.random.uniform(0.01, 1),
                 pose=Transform(
@@ -421,10 +478,11 @@ class TestSLAMTrialResult(ExtendedTestCase):
                     (1, 0, 0, 0), w_first=True
                 ) if idx > estimate_start else None,    # Motions start the frame after 'estimate_start'
                 tracking_state=TrackingState.OK,
+                loop_edges=[np.random.choice(timestamps)],
                 num_features=np.random.randint(10, 1000),
                 num_matches=np.random.randint(10, 1000)
             )
-            for idx in range(10)
+            for idx, timestamp in enumerate(timestamps)
         ]
         # Provide at least one absolute pose to use as a reference
         results[7].estimated_pose = Transform(
@@ -945,9 +1003,10 @@ class TestSLAMTrialResultDatabase(unittest.TestCase):
             os.remove(dbconn.image_file)
 
     def test_stores_and_loads_motion_only(self):
+        timestamps = [idx + np.random.normal(0, 0.01) for idx in range(10)]
         results = [
             FrameResult(
-                timestamp=idx + np.random.normal(0, 0.01),
+                timestamp=timestamp,
                 image=self.image,
                 processing_time=np.random.uniform(0.01, 1),
                 motion=Transform(
@@ -959,10 +1018,11 @@ class TestSLAMTrialResultDatabase(unittest.TestCase):
                     (1, 0, 0, 0), w_first=True
                 ) if idx > 0 else None,
                 tracking_state=TrackingState.OK,
+                loop_edges=[np.random.choice(timestamps)],
                 num_features=np.random.randint(10, 1000),
                 num_matches=np.random.randint(10, 1000)
             )
-            for idx in range(10)
+            for idx, timestamp in enumerate(timestamps)
         ]
         results[0].estimated_pose = Transform()
         obj = SLAMTrialResult(
@@ -983,9 +1043,10 @@ class TestSLAMTrialResultDatabase(unittest.TestCase):
         all_entities[0].delete()
 
     def test_stores_and_loads_motion_only_minimal(self):
+        timestamps = [idx + np.random.normal(0, 0.01) for idx in range(10)]
         results = [
             FrameResult(
-                timestamp=idx + np.random.normal(0, 0.01),
+                timestamp=timestamp,
                 image=self.image,
                 processing_time=np.random.uniform(0.01, 1),
                 motion=Transform(
@@ -997,10 +1058,11 @@ class TestSLAMTrialResultDatabase(unittest.TestCase):
                     (1, 0, 0, 0), w_first=True
                 ) if idx > 0 else None,
                 tracking_state=TrackingState.OK,
+                loop_edges=[np.random.choice(timestamps)],
                 num_features=np.random.randint(10, 1000),
                 num_matches=np.random.randint(10, 1000)
             )
-            for idx in range(10)
+            for idx, timestamp in enumerate(timestamps)
         ]
         obj = SLAMTrialResult(
             system=self.system,
@@ -1017,9 +1079,10 @@ class TestSLAMTrialResultDatabase(unittest.TestCase):
         all_entities[0].delete()
 
     def test_stores_and_loads_motion_only_partial(self):
+        timestamps = [idx + np.random.normal(0, 0.01) for idx in range(10)]
         results = [
             FrameResult(
-                timestamp=idx + np.random.normal(0, 0.01),
+                timestamp=timestamp,
                 image=self.image,
                 processing_time=np.random.uniform(0.01, 1),
                 motion=Transform(
@@ -1031,10 +1094,11 @@ class TestSLAMTrialResultDatabase(unittest.TestCase):
                     (1, 0, 0, 0), w_first=True
                 ) if idx >= 5 else None,
                 tracking_state=TrackingState.OK,
+                loop_edges=[np.random.choice(timestamps)],
                 num_features=np.random.randint(10, 1000),
                 num_matches=np.random.randint(10, 1000)
             )
-            for idx in range(10)
+            for idx, timestamp in enumerate(timestamps)
         ]
         obj = SLAMTrialResult(
             system=self.system,
@@ -1051,9 +1115,10 @@ class TestSLAMTrialResultDatabase(unittest.TestCase):
         all_entities[0].delete()
 
     def test_stores_and_loads_pose_only(self):
+        timestamps = [idx + np.random.normal(0, 0.01) for idx in range(10)]
         results = [
             FrameResult(
-                timestamp=idx + np.random.normal(0, 0.01),
+                timestamp=timestamp,
                 image=self.image,
                 processing_time=np.random.uniform(0.01, 1),
                 pose=Transform(
@@ -1065,10 +1130,11 @@ class TestSLAMTrialResultDatabase(unittest.TestCase):
                     (1, 0, 0, 0), w_first=True
                 ),
                 tracking_state=TrackingState.OK,
+                loop_edges=[np.random.choice(timestamps)],
                 num_features=np.random.randint(10, 1000),
                 num_matches=np.random.randint(10, 1000)
             )
-            for idx in range(10)
+            for idx, timestamp in enumerate(timestamps)
         ]
         obj = SLAMTrialResult(
             system=self.system,
@@ -1088,9 +1154,10 @@ class TestSLAMTrialResultDatabase(unittest.TestCase):
         all_entities[0].delete()
 
     def test_stores_and_loads_pose_only_partial(self):
+        timestamps = [idx + np.random.normal(0, 0.01) for idx in range(10)]
         results = [
             FrameResult(
-                timestamp=idx + np.random.normal(0, 0.01),
+                timestamp=timestamp,
                 image=self.image,
                 processing_time=np.random.uniform(0.01, 1),
                 pose=Transform(
@@ -1102,10 +1169,11 @@ class TestSLAMTrialResultDatabase(unittest.TestCase):
                     (1, 0, 0, 0), w_first=True
                 ) if idx >= 5 else None,
                 tracking_state=TrackingState.OK,
+                loop_edges=[np.random.choice(timestamps)],
                 num_features=np.random.randint(10, 1000),
                 num_matches=np.random.randint(10, 1000)
             )
-            for idx in range(10)
+            for idx, timestamp in enumerate(timestamps)
         ]
         obj = SLAMTrialResult(
             system=self.system,
@@ -1122,9 +1190,10 @@ class TestSLAMTrialResultDatabase(unittest.TestCase):
         all_entities[0].delete()
 
     def test_stores_and_loads_pose_only_minimal(self):
+        timestamps = [idx + np.random.normal(0, 0.01) for idx in range(10)]
         results = [
             FrameResult(
-                timestamp=idx + np.random.normal(0, 0.01),
+                timestamp=timestamp,
                 image=self.image,
                 processing_time=np.random.uniform(0.01, 1),
                 pose=Transform(
@@ -1136,10 +1205,11 @@ class TestSLAMTrialResultDatabase(unittest.TestCase):
                     (1, 0, 0, 0), w_first=True
                 ),
                 tracking_state=TrackingState.OK,
+                loop_edges=[np.random.choice(timestamps)],
                 num_features=np.random.randint(10, 1000),
                 num_matches=np.random.randint(10, 1000)
             )
-            for idx in range(10)
+            for idx, timestamp in enumerate(timestamps)
         ]
         obj = SLAMTrialResult(
             system=self.system,
@@ -1156,9 +1226,10 @@ class TestSLAMTrialResultDatabase(unittest.TestCase):
         all_entities[0].delete()
 
     def test_stores_and_loads_no_estimate(self):
+        timestamps = [idx + np.random.normal(0, 0.01) for idx in range(10)]
         results = [
             FrameResult(
-                timestamp=idx + np.random.normal(0, 0.01),
+                timestamp=timestamp,
                 image=self.image,
                 processing_time=np.random.uniform(0.01, 1),
                 pose=Transform(
@@ -1166,10 +1237,11 @@ class TestSLAMTrialResultDatabase(unittest.TestCase):
                     (1, 0, 0, 0), w_first=True
                 ),
                 tracking_state=TrackingState.OK,
+                loop_edges=[np.random.choice(timestamps)],
                 num_features=np.random.randint(10, 1000),
                 num_matches=np.random.randint(10, 1000)
             )
-            for idx in range(10)
+            for idx, timestamp in enumerate(timestamps)
         ]
         obj = SLAMTrialResult(
             system=self.system,
@@ -1190,9 +1262,10 @@ class TestSLAMTrialResultDatabase(unittest.TestCase):
         image_manager = im_manager.DefaultImageManager(dbconn.image_file, allow_write=False)
         im_manager.set_image_manager(image_manager)
 
+        timestamps = [idx + np.random.normal(0, 0.01) for idx in range(10)]
         results = [
             FrameResult(
-                timestamp=idx + np.random.normal(0, 0.01),
+                timestamp=timestamp,
                 image=self.image,
                 processing_time=np.random.uniform(0.01, 1),
                 motion=Transform(
@@ -1204,10 +1277,11 @@ class TestSLAMTrialResultDatabase(unittest.TestCase):
                     (1, 0, 0, 0), w_first=True
                 ) if idx > 0 else None,
                 tracking_state=TrackingState.OK,
+                loop_edges=[np.random.choice(timestamps)],
                 num_features=np.random.randint(10, 1000),
                 num_matches=np.random.randint(10, 1000)
             )
-            for idx in range(10)
+            for idx, timestamp in enumerate(timestamps)
         ]
         results[0].estimated_pose = Transform()
         obj = SLAMTrialResult(
@@ -1231,9 +1305,10 @@ class TestSLAMTrialResultDatabase(unittest.TestCase):
         im_manager.set_image_manager(prev_image_manager)
 
     def test_required_fields_are_required(self):
+        timestamps = [idx + np.random.normal(0, 0.01) for idx in range(10)]
         results = [
             FrameResult(
-                timestamp=idx + np.random.normal(0, 0.01),
+                timestamp=timestamp,
                 image=self.image,
                 processing_time=np.random.uniform(0.01, 1),
                 pose=Transform(
@@ -1245,10 +1320,11 @@ class TestSLAMTrialResultDatabase(unittest.TestCase):
                     (1, 0, 0, 0), w_first=True
                 ),
                 tracking_state=TrackingState.OK,
+                loop_edges=[np.random.choice(timestamps)],
                 num_features=np.random.randint(10, 1000),
                 num_matches=np.random.randint(10, 1000)
             )
-            for idx in range(10)
+            for idx, timestamp in enumerate(timestamps)
         ]
 
         # No system
@@ -1332,9 +1408,10 @@ class TestSLAMTrialResultDatabase(unittest.TestCase):
             obj.save()
 
     def test_is_invalid_when_initial_motion_is_not_zero(self):
+        timestamps = [idx + np.random.normal(0, 0.01) for idx in range(10)]
         results = [
             FrameResult(
-                timestamp=idx + np.random.normal(0, 0.01),
+                timestamp=timestamp,
                 image=self.image,
                 processing_time=np.random.uniform(0.01, 1),
                 motion=Transform(
@@ -1346,10 +1423,11 @@ class TestSLAMTrialResultDatabase(unittest.TestCase):
                     (1, 0, 0, 0), w_first=True
                 ),
                 tracking_state=TrackingState.OK,
+                loop_edges=[np.random.choice(timestamps)],
                 num_features=np.random.randint(10, 1000),
                 num_matches=np.random.randint(10, 1000)
             )
-            for idx in range(10)
+            for idx, timestamp in enumerate(timestamps)
         ]
         obj = SLAMTrialResult(
             system=self.system,
@@ -1364,9 +1442,10 @@ class TestSLAMTrialResultDatabase(unittest.TestCase):
         self.assertIn('motion', err_context.exception.message)
 
     def test_is_invalid_when_pose_and_motion_dont_match(self):
+        timestamps = [idx + np.random.normal(0, 0.01) for idx in range(10)]
         results = [
             FrameResult(
-                timestamp=idx + np.random.normal(0, 0.01),
+                timestamp=timestamp,
                 image=self.image,
                 processing_time=np.random.uniform(0.01, 1),
                 pose=Transform(
@@ -1382,10 +1461,11 @@ class TestSLAMTrialResultDatabase(unittest.TestCase):
                     (1, 0, 0, 0), w_first=True
                 ),
                 tracking_state=TrackingState.OK,
+                loop_edges=[np.random.choice(timestamps)],
                 num_features=np.random.randint(10, 1000),
                 num_matches=np.random.randint(10, 1000)
             )
-            for idx in range(10)
+            for idx, timestamp in enumerate(timestamps)
         ]
         obj = SLAMTrialResult(
             system=self.system,
@@ -1397,9 +1477,10 @@ class TestSLAMTrialResultDatabase(unittest.TestCase):
             obj.save()
 
     def test_is_invalid_when_estimated_pose_and_estimated_motion_dont_match(self):
+        timestamps = [idx + np.random.normal(0, 0.01) for idx in range(10)]
         results = [
             FrameResult(
-                timestamp=idx + np.random.normal(0, 0.01),
+                timestamp=timestamp,
                 image=self.image,
                 processing_time=np.random.uniform(0.01, 1),
                 pose=Transform(
@@ -1415,10 +1496,11 @@ class TestSLAMTrialResultDatabase(unittest.TestCase):
                     (1, 0, 0, 0), w_first=True
                 ),
                 tracking_state=TrackingState.OK,
+                loop_edges=[np.random.choice(timestamps)],
                 num_features=np.random.randint(10, 1000),
                 num_matches=np.random.randint(10, 1000)
             )
-            for idx in range(10)
+            for idx, timestamp in enumerate(timestamps)
         ]
         obj = SLAMTrialResult(
             system=self.system,
@@ -1430,9 +1512,10 @@ class TestSLAMTrialResultDatabase(unittest.TestCase):
             obj.save()
 
     def test_is_invalid_when_motion_is_none_and_pose_is_not(self):
+        timestamps = [idx + np.random.normal(0, 0.01) for idx in range(10)]
         results = [
             FrameResult(
-                timestamp=idx + np.random.normal(0, 0.01),
+                timestamp=timestamp,
                 image=self.image,
                 processing_time=np.random.uniform(0.01, 1),
                 pose=Transform(
@@ -1444,10 +1527,11 @@ class TestSLAMTrialResultDatabase(unittest.TestCase):
                     (1, 0, 0, 0), w_first=True
                 ),
                 tracking_state=TrackingState.OK,
+                loop_edges=[np.random.choice(timestamps)],
                 num_features=np.random.randint(10, 1000),
                 num_matches=np.random.randint(10, 1000)
             )
-            for idx in range(10)
+            for idx, timestamp in enumerate(timestamps)
         ]
         obj = SLAMTrialResult(
             system=self.system,
@@ -1463,9 +1547,10 @@ class TestSLAMTrialResultDatabase(unittest.TestCase):
             obj.save()
 
     def test_is_invalid_when_pose_can_be_inferred(self):
+        timestamps = [idx + np.random.normal(0, 0.01) for idx in range(10)]
         results = [
             FrameResult(
-                timestamp=idx + np.random.normal(0, 0.01),
+                timestamp=timestamp,
                 image=self.image,
                 processing_time=np.random.uniform(0.01, 1),
                 pose=Transform(
@@ -1477,10 +1562,11 @@ class TestSLAMTrialResultDatabase(unittest.TestCase):
                     (1, 0, 0, 0), w_first=True
                 ),
                 tracking_state=TrackingState.OK,
+                loop_edges=[np.random.choice(timestamps)],
                 num_features=np.random.randint(10, 1000),
                 num_matches=np.random.randint(10, 1000)
             )
-            for idx in range(10)
+            for idx, timestamp in enumerate(timestamps)
         ]
         obj = SLAMTrialResult(
             system=self.system,
@@ -1496,9 +1582,10 @@ class TestSLAMTrialResultDatabase(unittest.TestCase):
             obj.save()
 
     def test_is_invalid_when_first_motion_is_not_none(self):
+        timestamps = [idx + np.random.normal(0, 0.01) for idx in range(10)]
         results = [
             FrameResult(
-                timestamp=idx + np.random.normal(0, 0.01),
+                timestamp=timestamp,
                 image=self.image,
                 processing_time=np.random.uniform(0.01, 1),
                 pose=Transform(
@@ -1510,10 +1597,11 @@ class TestSLAMTrialResultDatabase(unittest.TestCase):
                     (1, 0, 0, 0), w_first=True
                 ),
                 tracking_state=TrackingState.OK,
+                loop_edges=[np.random.choice(timestamps)],
                 num_features=np.random.randint(10, 1000),
                 num_matches=np.random.randint(10, 1000)
             )
-            for idx in range(10)
+            for idx, timestamp in enumerate(timestamps)
         ]
         obj = SLAMTrialResult(
             system=self.system,
@@ -1527,9 +1615,10 @@ class TestSLAMTrialResultDatabase(unittest.TestCase):
         self.assertIn('estimated motion', err_context.exception.message)
 
     def test_is_invalid_when_estimated_pose_is_none_estimated_motion_is_not(self):
+        timestamps = [idx + np.random.normal(0, 0.01) for idx in range(10)]
         results = [
             FrameResult(
-                timestamp=idx + np.random.normal(0, 0.01),
+                timestamp=timestamp,
                 image=self.image,
                 processing_time=np.random.uniform(0.01, 1),
                 pose=Transform(
@@ -1541,10 +1630,11 @@ class TestSLAMTrialResultDatabase(unittest.TestCase):
                     (1, 0, 0, 0), w_first=True
                 ),
                 tracking_state=TrackingState.OK,
+                loop_edges=[np.random.choice(timestamps)],
                 num_features=np.random.randint(10, 1000),
                 num_matches=np.random.randint(10, 1000)
             )
-            for idx in range(10)
+            for idx, timestamp in enumerate(timestamps)
         ]
         obj = SLAMTrialResult(
             system=self.system,
@@ -1561,9 +1651,10 @@ class TestSLAMTrialResultDatabase(unittest.TestCase):
         self.assertIn('5', err_context.exception.message)  # Make sure the frame with the error is mentioned
 
     def test_is_invalid_when_estimated_motion_is_none_estimated_pose_is_not(self):
+        timestamps = [idx + np.random.normal(0, 0.01) for idx in range(10)]
         results = [
             FrameResult(
-                timestamp=idx + np.random.normal(0, 0.01),
+                timestamp=timestamp,
                 image=self.image,
                 processing_time=np.random.uniform(0.01, 1),
                 pose=Transform(
@@ -1575,10 +1666,11 @@ class TestSLAMTrialResultDatabase(unittest.TestCase):
                     (1, 0, 0, 0), w_first=True
                 ),
                 tracking_state=TrackingState.OK,
+                loop_edges=[np.random.choice(timestamps)],
                 num_features=np.random.randint(10, 1000),
                 num_matches=np.random.randint(10, 1000)
             )
-            for idx in range(10)
+            for idx, timestamp in enumerate(timestamps)
         ]
         obj = SLAMTrialResult(
             system=self.system,

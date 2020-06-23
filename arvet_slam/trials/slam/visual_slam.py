@@ -27,7 +27,7 @@ class FrameResult(pymodm.EmbeddedMongoModel):
     estimated_pose = TransformField(blank=True)
     estimated_motion = TransformField(blank=True)
     tracking_state = EnumField(TrackingState, default=TrackingState.OK, required=True)
-    # is_loop_closure = fields.BooleanField(default=False)
+    loop_edges = fields.ListField(fields.FloatField(), blank=True)
     num_features = fields.IntegerField(default=0)
     num_matches = fields.IntegerField(default=0)
 
@@ -48,9 +48,18 @@ class SLAMTrialResult(TrialResult):
         self._ground_truth_scale = None
         self._estimated_scale = None
 
+        # Check that all loop closure timestamps refer to known frames
+        known_timestamps = set(result.timestamp for result in self.results)
+        if not all(all(timestamp in known_timestamps for timestamp in result.loop_edges) for result in self.results):
+            missing_timestamps = {
+                result.timestamp: [timestamp for timestamp in result.loop_edges if timestamp not in known_timestamps]
+                for result in self.results
+                if any(timestamp not in known_timestamps for timestamp in result.loop_edges)
+            }
+            raise ValueError(f"Some frames had loop closures that did't correspond to a frame: {missing_timestamps}")
+
         # If the results aren't sorted, re-sort them
-        if not all(self.results[idx].timestamp >= self.results[idx - 1].timestamp
-                   for idx in range(1, len(self.results))):
+        if not all(res2.timestamp >= res1.timestamp for res1, res2 in zip(self.results[:-1], self.results[1:])):
             self.results = sorted(self.results, key=attrgetter('timestamp'))
 
         # Find poses or motions, whichever we don't have
