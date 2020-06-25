@@ -20,16 +20,20 @@ IMG_TEMPLATE = "{0:06}.png"
 DATA_TEMPLATE = "{0:06}.json"
 DEPTH_TEMPLATE = "{0:06}.depth.png"
 INSTANCE_TEMPLATE = "{0:06}.is.png"
+DEPTH_SCALE = 30 / 255  # = (3000 / 255) / 100
 
 
-def import_dataset(root_folder, **_):
+def import_dataset(root_folder, depth_quality: str = '', **_):
     """
     Load a dataset produced by the Nvidia dataset generator
-
-
     :return:
     """
     root_folder = Path(root_folder)
+    depth_quality = depth_quality.upper()
+    try:
+        depth_quality = DepthNoiseQuality[depth_quality]
+    except KeyError:
+        depth_quality = DepthNoiseQuality.KINECT_NOISE
 
     # Step 0: Check the root folder to see if it needs to be extracted from a tarfile
     delete_when_done = None
@@ -44,7 +48,7 @@ def import_dataset(root_folder, **_):
             raise NotADirectoryError("'{0}' is not a directory or a tarfile we can extract".format(root_folder))
 
     root_folder, left_path, right_path = find_files(root_folder)
-    collection = import_stereo(root_folder, left_path, right_path)
+    collection = import_sequence(root_folder, left_path, right_path, depth_quality)
 
     if delete_when_done is not None and delete_when_done.exists():
         # We're done and need to clean up after ourselves
@@ -93,13 +97,17 @@ def find_files(base_root: Path) -> typing.Tuple[Path, Path, Path]:
     raise FileNotFoundError("Could not find a valid root directory within '{0}'".format(base_root))
 
 
-def import_stereo(root_folder, left_path: Path, right_path: Path) -> ImageCollection:
+def import_sequence(root_folder: Path, left_path: Path, right_path: Path,
+                    depth_quality: DepthNoiseQuality = DepthNoiseQuality.KINECT_NOISE) -> ImageCollection:
     """
-    Import the sequence as a stereo
-    :param root_folder:
-    :param left_path:
-    :param right_path:
-    :return:
+    Import the sequence, as a bunch of stereo images, and then organised into an ImageCollection.
+    ImageCollection and StereoImage objects are saved.
+
+    :param root_folder: The root folder to import from, containing the timestamps and settings files
+    :param left_path: The path to the left image sequences
+    :param right_path: The path to the right image sequences
+    :param depth_quality: Noisy depth is generated as we go, the quality to use when doing so
+    :return: The imported image collection
     """
     # Read the timestamps and the generator settings
     # These are saved from python, so need for special loading
@@ -118,7 +126,7 @@ def import_stereo(root_folder, left_path: Path, right_path: Path) -> ImageCollec
         find_max_img_id(lambda idx: left_path / IMG_TEMPLATE.format(idx)),
         find_max_img_id(lambda idx: right_path / IMG_TEMPLATE.format(idx)),
     )
-    if len(timestamps) != max_img_id:
+    if len(timestamps) != max_img_id + 1:
         raise RuntimeError(f"Maximum image id {max_img_id} didn't match the number "
                            f"of available timestamps ({len(timestamps)}), cannot associate.")
 
@@ -126,30 +134,39 @@ def import_stereo(root_folder, left_path: Path, right_path: Path) -> ImageCollec
     sequence_name = root_folder.name
     (
         trajectory_id, environment_type, light_level, time_of_day, simulation_world,
-        lighting_model, texture_mipmap_bias, normal_maps_enabled, roughness_enabled, geometry_decimation, depth_quality
+        lighting_model, texture_mipmap_bias, normal_maps_enabled, roughness_enabled, min_object_size,
+        geometry_decimation
     ) = parse_settings(settings)
 
     # Import all the images
     images = []
     origin = None
-    for img_idx in range(max_img_id):
+    for img_idx in range(max_img_id + 1):
         # Read the raw data for the left image
         left_frame_data = read_json(left_path / DATA_TEMPLATE.format(img_idx))
         left_pixels = image_utils.read_colour(left_path / IMG_TEMPLATE.format(img_idx))
         left_label_image = image_utils.read_colour(left_path / INSTANCE_TEMPLATE.format(img_idx))
-        left_ground_truth_depth = image_utils.read_depth(left_path / DEPTH_TEMPLATE.format(img_idx))
+        left_ground_truth_depth = load_depth_image(left_path / DEPTH_TEMPLATE.format(img_idx))
 
         # Read the raw data for the right image
         right_frame_data = read_json(right_path / DATA_TEMPLATE.format(img_idx))
         right_pixels = image_utils.read_colour(right_path / IMG_TEMPLATE.format(img_idx))
         right_label_image = image_utils.read_colour(right_path / INSTANCE_TEMPLATE.format(img_idx))
-        right_ground_truth_depth = image_utils.read_depth(right_path / DEPTH_TEMPLATE.format(img_idx))
+        right_ground_truth_depth = load_depth_image(right_path / DEPTH_TEMPLATE.format(img_idx))
 
-        # Extract the poses and labels
+        # Extract the poses
         left_camera_pose = read_camera_pose(left_frame_data)
-        left_labelled_objects = find_labelled_objects(left_label_image, left_frame_data, left_object_labels)
         right_camera_pose = read_camera_pose(right_frame_data)
-        right_labelled_objects = find_labelled_objects(right_label_image, right_frame_data, right_object_labels)
+
+        # If we have object data, extract labels for them as well
+        if len(left_object_labels) > 0:
+            left_labelled_objects = find_labelled_objects(left_label_image, left_frame_data, left_object_labels)
+        else:
+            left_labelled_objects = []
+        if len(right_object_labels) > 0:
+            right_labelled_objects = find_labelled_objects(right_label_image, right_frame_data, right_object_labels)
+        else:
+            right_labelled_objects = []
 
         # Compute a noisy depth image
         noisy_depth = create_noisy_depth_image(
@@ -176,11 +193,12 @@ def import_stereo(root_folder, left_path: Path, right_path: Path) -> ImageCollec
             light_level=light_level,
             time_of_day=time_of_day,
             simulation_world=simulation_world,
-            lighting_mode=lighting_model,
+            lighting_model=lighting_model,
             texture_mipmap_bias=texture_mipmap_bias,
             normal_maps_enabled=normal_maps_enabled,
             roughness_enabled=roughness_enabled,
             geometry_decimation=geometry_decimation,
+            minimum_object_volume=min_object_size,
             labelled_objects=left_labelled_objects
         )
         right_metadata = imeta.make_right_metadata(
@@ -222,18 +240,32 @@ def read_camera_intrinsics(settings_path: Path) -> CameraIntrinsics:
     :param settings_path: The path to the camera settings file, output by the NDDS exporter
     :return:
     """
-    # TODO: There is some inconsistency in the output settings I've got, particulary between the FOV and intrinsics.
-    # Check how they're being generated and output, and ensure that the camera actually has those settings
     camera_settings = read_json(settings_path)
     return CameraIntrinsics(
-        width=int(camera_settings['camera_settings']['intrinsic_settings']['resX']),
-        height=int(camera_settings['camera_settings']['intrinsic_settings']['resY']),
-        fx=float(camera_settings['camera_settings']['intrinsic_settings']['fx']),
-        fy=float(camera_settings['camera_settings']['intrinsic_settings']['fy']),
-        cx=float(camera_settings['camera_settings']['intrinsic_settings']['cx']),
-        cy=float(camera_settings['camera_settings']['intrinsic_settings']['cy']),
-        s=float(camera_settings['camera_settings']['intrinsic_settings']['s'])
+        width=int(camera_settings['camera_settings'][0]['intrinsic_settings']['resX']),
+        height=int(camera_settings['camera_settings'][0]['intrinsic_settings']['resY']),
+        fx=float(camera_settings['camera_settings'][0]['intrinsic_settings']['fx']),
+        fy=float(camera_settings['camera_settings'][0]['intrinsic_settings']['fy']),
+        cx=float(camera_settings['camera_settings'][0]['intrinsic_settings']['cx']),
+        cy=float(camera_settings['camera_settings'][0]['intrinsic_settings']['cy']),
+        s=float(camera_settings['camera_settings'][0]['intrinsic_settings']['s'])
     )
+
+
+def load_depth_image(depth_path: Path) -> np.ndarray:
+    """
+    Read and re-scale a ground-truth depth image.
+    Scene depth is saved as a uint8, quantized over the range 0 - 3000.
+    This is 3000 Unreal units, so we must then divide by 100 to get meters
+    The 3000 is set in code, and the scaling done by a material, such that 255 represents a depth of 3000
+    Thus the scaling factor is (3000 / 255) / 100 = 30 / 255
+    See
+    https://github.com/jskinn/Dataset_Synthesizer/blob/local-devel/Source/Plugins/NVSceneCapturer/Source/NVSceneCapturer/Private/NVSceneFeatureExtractor_ImageExport.cpp#L228
+    :param depth_path:
+    :return:
+    """
+    depth_image = image_utils.read_depth(depth_path)
+    return DEPTH_SCALE * depth_image.astype(np.float)
 
 
 def read_object_classes(object_settings_path: Path) -> typing.Mapping[int, dict]:
@@ -247,7 +279,7 @@ def read_object_classes(object_settings_path: Path) -> typing.Mapping[int, dict]
 
 def parse_settings(settings: dict) -> typing.Tuple[
     str, imeta.EnvironmentType, imeta.LightingLevel, imeta.TimeOfDay, str, imeta.LightingModel,
-    int, bool, bool, int, DepthNoiseQuality
+    int, bool, bool, float, int
 ]:
     """
     Read values from the settings saved from the generator.
@@ -260,6 +292,9 @@ def parse_settings(settings: dict) -> typing.Tuple[
         'origin': origin.serialise(),
         'left_intrinsics': left_intrinsics.serialise(),
         'right_intrinsics': right_intrinsics.serialise(),
+        'texture_bias': min(max(int(texture_bias), 0), 15),
+        'disable_reflections': bool(disable_reflections),
+        'min_object_volume': float(min_object_volume),
         'motion_blur': min(1.0, max(0.0, float(motion_blur))),
         'exposure': [float(min(exposure)), float(max(exposure))] if exposure is not None else None,
         'aperture': max(1.0, float(aperture)),
@@ -273,39 +308,33 @@ def parse_settings(settings: dict) -> typing.Tuple[
     :param settings:
     :return:
     """
-    map_name = settings['map_name']
+    map_name = settings['map']
     trajectory_id = str(settings['trajectory_id'])
     environment_type = imeta.EnvironmentType.INDOOR
 
     # TODO: We need to hard-code some relationships between map name and some of these settings
-    if settings['light_level'].lower() == 'day':
-        light_level = imeta.LightingLevel.WELL_LIT
-        time_of_day = imeta.TimeOfDay.DAY
-    else:
+    if settings['light_level'].lower() == 'night':
         light_level = imeta.LightingLevel.DIM
         time_of_day = imeta.TimeOfDay.NIGHT
+    else:
+        light_level = imeta.LightingLevel.WELL_LIT
+        time_of_day = imeta.TimeOfDay.DAY
 
-    # TODO: We also need to unify betwen what settings we're pulling here, and what we can affect in the simulator
-    if settings['light_model'].lower() == 'unlit':
+    if 'light_model' in settings and settings['light_model'].lower() == 'unlit':
         lighting_model = imeta.LightingModel.UNLIT
     else:
         lighting_model = imeta.LightingModel.LIT
 
-    # Parse the image image depth quality
-    try:
-        depth_quality = DepthNoiseQuality[settings['depth_quality']]
-    except KeyError:
-        depth_quality = DepthNoiseQuality.NO_NOISE
-
-    # TODO: Make these settings do something
-    texture_mipmap_bias = 0
-    normal_maps_enabled = True
-    roughness_enabled = True
+    texture_mipmap_bias = settings.get('texture_bias', 0)
+    roughness_enabled = not bool(settings.get('disable_reflections', False))
+    min_object_size = float(settings.get('min_object_volume', -1))
     geometry_decimation = 0
+    normal_maps_enabled = True
 
     return (
         trajectory_id, environment_type, light_level, time_of_day, map_name,
-        lighting_model, texture_mipmap_bias, normal_maps_enabled, roughness_enabled, geometry_decimation, depth_quality
+        lighting_model, texture_mipmap_bias, normal_maps_enabled, roughness_enabled, min_object_size,
+        geometry_decimation
     )
 
 
@@ -318,6 +347,10 @@ def find_labelled_objects(mask_img: np.ndarray, frame_data: dict, object_data_by
     :param object_data_by_id:
     :return:
     """
+    # Sanity check, make sure there are actually labels to extract
+    if len(object_data_by_id) <= 0:
+        return []
+
     # Get lists of known instance ids and their corresponding colours in the mask image
     known_ids = sorted(object_data_by_id.keys())
     known_colours = np.array([encode_id(instance_id) for instance_id in known_ids])
@@ -342,7 +375,7 @@ def find_labelled_objects(mask_img: np.ndarray, frame_data: dict, object_data_by
                     class_names=[object_data['class']],
                     x=x_min,
                     y=y_min,
-                    mask=mask_img[x_min:x_max + 1, y_min:y_max + 1]
+                    mask=object_mask[x_min:x_max + 1, y_min:y_max + 1]
                 )
                 if object_data['name'] in frame_data_by_name:
                     labelled_object.relative_pose = read_relative_pose(frame_data_by_name[object_data['name']])
@@ -450,46 +483,43 @@ def generate_bounding_box_from_mask(mask: np.ndarray) -> typing.Union[typing.Tup
 def read_camera_pose(frame_data: dict) -> tf.Transform:
     """
     Read the camera pose from the frame data
+    This is in Unreal coordinates, so z is up, y right, x forward.
+    Converting requires flipping the Y axis and any angles.
+    (for a quaternion, this is the same as inverting the x and z axes, since q = -q)
+    Scale is 1 unit ~= 1cm, so we want to divide by 100 to have scale in meters
     :param frame_data:
     :return:
     """
     camera_data = frame_data['camera_data']
-    x, y, z = camera_data['location_worldframe']
+    tx, ty, tz = camera_data['location_worldframe']
     qx, qy, qz, qw = camera_data['quaternion_xyzw_worldframe']
-    return make_camera_pose(x, y, z, qw, qx, qy, qz)
+    return tf.Transform(
+        location=(tx / 100, -ty / 100, tz / 100),
+        rotation=(qw, -qx, qy, -qz),
+        w_first=True
+    )
 
 
 def read_relative_pose(object_frame_data: dict) -> tf.Transform:
     """
-    Read the pose of an object relative to the camera, from the frame data
+    Read the pose of an object relative to the camera, from the frame data.
+    For reasons (known only to the developer), these poses are in OpenCV convention.
+    So x is right, y is down, z is forward.
+    Scale is still 1cm, so we divide by 100 again.
+
+    see
+    https://github.com/jskinn/Dataset_Synthesizer/blob/local-devel/Source/Plugins/NVSceneCapturer/Source/NVSceneCapturer/Private/NVSceneFeatureExtractor_DataExport.cpp#L143
+
     :param object_frame_data: The frame data dict from the matching object in the objects array
     :return: The relative pose of the object, as a Transform
     """
     tx, ty, tz = object_frame_data['location']
     qx, qy, qz, qw = object_frame_data['quaternion_xyzw']
-    return make_camera_pose(tx, ty, tz, qw, qx, qy, qz)
-
-
-def make_camera_pose(tx, ty, tz, qw, qx, qy, qz) -> tf.Transform:
-    """
-    Swap the coordinate frames from unreal coordinates
-    to my standard convention.
-    :param tx:
-    :param ty:
-    :param tz:
-    :param qw:
-    :param qx:
-    :param qy:
-    :param qz:
-    :return: A Transform object
-    """
-    # Flip the Y translation and rescale
-    location = (tx / 100, -ty / 100, tz / 100)
-
-    # Fiddle the rotation to convert from left handed to right handed
-    # This is a combination of flipping the Y axis, and the quaternion inverse (w, -i, -j, -k)
-    rotation = np.array([qw, -qx, qy, -qz])
-    return tf.Transform(location=location, rotation=rotation, w_first=True)
+    return tf.Transform(
+        location=(tz / 100, -tx / 100, -ty / 100),
+        rotation=(qw, qz, -qx, -qy),
+        w_first=True
+    )
 
 
 def read_json(path: Path) -> dict:

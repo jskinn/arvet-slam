@@ -113,3 +113,4 @@ arvet_slam/systems/slam/tests/ORBvoc-synth.txt
 arvet_slam/dataset/euroc/tests/euroc_location.json
 arvet_slam/dataset/kitti/tests/kitti_location.json
 arvet_slam/dataset/tum/tests/tum_location.json
+arvet_slam/dataset/ndds/tests/ndds_location.json
