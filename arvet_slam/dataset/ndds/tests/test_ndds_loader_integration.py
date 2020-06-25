@@ -63,10 +63,61 @@ class TestNDDSLoaderIntegration(unittest.TestCase):
         self.assertEqual(1, ImageCollection.objects.all().count())
         self.assertEqual(num_images, StereoImage.objects.all().count())   # Make sure we got all the images
 
-        # Make sure we got the depth and position data
+        # Make sure we got the position data
         for timestamp, image in result:
             self.assertIsNotNone(image.camera_pose)
             self.assertIsNotNone(image.right_camera_pose)
+            self.assertIsNotNone(image.depth)
+
+        # Clean up after ourselves by dropping the collections for the models
+        ImageCollection._mongometa.collection.drop()
+        StereoImage._mongometa.collection.drop()
+        if os.path.isfile(dbconn.image_file):
+            os.remove(dbconn.image_file)
+        logging.disable(logging.NOTSET)
+
+    @unittest.skipIf(
+        dataset_root is None
+        or not zipped_sequence.endswith('.tar.gz')  # Must actually be a compressed file, not a directory
+        or not (dataset_root / zipped_sequence).is_file(),
+        f"Could not find compressed NDDS dataset at {dataset_root / zipped_sequence}, cannot run integration test"
+    )
+    def test_load_zipped_sequence(self):
+        dbconn.connect_to_test_db()
+        image_manager = im_manager.DefaultImageManager(dbconn.image_file, allow_write=True)
+        im_manager.set_image_manager(image_manager)
+        logging.disable(logging.CRITICAL)
+
+        # Make sure there is nothing in the database
+        ImageCollection.objects.all().delete()
+        StereoImage.objects.all().delete()
+
+        # Make sure the un-tarred folder does not exist
+        sequence_name = zipped_sequence.split('.')[0]
+        extracted_folder = dataset_root / sequence_name
+        if extracted_folder.exists():
+            shutil.rmtree(extracted_folder)
+
+        result = ndds_loader.import_dataset(
+            dataset_root / zipped_sequence,
+            DepthNoiseQuality.KINECT_NOISE.name
+        )
+        self.assertIsInstance(result, ImageCollection)
+        self.assertIsNotNone(result.pk)
+        self.assertTrue(result.is_depth_available)
+        self.assertTrue(result.is_stereo_available)
+
+        self.assertEqual(1, ImageCollection.objects.all().count())
+        self.assertGreater(StereoImage.objects.all().count(), 0)   # Make sure we got some number of images
+
+        # Make sure we got position data and depth for all frames
+        for timestamp, image in result:
+            self.assertIsNotNone(image.camera_pose)
+            self.assertIsNotNone(image.right_camera_pose)
+            self.assertIsNotNone(image.depth)
+
+        # Make sure the extracted folder is cleaned up
+        self.assertFalse(extracted_folder.exists())
 
         # Clean up after ourselves by dropping the collections for the models
         ImageCollection._mongometa.collection.drop()
