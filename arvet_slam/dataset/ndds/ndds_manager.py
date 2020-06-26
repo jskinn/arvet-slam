@@ -16,7 +16,8 @@ ENVIRONMENTS = [
     'winter_house',
     'scandinavian_house',
     'two_room_apartment',
-    'large_office'
+    'large_office',
+    'warehouse_office'
 ]
 
 
@@ -124,14 +125,18 @@ class NDDSManager:
             trajectory_id: str = None,
             quality_level: QualityLevel = None,
             time_of_day: imeta.TimeOfDay = None,
-    ) -> typing.Iterable[ObjectId]:
+    ) -> typing.Tuple[typing.List[ObjectId], int]:
         """
-        Get all image sequences
-        :param environment:
-        :param trajectory_id:
-        :param quality_level:
-        :param time_of_day:
-        :return:
+        Get all image sequences, with a specific set of requirements.
+        Returns all image sequences by default, specify an environment to get only those with that environment, etc.
+        Specifying multiple parameters means sequences must match ALL the parameters. Call multiple times for OR.
+
+        :param environment: Only return sequences recorded in the specified environment. Member of 'ENVIRONMENTS'.
+        :param trajectory_id: Only return sequences that follow the given trajectory. Member of 'TRAJECTORIES'
+        :param quality_level: Only return sequences that are recorded at the given quality.
+        :param time_of_day: Only return
+        :return: A list of image sequence objects,
+        and a number of pending sequences that match the criteria, but are still to import.
         """
         sequence_paths = [
             sequence_entry.path
