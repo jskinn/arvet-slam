@@ -119,8 +119,8 @@ def import_sequence(root_folder: Path, left_path: Path, right_path: Path,
     # Read the camera settings from file
     left_camera_intrinsics = read_camera_intrinsics(left_path / '_camera_settings.json')
     right_camera_intrinsics = read_camera_intrinsics(right_path / '_camera_settings.json')
-    left_object_labels = read_object_classes(left_path / '_object_settings.json')
-    right_object_labels = read_object_classes(right_path / '_object_settings.json')
+    # left_object_labels = read_object_classes(left_path / '_object_settings.json')
+    # right_object_labels = read_object_classes(right_path / '_object_settings.json')
 
     max_img_id = min(
         find_max_img_id(lambda idx: left_path / IMG_TEMPLATE.format(idx)),
@@ -145,26 +145,26 @@ def import_sequence(root_folder: Path, left_path: Path, right_path: Path,
         # Read the raw data for the left image
         left_frame_data = read_json(left_path / DATA_TEMPLATE.format(img_idx))
         left_pixels = image_utils.read_colour(left_path / IMG_TEMPLATE.format(img_idx))
-        left_label_image = image_utils.read_colour(left_path / INSTANCE_TEMPLATE.format(img_idx))
+        # left_label_image = image_utils.read_colour(left_path / INSTANCE_TEMPLATE.format(img_idx))
         left_ground_truth_depth = load_depth_image(left_path / DEPTH_TEMPLATE.format(img_idx))
 
         # Read the raw data for the right image
         right_frame_data = read_json(right_path / DATA_TEMPLATE.format(img_idx))
         right_pixels = image_utils.read_colour(right_path / IMG_TEMPLATE.format(img_idx))
-        right_label_image = image_utils.read_colour(right_path / INSTANCE_TEMPLATE.format(img_idx))
+        # right_label_image = image_utils.read_colour(right_path / INSTANCE_TEMPLATE.format(img_idx))
         right_ground_truth_depth = load_depth_image(right_path / DEPTH_TEMPLATE.format(img_idx))
 
         # Ensure all images are c_contiguous
         if not left_pixels.flags.c_contiguous:
             left_pixels = np.ascontiguousarray(left_pixels)
-        if not left_label_image.flags.c_contiguous:
-            left_label_image = np.ascontiguousarray(left_label_image)
+        # if not left_label_image.flags.c_contiguous:
+        #     left_label_image = np.ascontiguousarray(left_label_image)
         if not left_ground_truth_depth.flags.c_contiguous:
             left_ground_truth_depth = np.ascontiguousarray(left_ground_truth_depth)
         if not right_pixels.flags.c_contiguous:
             right_pixels = np.ascontiguousarray(right_pixels)
-        if not right_label_image.flags.c_contiguous:
-            right_label_image = np.ascontiguousarray(right_label_image)
+        # if not right_label_image.flags.c_contiguous:
+        #     right_label_image = np.ascontiguousarray(right_label_image)
         if not right_ground_truth_depth.flags.c_contiguous:
             right_ground_truth_depth = np.ascontiguousarray(right_ground_truth_depth)
 
@@ -173,14 +173,17 @@ def import_sequence(root_folder: Path, left_path: Path, right_path: Path,
         right_camera_pose = read_camera_pose(right_frame_data)
 
         # If we have object data, extract labels for them as well
-        if len(left_object_labels) > 0:
-            left_labelled_objects = find_labelled_objects(left_label_image, left_frame_data, left_object_labels)
-        else:
-            left_labelled_objects = []
-        if len(right_object_labels) > 0:
-            right_labelled_objects = find_labelled_objects(right_label_image, right_frame_data, right_object_labels)
-        else:
-            right_labelled_objects = []
+        # Not working? removed
+        # if len(left_object_labels) > 0:
+        #     left_labelled_objects = find_labelled_objects(left_label_image, left_frame_data, left_object_labels)
+        # else:
+        #     left_labelled_objects = []
+        # if len(right_object_labels) > 0:
+        #     right_labelled_objects = find_labelled_objects(right_label_image, right_frame_data, right_object_labels)
+        # else:
+        #     right_labelled_objects = []
+        left_labelled_objects = []
+        right_labelled_objects = []
 
         # Compute a noisy depth image
         noisy_depth = create_noisy_depth_image(
