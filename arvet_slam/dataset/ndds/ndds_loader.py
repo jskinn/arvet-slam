@@ -1,6 +1,6 @@
 # Copyright (c) 2020, John Skinner
 import typing
-import os.path
+import logging
 import tarfile
 from pathlib import Path
 import shutil
@@ -153,6 +153,20 @@ def import_sequence(root_folder: Path, left_path: Path, right_path: Path,
         right_pixels = image_utils.read_colour(right_path / IMG_TEMPLATE.format(img_idx))
         right_label_image = image_utils.read_colour(right_path / INSTANCE_TEMPLATE.format(img_idx))
         right_ground_truth_depth = load_depth_image(right_path / DEPTH_TEMPLATE.format(img_idx))
+
+        # Ensure all images are c_contiguous
+        if not left_pixels.flags.c_contiguous:
+            left_pixels = np.ascontiguousarray(left_pixels)
+        if not left_label_image.flags.c_contiguous:
+            left_label_image = np.ascontiguousarray(left_label_image)
+        if not left_ground_truth_depth.flags.c_contiguous:
+            left_ground_truth_depth = np.ascontiguousarray(left_ground_truth_depth)
+        if not right_pixels.flags.c_contiguous:
+            right_pixels = np.ascontiguousarray(right_pixels)
+        if not right_label_image.flags.c_contiguous:
+            right_label_image = np.ascontiguousarray(right_label_image)
+        if not right_ground_truth_depth.flags.c_contiguous:
+            right_ground_truth_depth = np.ascontiguousarray(right_ground_truth_depth)
 
         # Extract the poses
         left_camera_pose = read_camera_pose(left_frame_data)
@@ -395,14 +409,14 @@ def find_max_img_id(make_filename=None):
     max_id = 1
 
     # Expand the search exponentially
-    while os.path.isfile(make_filename(max_id)):
+    while Path(make_filename(max_id)).exists():
         min_id = max_id
         max_id *= 2
 
     # Binary search between limits
     while max_id - min_id > 1:
         half = (max_id + min_id) // 2
-        if os.path.isfile(make_filename(half)):
+        if Path(make_filename(half)).exists():
             min_id = half
         else:
             max_id = half
@@ -470,8 +484,8 @@ def generate_bounding_box_from_mask(mask: np.ndarray) -> typing.Union[typing.Tup
     """
     flat_x = np.any(mask, axis=0)
     flat_y = np.any(mask, axis=1)
-    if not np.any(flat_x) and not np.any(flat_y):
-        print("No positive pixels found, returning None")
+    if not np.any(flat_x) or not np.any(flat_y):
+        logging.getLogger(__name__).debug("No positive pixels found, returning None")
         return None
     xmin = np.argmax(flat_x)
     ymin = np.argmax(flat_y)
