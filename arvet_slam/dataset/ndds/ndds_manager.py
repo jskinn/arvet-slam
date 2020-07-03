@@ -115,11 +115,13 @@ class NDDSManager:
     Manager for synthetic datasets generated with NDDS.
     Dataset are grouped by quality, time of day, source environment, and reference trajectory
     """
-    expected_duration = '2:00:00'
-    memory_requirements = '32GB'
 
-    def __init__(self, root: typing.Union[str, bytes, os.PathLike, PurePath]):
+    def __init__(self, root: typing.Union[str, bytes, os.PathLike, PurePath],
+                 num_cpus: int = 1, expected_duration: str = '2:00:00', memory_requirements: str = '32GB'):
         self._sequence_data = load_sequences(root)
+        self.num_cpus = int(num_cpus)
+        self.expected_duration = str(expected_duration)
+        self.memory_requirements = str(memory_requirements)
 
     def get_datasets(
             self,
@@ -158,15 +160,16 @@ class NDDSManager:
                 module_name=ndds_loader.__name__,
                 path=str(sequence_path),
                 additional_args={},
-                num_cpus=1,
+                num_cpus=self.num_cpus,
                 num_gpus=0,
-                memory_requirements='32GB',
-                expected_duration='2:00:00',
+                memory_requirements=self.memory_requirements,
+                expected_duration=self.expected_duration,
             )
             if import_dataset_task.is_finished:
                 sequences.append(import_dataset_task.get_result())
             else:
                 # Ensure that the job as the right resource requirements
+                import_dataset_task.num_cpus = self.num_cpus
                 import_dataset_task.memory_requirements = self.memory_requirements
                 import_dataset_task.expected_duration = self.expected_duration
                 # Make sure the import dataset task gets done
