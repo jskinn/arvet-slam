@@ -13,6 +13,7 @@ except ImportError:
 
 import arvet.util.image_utils as image_utils
 import arvet.util.associate as ass
+import arvet.database.image_manager
 import arvet.metadata.image_metadata as imeta
 import arvet.util.transform as tf
 from arvet.metadata.camera_intrinsics import CameraIntrinsics
@@ -350,55 +351,56 @@ def import_dataset(root_folder, dataset_name, **_):
     first_timestamp = None
     images = []
     timestamps = []
-    for timestamp, left_image_file, right_image_file, robot_pose in all_metadata:
-        # Timestamps are in POSIX nanoseconds, re-zero them to the start of the dataset, and scale to seconds
-        if first_timestamp is None:
-            first_timestamp = timestamp
-        timestamp = (timestamp - first_timestamp) / 1e9
+    with arvet.database.image_manager.get():
+        for timestamp, left_image_file, right_image_file, robot_pose in all_metadata:
+            # Timestamps are in POSIX nanoseconds, re-zero them to the start of the dataset, and scale to seconds
+            if first_timestamp is None:
+                first_timestamp = timestamp
+            timestamp = (timestamp - first_timestamp) / 1e9
 
-        left_data = image_utils.read_colour(os.path.join(root_folder, 'cam0', 'data', left_image_file))
-        right_data = image_utils.read_colour(os.path.join(root_folder, 'cam1', 'data', right_image_file))
+            left_data = image_utils.read_colour(os.path.join(root_folder, 'cam0', 'data', left_image_file))
+            right_data = image_utils.read_colour(os.path.join(root_folder, 'cam1', 'data', right_image_file))
 
-        # Error check the loaded image data
-        if left_data is None or left_data.size is 0:
-            logging.getLogger(__name__).warning("Could not read left image \"{0}\", result is empty. Skipping.".format(
-                os.path.join(root_folder, 'cam0', 'data', left_image_file)))
-            continue
-        if right_data is None or right_data.size is 0:
-            logging.getLogger(__name__).warning("Could not read right image \"{0}\", result is empty. Skipping.".format(
-                os.path.join(root_folder, 'cam1', 'data', right_image_file)))
-            continue
+            # Error check the loaded image data
+            if left_data is None or left_data.size is 0:
+                logging.getLogger(__name__).warning("Could not read left image \"{0}\", result is empty. Skipping.".format(
+                    os.path.join(root_folder, 'cam0', 'data', left_image_file)))
+                continue
+            if right_data is None or right_data.size is 0:
+                logging.getLogger(__name__).warning("Could not read right image \"{0}\", result is empty. Skipping.".format(
+                    os.path.join(root_folder, 'cam1', 'data', right_image_file)))
+                continue
 
-        left_data = cv2.remap(left_data, left_x, left_y, cv2.INTER_LINEAR)
-        right_data = cv2.remap(right_data, right_x, right_y, cv2.INTER_LINEAR)
+            left_data = cv2.remap(left_data, left_x, left_y, cv2.INTER_LINEAR)
+            right_data = cv2.remap(right_data, right_x, right_y, cv2.INTER_LINEAR)
 
-        left_pose = robot_pose.find_independent(left_extrinsics)
-        right_pose = robot_pose.find_independent(right_extrinsics)
+            left_pose = robot_pose.find_independent(left_extrinsics)
+            right_pose = robot_pose.find_independent(right_extrinsics)
 
-        left_metadata = imeta.make_metadata(
-            pixels=left_data,
-            camera_pose=left_pose,
-            intrinsics=left_intrinsics,
-            source_type=imeta.ImageSourceType.REAL_WORLD,
-            environment_type=environment_types.get(dataset_name, imeta.EnvironmentType.INDOOR_CLOSE),
-            light_level=imeta.LightingLevel.WELL_LIT,
-            time_of_day=imeta.TimeOfDay.DAY,
-        )
-        right_metadata = imeta.make_right_metadata(
-            pixels=right_data,
-            left_metadata=left_metadata,
-            camera_pose=right_pose,
-            intrinsics=right_intrinsics
-        )
-        image = StereoImage(
-            pixels=left_data,
-            right_pixels=right_data,
-            metadata=left_metadata,
-            right_metadata=right_metadata
-        )
-        image.save()
-        images.append(image)
-        timestamps.append(timestamp)
+            left_metadata = imeta.make_metadata(
+                pixels=left_data,
+                camera_pose=left_pose,
+                intrinsics=left_intrinsics,
+                source_type=imeta.ImageSourceType.REAL_WORLD,
+                environment_type=environment_types.get(dataset_name, imeta.EnvironmentType.INDOOR_CLOSE),
+                light_level=imeta.LightingLevel.WELL_LIT,
+                time_of_day=imeta.TimeOfDay.DAY,
+            )
+            right_metadata = imeta.make_right_metadata(
+                pixels=right_data,
+                left_metadata=left_metadata,
+                camera_pose=right_pose,
+                intrinsics=right_intrinsics
+            )
+            image = StereoImage(
+                pixels=left_data,
+                right_pixels=right_data,
+                metadata=left_metadata,
+                right_metadata=right_metadata
+            )
+            image.save()
+            images.append(image)
+            timestamps.append(timestamp)
 
     # Create and save the image collection
     collection = ImageCollection(

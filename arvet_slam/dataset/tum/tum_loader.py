@@ -6,6 +6,7 @@ from pathlib import Path
 import shutil
 import arvet.util.image_utils as image_utils
 from arvet.util.associate import associate
+import arvet.database.image_manager
 from arvet.metadata.camera_intrinsics import CameraIntrinsics
 import arvet.metadata.image_metadata as imeta
 import arvet.util.transform as tf
@@ -261,35 +262,36 @@ def import_dataset(root_folder, dataset_name, **_):
     first_timestamp = None
     images = []
     timestamps = []
-    for timestamp, image_file, camera_pose, depth_file in all_metadata:
-        # Re-zero the timestamps
-        if first_timestamp is None:
-            first_timestamp = timestamp
-        timestamp = (timestamp - first_timestamp)
+    with arvet.database.image_manager.get():
+        for timestamp, image_file, camera_pose, depth_file in all_metadata:
+            # Re-zero the timestamps
+            if first_timestamp is None:
+                first_timestamp = timestamp
+            timestamp = (timestamp - first_timestamp)
 
-        rgb_data = image_utils.read_colour(os.path.join(root_folder, image_file))
-        depth_data = image_utils.read_depth(os.path.join(root_folder, depth_file))
-        depth_data = depth_data / 5000  # Re-scale depth to meters
-        camera_intrinsics = get_camera_intrinsics(root_folder)
+            rgb_data = image_utils.read_colour(os.path.join(root_folder, image_file))
+            depth_data = image_utils.read_depth(os.path.join(root_folder, depth_file))
+            depth_data = depth_data / 5000  # Re-scale depth to meters
+            camera_intrinsics = get_camera_intrinsics(root_folder)
 
-        metadata = imeta.make_metadata(
-            pixels=rgb_data,
-            depth=depth_data,
-            camera_pose=camera_pose,
-            intrinsics=camera_intrinsics,
-            source_type=imeta.ImageSourceType.REAL_WORLD,
-            environment_type=environment_types.get(dataset_name, imeta.EnvironmentType.INDOOR_CLOSE),
-            light_level=imeta.LightingLevel.WELL_LIT,
-            time_of_day=imeta.TimeOfDay.DAY,
-        )
-        image = Image(
-            pixels=rgb_data,
-            depth=depth_data,
-            metadata=metadata
-        )
-        image.save()
-        images.append(image)
-        timestamps.append(timestamp)
+            metadata = imeta.make_metadata(
+                pixels=rgb_data,
+                depth=depth_data,
+                camera_pose=camera_pose,
+                intrinsics=camera_intrinsics,
+                source_type=imeta.ImageSourceType.REAL_WORLD,
+                environment_type=environment_types.get(dataset_name, imeta.EnvironmentType.INDOOR_CLOSE),
+                light_level=imeta.LightingLevel.WELL_LIT,
+                time_of_day=imeta.TimeOfDay.DAY,
+            )
+            image = Image(
+                pixels=rgb_data,
+                depth=depth_data,
+                metadata=metadata
+            )
+            image.save()
+            images.append(image)
+            timestamps.append(timestamp)
 
     # Create and save the image collection
     collection = ImageCollection(
