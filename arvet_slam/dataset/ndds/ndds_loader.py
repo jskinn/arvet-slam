@@ -7,6 +7,7 @@ import shutil
 from json import loads as json_loads, load as json_load
 import numpy as np
 import arvet.util.image_utils as image_utils
+import arvet.database.image_manager
 from arvet.metadata.camera_intrinsics import CameraIntrinsics
 import arvet.metadata.image_metadata as imeta
 import arvet.util.transform as tf
@@ -141,102 +142,104 @@ def import_sequence(root_folder: Path, left_path: Path, right_path: Path,
     # Import all the images
     images = []
     origin = None
-    for img_idx in range(max_img_id + 1):
-        # Read the raw data for the left image
-        left_frame_data = read_json(left_path / DATA_TEMPLATE.format(img_idx))
-        left_pixels = image_utils.read_colour(left_path / IMG_TEMPLATE.format(img_idx))
-        # left_label_image = image_utils.read_colour(left_path / INSTANCE_TEMPLATE.format(img_idx))
-        left_ground_truth_depth = load_depth_image(left_path / DEPTH_TEMPLATE.format(img_idx))
+    # Open the image manager for writing once, so that we're not constantly opening and closing it with each image
+    with arvet.database.image_manager.get():
+        for img_idx in range(max_img_id + 1):
+            # Read the raw data for the left image
+            left_frame_data = read_json(left_path / DATA_TEMPLATE.format(img_idx))
+            left_pixels = image_utils.read_colour(left_path / IMG_TEMPLATE.format(img_idx))
+            # left_label_image = image_utils.read_colour(left_path / INSTANCE_TEMPLATE.format(img_idx))
+            left_ground_truth_depth = load_depth_image(left_path / DEPTH_TEMPLATE.format(img_idx))
 
-        # Read the raw data for the right image
-        right_frame_data = read_json(right_path / DATA_TEMPLATE.format(img_idx))
-        right_pixels = image_utils.read_colour(right_path / IMG_TEMPLATE.format(img_idx))
-        # right_label_image = image_utils.read_colour(right_path / INSTANCE_TEMPLATE.format(img_idx))
-        right_ground_truth_depth = load_depth_image(right_path / DEPTH_TEMPLATE.format(img_idx))
+            # Read the raw data for the right image
+            right_frame_data = read_json(right_path / DATA_TEMPLATE.format(img_idx))
+            right_pixels = image_utils.read_colour(right_path / IMG_TEMPLATE.format(img_idx))
+            # right_label_image = image_utils.read_colour(right_path / INSTANCE_TEMPLATE.format(img_idx))
+            right_ground_truth_depth = load_depth_image(right_path / DEPTH_TEMPLATE.format(img_idx))
 
-        # Ensure all images are c_contiguous
-        if not left_pixels.flags.c_contiguous:
-            left_pixels = np.ascontiguousarray(left_pixels)
-        # if not left_label_image.flags.c_contiguous:
-        #     left_label_image = np.ascontiguousarray(left_label_image)
-        if not left_ground_truth_depth.flags.c_contiguous:
-            left_ground_truth_depth = np.ascontiguousarray(left_ground_truth_depth)
-        if not right_pixels.flags.c_contiguous:
-            right_pixels = np.ascontiguousarray(right_pixels)
-        # if not right_label_image.flags.c_contiguous:
-        #     right_label_image = np.ascontiguousarray(right_label_image)
-        if not right_ground_truth_depth.flags.c_contiguous:
-            right_ground_truth_depth = np.ascontiguousarray(right_ground_truth_depth)
+            # Ensure all images are c_contiguous
+            if not left_pixels.flags.c_contiguous:
+                left_pixels = np.ascontiguousarray(left_pixels)
+            # if not left_label_image.flags.c_contiguous:
+            #     left_label_image = np.ascontiguousarray(left_label_image)
+            if not left_ground_truth_depth.flags.c_contiguous:
+                left_ground_truth_depth = np.ascontiguousarray(left_ground_truth_depth)
+            if not right_pixels.flags.c_contiguous:
+                right_pixels = np.ascontiguousarray(right_pixels)
+            # if not right_label_image.flags.c_contiguous:
+            #     right_label_image = np.ascontiguousarray(right_label_image)
+            if not right_ground_truth_depth.flags.c_contiguous:
+                right_ground_truth_depth = np.ascontiguousarray(right_ground_truth_depth)
 
-        # Extract the poses
-        left_camera_pose = read_camera_pose(left_frame_data)
-        right_camera_pose = read_camera_pose(right_frame_data)
+            # Extract the poses
+            left_camera_pose = read_camera_pose(left_frame_data)
+            right_camera_pose = read_camera_pose(right_frame_data)
 
-        # If we have object data, extract labels for them as well
-        # Not working? removed
-        # if len(left_object_labels) > 0:
-        #     left_labelled_objects = find_labelled_objects(left_label_image, left_frame_data, left_object_labels)
-        # else:
-        #     left_labelled_objects = []
-        # if len(right_object_labels) > 0:
-        #     right_labelled_objects = find_labelled_objects(right_label_image, right_frame_data, right_object_labels)
-        # else:
-        #     right_labelled_objects = []
-        left_labelled_objects = []
-        right_labelled_objects = []
+            # If we have object data, extract labels for them as well
+            # Not working? removed
+            # if len(left_object_labels) > 0:
+            #     left_labelled_objects = find_labelled_objects(left_label_image, left_frame_data, left_object_labels)
+            # else:
+            #     left_labelled_objects = []
+            # if len(right_object_labels) > 0:
+            #     right_labelled_objects = find_labelled_objects(right_label_image, right_frame_data, right_object_labels)
+            # else:
+            #     right_labelled_objects = []
+            left_labelled_objects = []
+            right_labelled_objects = []
 
-        # Compute a noisy depth image
-        noisy_depth = create_noisy_depth_image(
-            left_ground_truth_depth=left_ground_truth_depth,
-            right_ground_truth_depth=right_ground_truth_depth,
-            camera_intrinsics=left_camera_intrinsics,
-            right_camera_relative_pose=left_camera_pose.find_relative(right_camera_pose),
-            quality_level=depth_quality
-        )
+            # Compute a noisy depth image
+            noisy_depth = create_noisy_depth_image(
+                left_ground_truth_depth=left_ground_truth_depth,
+                right_ground_truth_depth=right_ground_truth_depth,
+                camera_intrinsics=left_camera_intrinsics,
+                right_camera_relative_pose=left_camera_pose.find_relative(right_camera_pose),
+                quality_level=depth_quality
+            )
 
-        # Re-centre the camera poses relative to the first frame
-        if origin is None:
-            origin = left_camera_pose
-        left_camera_pose = origin.find_relative(left_camera_pose)
-        right_camera_pose = origin.find_relative(right_camera_pose)
+            # Re-centre the camera poses relative to the first frame
+            if origin is None:
+                origin = left_camera_pose
+            left_camera_pose = origin.find_relative(left_camera_pose)
+            right_camera_pose = origin.find_relative(right_camera_pose)
 
-        left_metadata = imeta.make_metadata(
-            pixels=left_pixels,
-            depth=left_ground_truth_depth,
-            camera_pose=left_camera_pose,
-            intrinsics=left_camera_intrinsics,
-            source_type=imeta.ImageSourceType.SYNTHETIC,
-            environment_type=environment_type,
-            light_level=light_level,
-            time_of_day=time_of_day,
-            simulation_world=simulation_world,
-            lighting_model=lighting_model,
-            texture_mipmap_bias=texture_mipmap_bias,
-            normal_maps_enabled=normal_maps_enabled,
-            roughness_enabled=roughness_enabled,
-            geometry_decimation=geometry_decimation,
-            minimum_object_volume=min_object_size,
-            labelled_objects=left_labelled_objects
-        )
-        right_metadata = imeta.make_right_metadata(
-            pixels=right_pixels,
-            depth=right_ground_truth_depth,
-            camera_pose=right_camera_pose,
-            intrinsics=right_camera_intrinsics,
-            labelled_objects=right_labelled_objects,
-            left_metadata=left_metadata
-        )
-        image = StereoImage(
-            pixels=left_pixels,
-            right_pixels=right_pixels,
-            depth=noisy_depth,
-            ground_truth_depth=left_ground_truth_depth,
-            right_ground_truth_depth=right_ground_truth_depth,
-            metadata=left_metadata,
-            right_metadata=right_metadata,
-        )
-        image.save()
-        images.append(image)
+            left_metadata = imeta.make_metadata(
+                pixels=left_pixels,
+                depth=left_ground_truth_depth,
+                camera_pose=left_camera_pose,
+                intrinsics=left_camera_intrinsics,
+                source_type=imeta.ImageSourceType.SYNTHETIC,
+                environment_type=environment_type,
+                light_level=light_level,
+                time_of_day=time_of_day,
+                simulation_world=simulation_world,
+                lighting_model=lighting_model,
+                texture_mipmap_bias=texture_mipmap_bias,
+                normal_maps_enabled=normal_maps_enabled,
+                roughness_enabled=roughness_enabled,
+                geometry_decimation=geometry_decimation,
+                minimum_object_volume=min_object_size,
+                labelled_objects=left_labelled_objects
+            )
+            right_metadata = imeta.make_right_metadata(
+                pixels=right_pixels,
+                depth=right_ground_truth_depth,
+                camera_pose=right_camera_pose,
+                intrinsics=right_camera_intrinsics,
+                labelled_objects=right_labelled_objects,
+                left_metadata=left_metadata
+            )
+            image = StereoImage(
+                pixels=left_pixels,
+                right_pixels=right_pixels,
+                depth=noisy_depth,
+                ground_truth_depth=left_ground_truth_depth,
+                right_ground_truth_depth=right_ground_truth_depth,
+                metadata=left_metadata,
+                right_metadata=right_metadata,
+            )
+            image.save()
+            images.append(image)
 
     # Create and save the image collection
     collection = ImageCollection(
