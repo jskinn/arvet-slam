@@ -352,15 +352,14 @@ class LibVisOStereoSystem(LibVisOSystem):
         settings['base'] = self._base
         return settings
 
-    @classmethod
-    def preload_image_data(cls, image: Image) -> None:
+    def preload_image_data(self, image: Image) -> None:
         """
         Preload the pixel data we use from the images.
         This is a stereo system, load right pixel data as well
         :param image:
         :return:
         """
-        super(LibVisOStereoSystem, cls).preload_image_data(image)
+        super(LibVisOStereoSystem, self).preload_image_data(image)
         if hasattr(image, 'right_pixels'):
             _ = image.right_pixels
 

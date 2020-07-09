@@ -203,6 +203,21 @@ class OrbSlam2(VisionSystem):
         self._temp_folder = path_manager.get_temp_folder()
         self._actual_vocab_file = path_manager.find_file(self.vocabulary_file)
 
+    def preload_image_data(self, image: Image) -> None:
+        """
+        Preload the pixel data we use from the images.
+        If the system is configured for stereo or RGBD operation, load those pixels as well.
+        :param image:
+        :return:
+        """
+        super(OrbSlam2, self).preload_image_data(image)
+        if self.mode is SensorMode.STEREO and hasattr(image, 'right_pixels'):
+            # Load the right image if the system is configured for stereo
+            _ = image.right_pixels
+        elif self.mode is SensorMode.RGBD:
+            # Load the depth image if the system is configured for RGB-D
+            _ = image.depth
+
     def start_trial(self, sequence_type: ImageSequenceType, seed: int = 0) -> None:
         """
         Start a trial with this system.
