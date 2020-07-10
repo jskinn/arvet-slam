@@ -122,6 +122,9 @@ def verify_sequence(image_collection: ImageCollection, root_folder: Path) -> boo
         # We're done and need to clean up after ourselves
         shutil.rmtree(delete_when_done)
 
-    logging.getLogger(__name__).info(f"Verification of {image_collection.sequence_name} complete, it is " +
-                                     'valid.' if valid else f"INVALID! ({total_invalid_images} images failed)")
+    if valid:
+        logging.getLogger(__name__).info(f"Verification of {image_collection.sequence_name} successful.")
+    else:
+        logging.getLogger(__name__).info(f"Verification of {image_collection.sequence_name} ({image_collection.pk}) "
+                                         f"FAILED, ({total_invalid_images} images failed)")
     return valid

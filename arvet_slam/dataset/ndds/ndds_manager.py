@@ -211,7 +211,7 @@ class NDDSManager:
 
         all_valid = False
         total_validated = 0
-        total_invalid = 0
+        invalid_ids = []
         for sequence_path in sequence_paths:
             import_dataset_task = task_manager.get_import_dataset_task(
                 module_name=ndds_loader.__name__,
@@ -219,15 +219,19 @@ class NDDSManager:
                 additional_args={}
             )
             if import_dataset_task.is_finished:
-                is_valid = ndds_verify.verify_sequence(import_dataset_task.get_result(), sequence_path)
+                image_collection = import_dataset_task.get_result()
+                is_valid = ndds_verify.verify_sequence(image_collection, sequence_path)
                 all_valid = all_valid and is_valid
                 total_validated += 1
                 if not is_valid:
-                    total_invalid += 1
+                    invalid_ids.append(image_collection.pk)
+                del image_collection     # Clear from memory before loading the next one
             else:
                 logging.getLogger(__name__).debug(f"Not validating {sequence_path}, not imported yet")
         logging.getLogger(__name__).info(f"Validated {total_validated} of {len(self._sequence_data)} sequences, "
-                                         f"{total_invalid} were invalid")
+                                         f"{len(invalid_ids)} were invalid")
+        if len(invalid_ids) > 0:
+            logging.getLogger(__name__).error(f"Invalid ids were: {invalid_ids}")
         return all_valid
 
 
