@@ -295,6 +295,14 @@ class TestFrameError(unittest.TestCase):
             direction=np.pi / 8,
             rot=np.pi / 16
         )
+        self.systemic_error = PoseError(
+            x=19,
+            y=20,
+            z=21,
+            length=np.sqrt(19 * 19 + 400 + 21 * 21),
+            direction=np.pi / 9,
+            rot=np.pi / 27
+        )
 
         self.frame_error = make_frame_error(
             repeat_index=self.repeat,
@@ -306,7 +314,8 @@ class TestFrameError(unittest.TestCase):
             loop_angles=self.loop_angles,
             absolute_error=self.absolute_error,
             relative_error=self.relative_error,
-            noise=self.noise
+            noise=self.noise,
+            systemic_error=self.systemic_error
         )
 
     def test_get_properties_returns_all_properties_by_default(self):
@@ -354,7 +363,14 @@ class TestFrameError(unittest.TestCase):
             'trans_noise_z': self.noise.z,
             'trans_noise_length': self.noise.length,
             'trans_noise_direction': self.noise.direction,
-            'rot_noise': self.noise.rot
+            'rot_noise': self.noise.rot,
+
+            'systemic_x': self.systemic_error.x,
+            'systemic_y': self.systemic_error.y,
+            'systemic_z': self.systemic_error.z,
+            'systemic_length': self.systemic_error.length,
+            'systemic_direction': self.systemic_error.direction,
+            'systemic_rot': self.systemic_error.rot
         })
         self.assertEqual(expected_properties, self.frame_error.get_properties())
 
@@ -404,7 +420,14 @@ class TestFrameError(unittest.TestCase):
             'trans_noise_z': self.noise.z,
             'trans_noise_length': self.noise.length,
             'trans_noise_direction': self.noise.direction,
-            'rot_noise': self.noise.rot
+            'rot_noise': self.noise.rot,
+
+            'systemic_x': self.systemic_error.x,
+            'systemic_y': self.systemic_error.y,
+            'systemic_z': self.systemic_error.z,
+            'systemic_length': self.systemic_error.length,
+            'systemic_direction': self.systemic_error.direction,
+            'systemic_rot': self.systemic_error.rot
         })
         columns = list(expected_properties.keys())
         np.random.shuffle(columns)
@@ -480,7 +503,8 @@ class TestFrameError(unittest.TestCase):
             loop_angles=self.loop_angles,
             absolute_error=pose_error,
             relative_error=pose_error,
-            noise=pose_error
+            noise=pose_error,
+            systemic_error=pose_error
         )
         self.assertEqual(self.image, frame_error.image)
 
@@ -515,7 +539,8 @@ class TestFrameError(unittest.TestCase):
             loop_angles=self.loop_angles,
             absolute_error=pose_error,
             relative_error=pose_error,
-            noise=pose_error
+            noise=pose_error,
+            systemic_error=pose_error
         )
         self.assertEqual(self.image, frame_error.image)
 
@@ -553,6 +578,14 @@ class TestFrameError(unittest.TestCase):
             direction=np.pi / 8,
             rot=np.pi / 16
         )
+        systemic_error = PoseError(
+            x=19,
+            y=20,
+            z=21,
+            length=np.sqrt(19 * 19 + 400 + 21 * 21),
+            direction=np.pi / 9,
+            rot=np.pi / 27
+        )
         frame_error = make_frame_error(
             trial_result=self.trial,
             frame_result=frame_result,
@@ -563,7 +596,8 @@ class TestFrameError(unittest.TestCase):
             loop_angles=self.loop_angles,
             absolute_error=absolute_error,
             relative_error=relative_error,
-            noise=noise
+            noise=noise,
+            systemic_error=systemic_error
         )
         expected_properties = dict(self.image.get_properties())
         expected_properties.update(self.system.get_properties(self.trial.settings))
@@ -611,6 +645,13 @@ class TestFrameError(unittest.TestCase):
             'trans_noise_direction': noise.direction,
             'rot_noise': noise.rot,
 
+            'systemic_x': systemic_error.x,
+            'systemic_y': systemic_error.y,
+            'systemic_z': systemic_error.z,
+            'systemic_length': systemic_error.length,
+            'systemic_direction': systemic_error.direction,
+            'systemic_rot': systemic_error.rot,
+
             'system_column': 823.3,
             'runtime_column': 42
         })
@@ -644,7 +685,8 @@ class TestFrameError(unittest.TestCase):
             repeat_index=self.repeat,
             absolute_error=pose_error,
             relative_error=pose_error,
-            noise=pose_error
+            noise=pose_error,
+            systemic_error=pose_error
         )
         expected_properties = self.system.get_properties(None, self.trial.settings)
         self.assertEqual(expected_properties, frame_error.system_properties)
@@ -680,7 +722,8 @@ class TestFrameError(unittest.TestCase):
             loop_angles=self.loop_angles,
             absolute_error=pose_error,
             relative_error=pose_error,
-            noise=pose_error
+            noise=pose_error,
+            systemic_error=pose_error
         )
         expected_properties = self.system.get_properties(None, self.trial.settings)
         self.assertEqual(expected_properties, frame_error.system_properties)
@@ -709,7 +752,8 @@ class TestFrameError(unittest.TestCase):
                 loop_angles=self.loop_angles + [np.pi / 47],
                 absolute_error=self.absolute_error,
                 relative_error=self.relative_error,
-                noise=self.noise
+                noise=self.noise,
+                systemic_error=self.systemic_error
             )
 
 
@@ -978,6 +1022,14 @@ class TestFrameErrorDatabase(unittest.TestCase):
                 length=np.sqrt(256 + 289 + 324),
                 direction=np.pi / 8,
                 rot=np.pi / 16
+            ),
+            systemic_error=PoseError(
+                x=19,
+                y=20,
+                z=21,
+                length=np.sqrt(19 * 19 + 400 + 21 * 21),
+                direction=np.pi / 27,
+                rot=np.pi / 19
             )
         )
 
@@ -1006,6 +1058,7 @@ class TestFrameErrorDatabase(unittest.TestCase):
         self.assertEqual(frame_error.absolute_error, loaded_frame_error.absolute_error)
         self.assertEqual(frame_error.relative_error, loaded_frame_error.relative_error)
         self.assertEqual(frame_error.noise, loaded_frame_error.noise)
+        self.assertEqual(frame_error.systemic_error, loaded_frame_error.systemic_error)
         self.assertEqual(frame_error.system_properties, loaded_frame_error.system_properties)
         self.assertEqual(frame_error.image_properties, loaded_frame_error.image_properties)
         loaded_frame_error.delete()
@@ -1082,6 +1135,14 @@ class TestFrameErrorDatabase(unittest.TestCase):
                 length=np.sqrt(256 + 289 + 324),
                 direction=np.pi / 8,
                 rot=np.pi / 16
+            ),
+            systemic_error=PoseError(
+                x=19,
+                y=20,
+                z=21,
+                length=np.sqrt(19 * 19 + 400 + 21 * 21),
+                direction=np.pi / 27,
+                rot=np.pi / 19
             )
         )
         self.assertEqual(0, CountedImage.instance_count)
@@ -1164,6 +1225,14 @@ class TestFrameErrorDatabase(unittest.TestCase):
                 length=np.sqrt(256 + 289 + 324),
                 direction=np.pi / 8,
                 rot=np.pi / 16
+            ),
+            systemic_error=PoseError(
+                x=19,
+                y=20,
+                z=21,
+                length=np.sqrt(19 * 19 + 400 + 21 * 21),
+                direction=np.pi / 27,
+                rot=np.pi / 19
             )
         )
         self.assertEqual(0, CountedSystem.instance_count)
@@ -1234,6 +1303,14 @@ class TestFrameErrorDatabase(unittest.TestCase):
                 length=np.sqrt(256 + 289 + 324),
                 direction=np.pi / 8,
                 rot=np.pi / 16
+            ),
+            systemic_error=PoseError(
+                x=19,
+                y=20,
+                z=21,
+                length=np.sqrt(19 * 19 + 400 + 21 * 21),
+                direction=np.pi / 27,
+                rot=np.pi / 19
             )
         )
         frame_error.save()
@@ -1396,7 +1473,8 @@ class TestMakeFrameErrorResult(unittest.TestCase):
             loop_angles=[],
             absolute_error=pose_error,
             relative_error=pose_error,
-            noise=pose_error
+            noise=pose_error,
+            systemic_error=pose_error
         )
 
         system.get_properties.return_value = {'system_property_2': 65535}
@@ -1411,7 +1489,8 @@ class TestMakeFrameErrorResult(unittest.TestCase):
             loop_angles=[],
             absolute_error=pose_error,
             relative_error=pose_error,
-            noise=pose_error
+            noise=pose_error,
+            systemic_error=pose_error
         )
         self.assertNotEqual(frame_error_1.get_columns(), frame_error_2.get_columns())
 
@@ -2010,6 +2089,14 @@ class TestFrameErrorResultDatabase(unittest.TestCase):
                         length=np.sqrt(256 + 289 + 324),
                         direction=np.pi / 8,
                         rot=np.pi / 16
+                    ),
+                    systemic_error=PoseError(
+                        x=19,
+                        y=20,
+                        z=21,
+                        length=np.sqrt(19 * 19 + 400 + 21 * 21),
+                        direction=np.pi / 27,
+                        rot=np.pi / 19
                     )
                 )]
             )]

@@ -455,6 +455,7 @@ class TestFrameErrorMetricOutput(unittest.TestCase):
             self.assertEqual(len(frame_result.loop_edges), len(frame_error.loop_distances))
             self.assertEqual(len(frame_result.loop_edges), len(frame_error.loop_angles))
             self.assertIsNone(frame_error.noise)
+            self.assertIsNone(frame_error.systemic_error)
 
             self.assertAlmostEqual(0.1 * idx, frame_error.absolute_error.x, places=13)
             self.assertAlmostEqual(0.01 * idx, frame_error.absolute_error.y, places=13)
@@ -524,6 +525,7 @@ class TestFrameErrorMetricOutput(unittest.TestCase):
             self.assertEqual(len(frame_result.loop_edges), len(frame_error.loop_distances))
             self.assertEqual(len(frame_result.loop_edges), len(frame_error.loop_angles))
             self.assertIsNone(frame_error.noise)
+            self.assertIsNone(frame_error.systemic_error)
 
             # Absolute error should be 0 when both estimates appear, and grow after that
             if idx < start:
@@ -598,6 +600,7 @@ class TestFrameErrorMetricOutput(unittest.TestCase):
             self.assertEqual(frame_result.image, frame_error.image)
             self.assertEqual(frame_result.tracking_state, frame_error.tracking)
             self.assertIsNone(frame_error.noise)
+            self.assertIsNone(frame_error.systemic_error)
             self.assertEqual(frame_result.num_features, frame_error.num_features)
             self.assertEqual(frame_result.num_matches, frame_error.num_matches)
 
@@ -675,11 +678,14 @@ class TestFrameErrorMetricOutput(unittest.TestCase):
                 if idx == 0:
                     self.assertIsNone(frame_error.relative_error)
                     self.assertIsNone(frame_error.noise)
+                    self.assertIsNone(frame_error.systemic_error)
                 else:
                     self.assertErrorsEqual(make_pose_error(frame_result.estimated_motion, frame_result.motion),
                                            frame_error.relative_error)
                     self.assertErrorsEqual(make_pose_error(frame_result.estimated_motion, average_motions[idx]),
                                            frame_error.noise)
+                    self.assertErrorsEqual(make_pose_error(average_motions[idx], frame_result.motion),
+                                           frame_error.systemic_error)
 
     @mock.patch('arvet_slam.metrics.frame_error.frame_error_metric.autoload_modules')
     def test_measure_multiple_trials_lost_at_different_times(self, _):
@@ -780,7 +786,8 @@ class TestFrameErrorMetricOutput(unittest.TestCase):
                     self.assertErrorsEqual(make_pose_error(frame_result.estimated_motion, average_motions[idx]),
                                            frame_error.noise)
 
-    def test_returns_zero_error_or_noise_for_misaligned_trajectories(self):
+    @mock.patch('arvet_slam.metrics.frame_error.frame_error_metric.autoload_modules')
+    def test_returns_zero_error_or_noise_for_misaligned_trajectories(self, _):
         repeats = 3
 
         # The mis-aligned origin of the ground truth poses. Shouldn't affect the error
@@ -844,11 +851,14 @@ class TestFrameErrorMetricOutput(unittest.TestCase):
                     # No relative error or noise on the first frame, because there is no motion
                     self.assertIsNone(frame_error.relative_error)
                     self.assertIsNone(frame_error.noise)
+                    self.assertIsNone(frame_error.systemic_error)
                 else:
                     self.assertErrorIsAlmostZero(frame_error.relative_error, places=12, rot_places=7)
                     self.assertErrorIsAlmostZero(frame_error.noise, rot_places=7)
+                    self.assertErrorIsAlmostZero(frame_error.systemic_error, rot_places=7)
 
-    def test_returns_zero_error_or_noise_for_misaligned_partial_trajectories(self):
+    @mock.patch('arvet_slam.metrics.frame_error.frame_error_metric.autoload_modules')
+    def test_returns_zero_error_or_noise_for_misaligned_partial_trajectories(self, _):
         repeats = 3
 
         # The mis-aligned origin of the ground truth poses. Shouldn't matter
@@ -916,11 +926,14 @@ class TestFrameErrorMetricOutput(unittest.TestCase):
                     # No relative error on the first frame, because there is no motion
                     self.assertIsNone(frame_error.relative_error)
                     self.assertIsNone(frame_error.noise)
+                    self.assertIsNone(frame_error.systemic_error)
                 else:
                     self.assertErrorIsAlmostZero(frame_error.relative_error, places=12, rot_places=6)
                     self.assertErrorIsAlmostZero(frame_error.noise, places=12, rot_places=6)
+                    self.assertErrorIsAlmostZero(frame_error.systemic_error, places=12, rot_places=6)
 
-    def test_returns_zero_error_or_noise_for_misscaled_trajectory_that_doesnt_have_scale(self):
+    @mock.patch('arvet_slam.metrics.frame_error.frame_error_metric.autoload_modules')
+    def test_returns_zero_error_or_noise_for_misscaled_trajectory_that_doesnt_have_scale(self, _):
         repeats = 3
 
         # Make 3 trials, each with a different scale, they should be rescaled to correct
@@ -961,11 +974,14 @@ class TestFrameErrorMetricOutput(unittest.TestCase):
                     # No relative error or noise on the first frame, because there is no motion
                     self.assertIsNone(frame_error.relative_error)
                     self.assertIsNone(frame_error.noise)
+                    self.assertIsNone(frame_error.systemic_error)
                 else:
                     self.assertErrorIsAlmostZero(frame_error.relative_error)
                     self.assertErrorIsAlmostZero(frame_error.noise)
+                    self.assertErrorIsAlmostZero(frame_error.systemic_error)
 
-    def test_returns_nonzero_error_and_noise_for_misscaled_trajectory_that_has_scale(self):
+    @mock.patch('arvet_slam.metrics.frame_error.frame_error_metric.autoload_modules')
+    def test_returns_nonzero_error_and_noise_for_misscaled_trajectory_that_has_scale(self, _):
         repeats = 3
 
         # Make 3 trials, each with a different scale, they should be rescaled to correct
@@ -1016,6 +1032,7 @@ class TestFrameErrorMetricOutput(unittest.TestCase):
                     # No relative error or noise on the first frame, because there is no motion
                     self.assertIsNone(frame_error.relative_error)
                     self.assertIsNone(frame_error.noise)
+                    self.assertIsNone(frame_error.systemic_error)
                 else:
                     self.assertEqual(15 * scale - 15, frame_error.relative_error.x)
                     self.assertEqual(scale - 1, frame_error.relative_error.y)
@@ -1035,7 +1052,17 @@ class TestFrameErrorMetricOutput(unittest.TestCase):
                     )
                     self.assertEqual(0, frame_error.noise.rot)
 
-    def test_measure_multiple_many_random_trials(self):
+                    self.assertEqual((15 * avg_scale - 15), frame_error.systemic_error.x)
+                    self.assertEqual(avg_scale - 1, frame_error.systemic_error.y)
+                    self.assertEqual(0, frame_error.systemic_error.z)
+                    self.assertEqual(
+                        np.linalg.norm([15 * avg_scale - 15, avg_scale - 1, 0]),
+                        frame_error.systemic_error.length
+                    )
+                    self.assertEqual(0, frame_error.systemic_error.rot)
+
+    @mock.patch('arvet_slam.metrics.frame_error.frame_error_metric.autoload_modules')
+    def test_measure_multiple_many_random_trials(self, _):
         repeats = 5
 
         estimated_motions = [
@@ -1101,6 +1128,13 @@ class TestFrameErrorMetricOutput(unittest.TestCase):
                 else:
                     self.assertErrorsEqual(make_pose_error(frame_result.estimated_motion, average_motions[idx]),
                                            frame_error.noise)
+
+                # Systemic errror should be none iff the average motion is None
+                if average_motions[idx] is None:
+                    self.assertIsNone(frame_error.systemic_error)
+                else:
+                    self.assertErrorsEqual(make_pose_error(average_motions[idx], frame_result.motion),
+                                           frame_error.systemic_error)
 
     def assertErrorsEqual(self, pose_error_1, pose_error_2, rot_places=13):
         self.assertEqual(pose_error_1.x, pose_error_2.x)

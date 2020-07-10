@@ -96,6 +96,7 @@ class FrameError(pymodm.MongoModel):
     absolute_error = fields.EmbeddedDocumentField(PoseError, blank=True)
     relative_error = fields.EmbeddedDocumentField(PoseError, blank=True)
     noise = fields.EmbeddedDocumentField(PoseError, blank=True)
+    systemic_error = fields.EmbeddedDocumentField(PoseError, blank=True)
 
     system_properties = fields.DictField(blank=True)
     image_properties = fields.DictField(blank=True)
@@ -143,6 +144,13 @@ class FrameError(pymodm.MongoModel):
         trans_noise_length=lambda obj: obj.noise.length if obj.noise is not None else np.nan,
         trans_noise_direction=lambda obj: obj.noise.direction if obj.noise is not None else np.nan,
         rot_noise=lambda obj: obj.noise.rot if obj.noise is not None else np.nan,
+
+        systemic_x=lambda obj: obj.systemic_error.x if obj.systemic_error is not None else np.nan,
+        systemic_y=lambda obj: obj.systemic_error.y if obj.systemic_error is not None else np.nan,
+        systemic_z=lambda obj: obj.systemic_error.z if obj.systemic_error is not None else np.nan,
+        systemic_length=lambda obj: obj.systemic_error.length if obj.systemic_error is not None else np.nan,
+        systemic_direction=lambda obj: obj.systemic_error.direction if obj.systemic_error is not None else np.nan,
+        systemic_rot=lambda obj: obj.systemic_error.rot if obj.systemic_error is not None else np.nan,
     )
 
     @property
@@ -199,6 +207,7 @@ def make_frame_error(
         absolute_error: typing.Union[None, PoseError],
         relative_error: typing.Union[None, PoseError],
         noise: typing.Union[None, PoseError],
+        systemic_error: typing.Union[None, PoseError],
         loop_distances: typing.Iterable[float],
         loop_angles: typing.Iterable[float]
 ) -> FrameError:
@@ -221,6 +230,7 @@ def make_frame_error(
     :param absolute_error: The error in the estimated pose, in an absolute reference frame.
     :param relative_error: The error in teh estimated motion, relative to the previous frame.
     :param noise: The error between this particular motion estimate, and the average motion estimate from all trials.
+    :param systemic_error: The difference between the mean estimate and the true motion. Should be near zero.
     :param loop_distances: The distance to other images to which this image has a loop closure. Will usually be empty.
     :param loop_angles: The angle to other images to which this image has a loop closure.
     :return: A FrameError object, containing the errors, and related metadata.
@@ -274,6 +284,7 @@ def make_frame_error(
         absolute_error=absolute_error,
         relative_error=relative_error,
         noise=noise,
+        systemic_error=systemic_error,
         system_properties={str(k): json_value(v) for k, v in system_properties.items()},
         image_properties={str(k): json_value(v) for k, v in image_properties.items()}
     )

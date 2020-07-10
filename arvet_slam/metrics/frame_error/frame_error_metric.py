@@ -206,7 +206,11 @@ class FrameErrorMetric(Metric):
                     noise=make_pose_error(
                         scaled_motions[repeat_idx],
                         average_motion
-                    ) if scaled_motions[repeat_idx] is not None and average_motion is not None else None
+                    ) if scaled_motions[repeat_idx] is not None and average_motion is not None else None,
+                    systemic_error=make_pose_error(
+                        average_motion,
+                        frame_result.motion
+                    ) if average_motion is not None else None
                 )
                 estimate_errors[repeat_idx].append(frame_error)
 
