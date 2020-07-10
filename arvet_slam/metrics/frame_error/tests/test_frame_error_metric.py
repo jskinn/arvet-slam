@@ -16,8 +16,10 @@ from arvet.core.metric import MetricResult
 from arvet.core.trial_result import TrialResult
 import arvet.core.tests.mock_types as mock_types
 from arvet.util.transform import Transform, compute_average_pose
+from arvet.util.test_helpers import ExtendedTestCase
 
-from arvet_slam.metrics.frame_error.frame_error_metric import FrameErrorMetric, make_pose_error
+from arvet_slam.metrics.frame_error.frame_error_metric import FrameErrorMetric, make_pose_error, \
+    align_trajectory_to_ground_truth
 from arvet_slam.trials.slam.tracking_state import TrackingState
 from arvet_slam.trials.slam.visual_slam import SLAMTrialResult, FrameResult
 
@@ -1175,3 +1177,117 @@ class TestFrameErrorMetricOutput(unittest.TestCase):
         self.assertAlmostEqual(0, pose_error.length, places=places)
         # self.assertTrue(np.isnan(pose_error.direction))
         self.assertAlmostEqual(0, pose_error.rot, places=rot_places)
+
+
+class TestAlignTrajectoryToGroundTruth(ExtendedTestCase):
+
+    def assertQuatClose(self, q1, q2, msg='', rtol=1e-05, atol=1e-08):
+        if np.dot(q1, q2) < 1:
+            q2 = -1 * np.asarray(q2)
+        self.assertNPClose(q1, q2, msg=msg, rtol=rtol, atol=atol)
+
+    def test_align_simple_offset(self):
+        offset = np.array([15, 22, -1])
+        points = [np.array([15 * idx - 3 * idx * idx, -22 * idx, 200 + 55 * idx - 5 * idx]) for idx in range(30)]
+        gt_trajectory = [Transform(location=point) for point in points]
+        estimated_trajectory = [Transform(location=point + offset) for point in points]
+        shift, scale = align_trajectory_to_ground_truth(estimated_trajectory, gt_trajectory, compute_scale=False)
+        self.assertNPEqual(offset, shift.location)
+        self.assertNPEqual([1, 0, 0, 0], shift.rotation_quat(True))
+        self.assertEqual(1, scale)
+        for idx in range(len(points)):
+            self.assertEqual(gt_trajectory[idx], shift.find_relative(estimated_trajectory[idx]))
+
+    def test_align_simple_rotation(self):
+        rotation = tf3d.quaternions.axangle2quat((0, -1, 0), 3 * np.pi / 4)
+        points = [np.array([15 * idx - 3 * idx * idx, -22 * idx, 200 + 50 * idx]) for idx in range(30)]
+        gt_trajectory = [Transform(location=point) for point in points]
+        estimated_trajectory = [
+            Transform(location=tf3d.quaternions.rotate_vector(point, rotation), rotation=rotation, w_first=True)
+            for point in points
+        ]
+        shift, scale = align_trajectory_to_ground_truth(estimated_trajectory, gt_trajectory, compute_scale=False)
+        self.assertNPClose([0, 0, 0], shift.location, rtol=0, atol=1e-12)
+        self.assertQuatClose(rotation, shift.rotation_quat(True), rtol=0, atol=1e-12)
+        self.assertEqual(1, scale)
+        for idx in range(len(points)):
+            shifted_pose = shift.find_relative(estimated_trajectory[idx])
+            self.assertNPClose(gt_trajectory[idx].location, shifted_pose.location, rtol=0, atol=1e-12)
+            self.assertQuatClose(gt_trajectory[idx].rotation_quat(True), shifted_pose.rotation_quat(True),
+                                 rtol=0, atol=1e-12)
+
+    def test_combined_rotation_and_translation(self):
+        offset = np.array([-17, -43, 12])
+        rotation = tf3d.quaternions.axangle2quat((-3, 1, 2), 7 * np.pi / 9)
+        points = [np.array([
+            (idx - 34) * (55 - idx),
+            122 - 16 * idx,
+            30 + 35 * idx - 18 * idx * idx
+        ]) for idx in range(100)]
+        gt_trajectory = [Transform(location=point) for point in points]
+        estimated_trajectory = [
+            Transform(location=tf3d.quaternions.rotate_vector(point, rotation) + offset,
+                      rotation=rotation, w_first=True)
+            for point in points
+        ]
+        shift, scale = align_trajectory_to_ground_truth(estimated_trajectory, gt_trajectory, compute_scale=False)
+        self.assertNPClose(offset, shift.location, rtol=0, atol=1e-9)
+        self.assertNPClose(rotation, shift.rotation_quat(True), rtol=0, atol=1e-10)
+        self.assertEqual(1, scale)
+        for idx in range(len(points)):
+            shifted_pose = shift.find_relative(estimated_trajectory[idx])
+            self.assertNPClose(gt_trajectory[idx].location, shifted_pose.location, rtol=0, atol=1e-8)   # This is bad
+            self.assertQuatClose(gt_trajectory[idx].rotation_quat(True), shifted_pose.rotation_quat(True),
+                                 rtol=0, atol=1e-10)
+
+    def test_combined_rotation_translation_and_symmetric_scale(self):
+        offset = np.array([-17, -43, 12])
+        scale = np.pi
+        rotation = tf3d.quaternions.axangle2quat((-3, 1, 2), 7 * np.pi / 9)
+        points = [np.array([
+            (idx - 34) * (55 - idx),
+            122 - 16 * idx,
+            30 + 35 * idx - 18 * idx * idx
+        ]) for idx in range(100)]
+        gt_trajectory = [Transform(location=point) for point in points]
+        estimated_trajectory = [
+            Transform(location=tf3d.quaternions.rotate_vector(point, rotation) * scale + offset,
+                      rotation=rotation, w_first=True)
+            for point in points
+        ]
+        shift, est_scale = align_trajectory_to_ground_truth(estimated_trajectory, gt_trajectory,
+                                                            compute_scale=True, use_symmetric_scale=True)
+        self.assertNPClose(offset, shift.location, rtol=0, atol=1e-8)
+        self.assertNPClose(rotation, shift.rotation_quat(True), rtol=0, atol=1e-10)
+        self.assertAlmostEqual(1 / scale, est_scale, places=10)
+        for idx in range(len(points)):
+            shifted_pose = shift.find_relative(estimated_trajectory[idx])
+            self.assertNPClose(gt_trajectory[idx].location, est_scale * shifted_pose.location, rtol=0, atol=1e-8)
+            self.assertQuatClose(gt_trajectory[idx].rotation_quat(True), shifted_pose.rotation_quat(True),
+                                 rtol=0, atol=1e-10)
+
+    def test_combined_rotation_translation_and_asymmetric_scale(self):
+        offset = np.array([-17, -43, 12])
+        scale = np.pi
+        rotation = tf3d.quaternions.axangle2quat((-3, 1, 2), 7 * np.pi / 9)
+        points = [np.array([
+            (idx - 34) * (55 - idx),
+            122 - 16 * idx,
+            30 + 35 * idx - 18 * idx * idx
+        ]) for idx in range(100)]
+        gt_trajectory = [Transform(location=point) for point in points]
+        estimated_trajectory = [
+            Transform(location=tf3d.quaternions.rotate_vector(point, rotation) * scale + offset,
+                      rotation=rotation, w_first=True)
+            for point in points
+        ]
+        shift, est_scale = align_trajectory_to_ground_truth(estimated_trajectory, gt_trajectory,
+                                                            compute_scale=True, use_symmetric_scale=False)
+        self.assertNPClose(offset, shift.location, rtol=0, atol=1e-8)
+        self.assertNPClose(rotation, shift.rotation_quat(True), rtol=0, atol=1e-10)
+        self.assertAlmostEqual(1 / scale, est_scale, places=10)
+        for idx in range(len(points)):
+            shifted_pose = shift.find_relative(estimated_trajectory[idx])
+            self.assertNPClose(gt_trajectory[idx].location, est_scale * shifted_pose.location, rtol=0, atol=1e-8)
+            self.assertQuatClose(gt_trajectory[idx].rotation_quat(True), shifted_pose.rotation_quat(True),
+                                 rtol=0, atol=1e-10)

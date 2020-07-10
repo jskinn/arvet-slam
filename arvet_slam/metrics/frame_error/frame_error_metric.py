@@ -1,9 +1,10 @@
 # Copyright (c) 2018, John Skinner
 import typing
 
-import arvet.util.transform as tf
 import bson
 import numpy as np
+import transforms3d as t3
+import arvet.util.transform as tf
 from arvet.core.image_source import ImageSource
 from arvet.core.metric import Metric, MetricResult, check_trial_collection
 from arvet.core.system import VisionSystem
@@ -265,3 +266,82 @@ def compute_loop_distances_and_angles(current_pose: tf.Transform, linked_poses: 
         tf.quat_angle(relative_pose.rotation_quat(w_first=True))
         for relative_pose in relative_poses
     ]
+
+
+def align_trajectory_to_ground_truth(
+        trajectory: typing.Iterable[tf.Transform],
+        ground_truth: typing.Iterable[tf.Transform],
+        compute_scale: bool = False,
+        use_symmetric_scale: bool = True
+) -> typing.Tuple[tf.Transform, float]:
+    """
+    Compute a single Transform and scale to optimally fit an estimated trajectory to a ground truth trajectory
+
+    Based on
+    "Closed-form solution of absolute orientation using unit quaternions" by Berthold Horn (1987)
+    as recommended by the TUM ATE benchmark
+
+    :param trajectory: The list of estimated points to transform
+    :param ground_truth: The list of ground truth points
+    :param compute_scale: Whether to compute a scale. Some trajectories should not need it
+    :param use_symmetric_scale: Whether to use the scale from the symmetric error as in Section 2E.
+    Synthetic data has more precise ground truth, which should be preferred for scale calculation.
+    :return: A Transform and scale such that taking each trajectory point relative to the output, and multiplying by
+    the scale transforms the trajectory point into the ground truth frame.
+    """
+    estimated_points = [pose.location for pose in trajectory]
+    gt_points = [pose.location for pose in ground_truth]
+    if not len(estimated_points) == len(gt_points):
+        # The two trajectories must consist of corresponding points
+        raise RuntimeError(f"Cannot resolve together trajectories of different lengths, points must correspond")
+
+    # Normalise the two sets of points to have origin 0, 0, 0; as in Section 2C of the paper
+    estimated_centroid = np.mean(estimated_points, axis=0)
+    gt_centroid = np.mean(gt_points, axis=0)
+
+    # Compute the sum of outer products (matrix M in Section 4A)
+    prod_sum = sum(
+        np.outer(p1 - gt_centroid, p2 - estimated_centroid)
+        for p1, p2 in zip(gt_points, estimated_points)
+    )
+
+    # Rearrange the elements of prod_sum into the matrix N from Section 4A
+    quat_product_matrix = np.array([
+        [prod_sum[0, 0] + prod_sum[1, 1] + prod_sum[2, 2], prod_sum[1, 2] - prod_sum[2, 1], prod_sum[2, 0] - prod_sum[0, 2], prod_sum[0, 1] - prod_sum[1, 0]],
+        [prod_sum[1, 2] - prod_sum[2, 1], prod_sum[0, 0] - prod_sum[1, 1] - prod_sum[2, 2], prod_sum[0, 1] + prod_sum[1, 0], prod_sum[2, 0] + prod_sum[0, 2]],
+        [prod_sum[2, 0] - prod_sum[0, 2], prod_sum[0, 1] + prod_sum[1, 0], prod_sum[1, 1] - prod_sum[0, 0] - prod_sum[2, 2], prod_sum[1, 2] + prod_sum[2, 1]],
+        [prod_sum[0, 1] - prod_sum[1, 0], prod_sum[2, 0] + prod_sum[0, 2], prod_sum[1, 2] + prod_sum[2, 1], prod_sum[2, 2] - prod_sum[0, 0] - prod_sum[1, 1]]
+    ])
+
+    # The optimum rotation quat is the largest eigenvector corresponding to the largest eigenvalue
+    eigenvalues, eigenvectors = np.linalg.eig(quat_product_matrix)
+    max_idx = np.argmax(eigenvalues)
+    rotation_quat = eigenvectors[:, max_idx]   # Optimum rotation, w-first
+
+    scale = 1.0
+    if compute_scale:
+        if use_symmetric_scale:
+            # Use the symmetric definition in Section 2E
+            # Flipped so that pose * scale = unscaled pose
+            scale = np.sqrt(
+                sum(np.dot(point - gt_centroid, point - gt_centroid) for point in gt_points) /
+                sum(np.dot(point - estimated_centroid, point - estimated_centroid) for point in estimated_points)
+            )
+        else:
+            # Base the scale on the rotation, as in Section 2D
+            # s = D / S_{l}
+            # Except that we want to multiply by the scale to transform to the gt frame, so we invert
+            scale = sum(np.dot(point - gt_centroid, point - gt_centroid) for point in gt_points)
+            scale = scale / sum(
+                np.dot(estimated_point - estimated_centroid,
+                       t3.quaternions.rotate_vector(gt_point - gt_centroid, rotation_quat))
+                for gt_point, estimated_point in zip(gt_points, estimated_points)
+            )
+
+    # Optimum translation is the difference in the centroids, once corrected for rotation and scale
+    translation = estimated_centroid - t3.quaternions.rotate_vector(gt_centroid / scale, rotation_quat)
+    return tf.Transform(
+        location=translation,
+        rotation=rotation_quat,
+        w_first=True
+    ), scale
