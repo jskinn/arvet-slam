@@ -9,6 +9,7 @@ from bson import ObjectId
 import arvet.metadata.image_metadata as imeta
 import arvet.batch_analysis.task_manager as task_manager
 import arvet_slam.dataset.ndds.ndds_loader as ndds_loader
+import arvet_slam.dataset.ndds.ndds_verify as ndds_verify
 
 
 ENVIRONMENTS = [
@@ -176,6 +177,58 @@ class NDDSManager:
                 import_dataset_task.save()
                 num_pending += 1
         return sequences, num_pending
+
+    def verify_sequences(
+            self,
+            environment: str = None,
+            trajectory_id: str = None,
+            quality_level: QualityLevel = None,
+            time_of_day: imeta.TimeOfDay = None
+    ) -> bool:
+        """
+        Verify all image sequences that match a specific set of requirements.
+        Each image sequence will be read from disk, and compared to the image data in the image_manager.
+        Focus is on the image pixels, does not verify trajectories or metadata.
+        Errors will be logged, but the verification will continue.
+        Only those sequences that have successfully imported can be validated.
+
+        :param environment: Only validate sequences recorded in the specified environment. Member of 'ENVIRONMENTS'.
+        :param trajectory_id: Only validate sequences that follow the given trajectory. Member of 'TRAJECTORIES'
+        :param quality_level: Only validate sequences that are recorded at the given quality.
+        :param time_of_day: Only validate sequences of the particular time of day
+        :return: True if all the specified sequences pass validation, false otherwise
+        """
+        sequence_paths = [
+            sequence_entry.path
+            for sequence_entry in self._sequence_data
+            if (
+                    (environment is None or sequence_entry.environment == environment) and
+                    (trajectory_id is None or sequence_entry.trajectory_id == trajectory_id) and
+                    (quality_level is None or sequence_entry.quality_level == quality_level) and
+                    (time_of_day is None or sequence_entry.time_of_day == time_of_day)
+            )
+        ]
+
+        all_valid = False
+        total_validated = 0
+        total_invalid = 0
+        for sequence_path in sequence_paths:
+            import_dataset_task = task_manager.get_import_dataset_task(
+                module_name=ndds_loader.__name__,
+                path=str(sequence_path),
+                additional_args={}
+            )
+            if import_dataset_task.is_finished:
+                is_valid = ndds_verify.verify_sequence(import_dataset_task.get_result(), sequence_path)
+                all_valid = all_valid and is_valid
+                total_validated += 1
+                if not is_valid:
+                    total_invalid += 1
+            else:
+                logging.getLogger(__name__).debug(f"Not validating {sequence_path}, not imported yet")
+        logging.getLogger(__name__).info(f"Validated {total_validated} of {len(self._sequence_data)} sequences, "
+                                         f"{total_invalid} were invalid")
+        return all_valid
 
 
 def load_sequences(root: typing.Union[str, bytes, os.PathLike, PurePath]) -> typing.List[SequenceEntry]:

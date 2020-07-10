@@ -145,6 +145,7 @@ def import_sequence(root_folder: Path, left_path: Path, right_path: Path,
     # Open the image manager for writing once, so that we're not constantly opening and closing it with each image
     with arvet.database.image_manager.get():
         for img_idx in range(max_img_id + 1):
+            logging.getLogger(__name__).info(f"Loading image {img_idx}...")
             # Read the raw data for the left image
             left_frame_data = read_json(left_path / DATA_TEMPLATE.format(img_idx))
             left_pixels = image_utils.read_colour(left_path / IMG_TEMPLATE.format(img_idx))
@@ -238,7 +239,12 @@ def import_sequence(root_folder: Path, left_path: Path, right_path: Path,
                 metadata=left_metadata,
                 right_metadata=right_metadata,
             )
-            image.save()
+            try:
+                image.save()
+            except KeyError as exp:
+                logging.getLogger(__name__).info(f"Key error while saving image {img_idx} in sequence {sequence_name}, "
+                                                 f"read from {left_path / IMG_TEMPLATE.format(img_idx)}")
+                raise exp
             images.append(image)
 
     # Create and save the image collection
