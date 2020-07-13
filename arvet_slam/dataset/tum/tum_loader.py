@@ -260,9 +260,10 @@ def import_dataset(root_folder, dataset_name, **_):
 
     # Step 3: Load the images from the metadata
     first_timestamp = None
+    image_group = dataset_name
     images = []
     timestamps = []
-    with arvet.database.image_manager.get():
+    with arvet.database.image_manager.get().get_group(image_group, allow_write=True):
         for timestamp, image_file, camera_pose, depth_file in all_metadata:
             # Re-zero the timestamps
             if first_timestamp is None:
@@ -287,6 +288,7 @@ def import_dataset(root_folder, dataset_name, **_):
             image = Image(
                 pixels=rgb_data,
                 depth=depth_data,
+                image_group=image_group,
                 metadata=metadata
             )
             image.save()

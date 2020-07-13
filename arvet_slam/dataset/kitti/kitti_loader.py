@@ -111,9 +111,10 @@ def import_dataset(root_folder, sequence_number, **_):
     # dataset.gray:       Generator to load monochrome stereo pairs (cam0, cam1)
     # dataset.rgb:        Generator to load RGB stereo pairs (cam2, cam3)
     # dataset.velo:       Generator to load velodyne scans as [x,y,z,reflectance]
+    image_group = f"KITTI_{sequence_number:06}"
     images = []
     timestamps = []
-    with arvet.database.image_manager.get():
+    with arvet.database.image_manager.get().get_group(image_group, allow_write=True):
         for left_image, right_image, timestamp, pose in zip(data.cam2, data.cam3, data.timestamps, data.poses):
             left_image = np.array(left_image)
             right_image = np.array(right_image)
@@ -157,6 +158,7 @@ def import_dataset(root_folder, sequence_number, **_):
             image = StereoImage(
                 pixels=left_image,
                 right_pixels=right_image,
+                image_group=image_group,
                 metadata=left_metadata,
                 right_metadata=right_metadata
             )

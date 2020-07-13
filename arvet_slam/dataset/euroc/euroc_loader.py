@@ -349,9 +349,10 @@ def import_dataset(root_folder, dataset_name, **_):
 
     # Step 5: Load the images from the metadata
     first_timestamp = None
+    image_group = dataset_name
     images = []
     timestamps = []
-    with arvet.database.image_manager.get():
+    with arvet.database.image_manager.get().get_group(image_group, allow_write=True):
         for timestamp, left_image_file, right_image_file, robot_pose in all_metadata:
             # Timestamps are in POSIX nanoseconds, re-zero them to the start of the dataset, and scale to seconds
             if first_timestamp is None:
@@ -363,12 +364,14 @@ def import_dataset(root_folder, dataset_name, **_):
 
             # Error check the loaded image data
             if left_data is None or left_data.size is 0:
-                logging.getLogger(__name__).warning("Could not read left image \"{0}\", result is empty. Skipping.".format(
-                    os.path.join(root_folder, 'cam0', 'data', left_image_file)))
+                logging.getLogger(__name__).warning(
+                    "Could not read left image \"{0}\", result is empty. Skipping.".format(
+                        os.path.join(root_folder, 'cam0', 'data', left_image_file)))
                 continue
             if right_data is None or right_data.size is 0:
-                logging.getLogger(__name__).warning("Could not read right image \"{0}\", result is empty. Skipping.".format(
-                    os.path.join(root_folder, 'cam1', 'data', right_image_file)))
+                logging.getLogger(__name__).warning(
+                    "Could not read right image \"{0}\", result is empty. Skipping.".format(
+                        os.path.join(root_folder, 'cam1', 'data', right_image_file)))
                 continue
 
             left_data = cv2.remap(left_data, left_x, left_y, cv2.INTER_LINEAR)
@@ -395,6 +398,7 @@ def import_dataset(root_folder, dataset_name, **_):
             image = StereoImage(
                 pixels=left_data,
                 right_pixels=right_data,
+                image_group=image_group,
                 metadata=left_metadata,
                 right_metadata=right_metadata
             )
