@@ -49,7 +49,7 @@ def verify_sequence(image_collection: ImageCollection, root_folder: Path) -> boo
     # Verify the images
     # Open the image manager for writing once, so that we're not constantly opening and closing it with each image
     total_invalid_images = 0
-    with arvet.database.image_manager.get():
+    with arvet.database.image_manager.get().get_group(image_collection.get_image_group()):
         for img_idx in range(max_img_id + 1):
             # Expand the file paths for this image
             left_img_path = left_path / ndds_loader.IMG_TEMPLATE.format(img_idx)
@@ -59,21 +59,21 @@ def verify_sequence(image_collection: ImageCollection, root_folder: Path) -> boo
 
             # Read the raw data for the left image
             left_pixels = image_utils.read_colour(left_img_path)
-            left_ground_truth_depth = ndds_loader.load_depth_image(left_depth_path)
+            left_true_depth = ndds_loader.load_depth_image(left_depth_path)
 
             # Read the raw data for the right image
             right_pixels = image_utils.read_colour(right_img_path)
-            right_ground_truth_depth = ndds_loader.load_depth_image(right_depth_path)
+            right_true_depth = ndds_loader.load_depth_image(right_depth_path)
 
             # Ensure all images are c_contiguous
             if not left_pixels.flags.c_contiguous:
                 left_pixels = np.ascontiguousarray(left_pixels)
-            if not left_ground_truth_depth.flags.c_contiguous:
-                left_ground_truth_depth = np.ascontiguousarray(left_ground_truth_depth)
+            if not left_true_depth.flags.c_contiguous:
+                left_true_depth = np.ascontiguousarray(left_true_depth)
             if not right_pixels.flags.c_contiguous:
                 right_pixels = np.ascontiguousarray(right_pixels)
-            if not right_ground_truth_depth.flags.c_contiguous:
-                right_ground_truth_depth = np.ascontiguousarray(right_ground_truth_depth)
+            if not right_true_depth.flags.c_contiguous:
+                right_true_depth = np.ascontiguousarray(right_true_depth)
 
             # Compute a noisy depth image
             # noisy_depth = create_noisy_depth_image(
@@ -88,9 +88,9 @@ def verify_sequence(image_collection: ImageCollection, root_folder: Path) -> boo
             try:
                 _, image = image_collection[img_idx]
                 left_actual_pixels = image.left_pixels
-                left_actual_ground_truth_depth = image.left_ground_truth_depth
+                left_actual_ground_truth_depth = image.left_true_depth
                 right_actual_pixels = image.right_pixels
-                right_actual_ground_truth_depth = image.right_ground_truth_depth
+                right_actual_ground_truth_depth = image.right_true_depth
             except (KeyError, IOError, RuntimeError):
                 logging.getLogger(__name__).exception(f"Error loading image {img_idx}")
                 valid = False
@@ -102,7 +102,7 @@ def verify_sequence(image_collection: ImageCollection, root_folder: Path) -> boo
                     f"Image {img_idx}: Left pixels do not match data read from {left_img_path}")
                 total_invalid_images += 1
                 valid = False
-            if not np.array_equal(left_ground_truth_depth, left_actual_ground_truth_depth):
+            if not np.array_equal(left_true_depth, left_actual_ground_truth_depth):
                 logging.getLogger(__name__).error(
                     f"Image {img_idx}: Left depth does not match data read from {left_depth_path}")
                 total_invalid_images += 1
@@ -112,7 +112,7 @@ def verify_sequence(image_collection: ImageCollection, root_folder: Path) -> boo
                     f"Image {img_idx}: Right pixels do not match data read from {right_img_path}")
                 total_invalid_images += 1
                 valid = False
-            if not np.array_equal(right_ground_truth_depth, right_actual_ground_truth_depth):
+            if not np.array_equal(right_true_depth, right_actual_ground_truth_depth):
                 logging.getLogger(__name__).error(
                     f"Image {img_idx}: Right depth does not match data read from {right_depth_path}")
                 total_invalid_images += 1

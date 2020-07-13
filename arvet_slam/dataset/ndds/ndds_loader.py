@@ -141,36 +141,37 @@ def import_sequence(root_folder: Path, left_path: Path, right_path: Path,
 
     # Import all the images
     images = []
+    image_group = sequence_name
     origin = None
     # Open the image manager for writing once, so that we're not constantly opening and closing it with each image
-    with arvet.database.image_manager.get():
+    with arvet.database.image_manager.get().get_group(image_group, allow_write=True):
         for img_idx in range(max_img_id + 1):
             logging.getLogger(__name__).info(f"Loading image {img_idx}...")
             # Read the raw data for the left image
             left_frame_data = read_json(left_path / DATA_TEMPLATE.format(img_idx))
             left_pixels = image_utils.read_colour(left_path / IMG_TEMPLATE.format(img_idx))
             # left_label_image = image_utils.read_colour(left_path / INSTANCE_TEMPLATE.format(img_idx))
-            left_ground_truth_depth = load_depth_image(left_path / DEPTH_TEMPLATE.format(img_idx))
+            left_true_depth = load_depth_image(left_path / DEPTH_TEMPLATE.format(img_idx))
 
             # Read the raw data for the right image
             right_frame_data = read_json(right_path / DATA_TEMPLATE.format(img_idx))
             right_pixels = image_utils.read_colour(right_path / IMG_TEMPLATE.format(img_idx))
             # right_label_image = image_utils.read_colour(right_path / INSTANCE_TEMPLATE.format(img_idx))
-            right_ground_truth_depth = load_depth_image(right_path / DEPTH_TEMPLATE.format(img_idx))
+            right_true_depth = load_depth_image(right_path / DEPTH_TEMPLATE.format(img_idx))
 
             # Ensure all images are c_contiguous
             if not left_pixels.flags.c_contiguous:
                 left_pixels = np.ascontiguousarray(left_pixels)
             # if not left_label_image.flags.c_contiguous:
             #     left_label_image = np.ascontiguousarray(left_label_image)
-            if not left_ground_truth_depth.flags.c_contiguous:
-                left_ground_truth_depth = np.ascontiguousarray(left_ground_truth_depth)
+            if not left_true_depth.flags.c_contiguous:
+                left_true_depth = np.ascontiguousarray(left_true_depth)
             if not right_pixels.flags.c_contiguous:
                 right_pixels = np.ascontiguousarray(right_pixels)
             # if not right_label_image.flags.c_contiguous:
             #     right_label_image = np.ascontiguousarray(right_label_image)
-            if not right_ground_truth_depth.flags.c_contiguous:
-                right_ground_truth_depth = np.ascontiguousarray(right_ground_truth_depth)
+            if not right_true_depth.flags.c_contiguous:
+                right_true_depth = np.ascontiguousarray(right_true_depth)
 
             # Extract the poses
             left_camera_pose = read_camera_pose(left_frame_data)
@@ -191,8 +192,8 @@ def import_sequence(root_folder: Path, left_path: Path, right_path: Path,
 
             # Compute a noisy depth image
             noisy_depth = create_noisy_depth_image(
-                left_ground_truth_depth=left_ground_truth_depth,
-                right_ground_truth_depth=right_ground_truth_depth,
+                left_true_depth=left_true_depth,
+                right_true_depth=right_true_depth,
                 camera_intrinsics=left_camera_intrinsics,
                 right_camera_relative_pose=left_camera_pose.find_relative(right_camera_pose),
                 quality_level=depth_quality
@@ -206,7 +207,7 @@ def import_sequence(root_folder: Path, left_path: Path, right_path: Path,
 
             left_metadata = imeta.make_metadata(
                 pixels=left_pixels,
-                depth=left_ground_truth_depth,
+                depth=left_true_depth,
                 camera_pose=left_camera_pose,
                 intrinsics=left_camera_intrinsics,
                 source_type=imeta.ImageSourceType.SYNTHETIC,
@@ -224,7 +225,7 @@ def import_sequence(root_folder: Path, left_path: Path, right_path: Path,
             )
             right_metadata = imeta.make_right_metadata(
                 pixels=right_pixels,
-                depth=right_ground_truth_depth,
+                depth=right_true_depth,
                 camera_pose=right_camera_pose,
                 intrinsics=right_camera_intrinsics,
                 labelled_objects=right_labelled_objects,
@@ -234,8 +235,8 @@ def import_sequence(root_folder: Path, left_path: Path, right_path: Path,
                 pixels=left_pixels,
                 right_pixels=right_pixels,
                 depth=noisy_depth,
-                ground_truth_depth=left_ground_truth_depth,
-                right_ground_truth_depth=right_ground_truth_depth,
+                true_depth=left_true_depth,
+                right_true_depth=right_true_depth,
                 metadata=left_metadata,
                 right_metadata=right_metadata,
             )
@@ -250,6 +251,7 @@ def import_sequence(root_folder: Path, left_path: Path, right_path: Path,
     # Create and save the image collection
     collection = ImageCollection(
         images=images,
+        image_group=sequence_name,
         timestamps=timestamps,
         sequence_type=ImageSequenceType.SEQUENTIAL,
         dataset="generated-SLAM-data",

@@ -15,7 +15,7 @@ class DepthNoiseQuality(Enum):
 MAXIMUM_QUALITY = DepthNoiseQuality.KINECT_NOISE
 
 
-def create_noisy_depth_image(left_ground_truth_depth: np.ndarray, right_ground_truth_depth: np.ndarray,
+def create_noisy_depth_image(left_true_depth: np.ndarray, right_true_depth: np.ndarray,
                              camera_intrinsics: CameraIntrinsics,
                              right_camera_relative_pose: Transform,
                              quality_level: DepthNoiseQuality = MAXIMUM_QUALITY) -> np.ndarray:
@@ -23,8 +23,8 @@ def create_noisy_depth_image(left_ground_truth_depth: np.ndarray, right_ground_t
     Generate a noisy depth image from a ground truth depth image.
     The image should already be float32 and scaled to meters.
     The output image will be the same size as the ground truth image, with noise introduced.
-    :param left_ground_truth_depth: A ground-truth depth image captured from the simulator
-    :param right_ground_truth_depth: A ground-truth depth image captured to the right of the main image.
+    :param left_true_depth: A ground-truth depth image captured from the simulator
+    :param right_true_depth: A ground-truth depth image captured to the right of the main image.
     :param camera_intrinsics: The intrinsics for both cameras, assumed to be the same
     :param right_camera_relative_pose: The relative pose of the right camera, for projection logic.
     :param quality_level: An integer switch between different noise models, lower is worse. Default best model.
@@ -32,15 +32,15 @@ def create_noisy_depth_image(left_ground_truth_depth: np.ndarray, right_ground_t
     """
     quality_level = DepthNoiseQuality(quality_level)
     if quality_level is DepthNoiseQuality.KINECT_NOISE:
-        return kinect_depth_model(left_ground_truth_depth, right_ground_truth_depth, camera_intrinsics,
+        return kinect_depth_model(left_true_depth, right_true_depth, camera_intrinsics,
                                   right_camera_relative_pose)
     elif quality_level is DepthNoiseQuality.GAUSSIAN_NOISE:
-        return naive_gaussian_noise(left_ground_truth_depth)
+        return naive_gaussian_noise(left_true_depth)
     else:
-        return left_ground_truth_depth
+        return left_true_depth
 
 
-def naive_gaussian_noise(ground_truth_depth: np.ndarray) -> np.ndarray:
+def naive_gaussian_noise(true_depth: np.ndarray) -> np.ndarray:
     """
     The simplest and least realistic depth noise, we add a gaussian noise to each pixel.
     This is the axial noise component of the kinect depth model, below,
@@ -48,18 +48,18 @@ def naive_gaussian_noise(ground_truth_depth: np.ndarray) -> np.ndarray:
     Characterizations of noise in Kinect depth images: A review (2014) by
     Tanwi Mallick, Partha Pratim Das, and Arun Kumar Majumdar
 
-    :param ground_truth_depth: Ground truth depth image
+    :param true_depth: Ground truth depth image
     :return: A depth image with added noise
     """
-    return ground_truth_depth + np.random.normal(0, 0.0012 + 0.0019 * np.square(ground_truth_depth - 0.4))
+    return true_depth + np.random.normal(0, 0.0012 + 0.0019 * np.square(true_depth - 0.4))
 
 
-def kinect_depth_model(ground_truth_depth_left: np.ndarray, ground_truth_depth_right: np.ndarray,
+def kinect_depth_model(left_true_depth: np.ndarray, right_true_depth: np.ndarray,
                        camera_intrinsics: CameraIntrinsics, baseline: Transform) -> np.ndarray:
     """
     Depth noise based on the original kinect depth sensor
-    :param ground_truth_depth_left: The left depth image
-    :param ground_truth_depth_right: The right depth image
+    :param left_true_depth: The left depth image
+    :param right_true_depth: The right depth image
     :param camera_intrinsics: The intrinsics of both cameras
     :param baseline: The location of the right camera relative to the left camera
     :return:
@@ -77,15 +77,15 @@ def kinect_depth_model(ground_truth_depth_left: np.ndarray, ground_truth_depth_r
     cy = 480 * camera_intrinsics.cy / camera_intrinsics.height
 
     # Step 2: Image resolution - kinect images are 640x480
-    if ground_truth_depth_left.shape == (480, 640):
-        left_depth_points = np.copy(ground_truth_depth_left)
+    if left_true_depth.shape == (480, 640):
+        left_depth_points = np.copy(left_true_depth)
     else:
-        left_depth_points = image_utils.resize(ground_truth_depth_left, (640, 480),
+        left_depth_points = image_utils.resize(left_true_depth, (640, 480),
                                                interpolation=image_utils.Interpolation.NEAREST)
-    if ground_truth_depth_right.shape == (480, 640):
-        right_depth_points = np.copy(ground_truth_depth_right)
+    if right_true_depth.shape == (480, 640):
+        right_depth_points = np.copy(right_true_depth)
     else:
-        right_depth_points = image_utils.resize(ground_truth_depth_right, (640, 480),
+        right_depth_points = image_utils.resize(right_true_depth, (640, 480),
                                                 interpolation=image_utils.Interpolation.NEAREST)
     output_depth = left_depth_points
 
@@ -128,9 +128,9 @@ def kinect_depth_model(ground_truth_depth_left: np.ndarray, ground_truth_depth_r
     output_depth = np.multiply(shadow_mask, output_depth)
 
     # Finally, return to an image matching the input size, so that we're aligned with the RGB image
-    if ground_truth_depth_left.shape != (480, 640):
-        output_depth = image_utils.resize(output_depth, (ground_truth_depth_left.shape[1],
-                                                         ground_truth_depth_left.shape[0]),
+    if left_true_depth.shape != (480, 640):
+        output_depth = image_utils.resize(output_depth, (left_true_depth.shape[1],
+                                                         left_true_depth.shape[0]),
                                           interpolation=image_utils.Interpolation.NEAREST)
     return output_depth
 
