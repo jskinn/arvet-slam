@@ -547,6 +547,7 @@ class TestOrbSlam2(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         logging.disable(logging.CRITICAL)
+        dbconn.setup_image_manager()
         os.makedirs(cls.temp_folder, exist_ok=True)
         path = Path(__file__).parent
         (path / cls.vocabulary_file).touch()    # This file just has to exist where the path manager can find it
@@ -555,8 +556,11 @@ class TestOrbSlam2(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         logging.disable(logging.NOTSET)
-        (Path(__file__).parent / cls.vocabulary_file).unlink()
+        vocab_path = Path(__file__).parent / cls.vocabulary_file
+        if vocab_path.exists():
+            vocab_path.unlink()
         shutil.rmtree(cls.temp_folder)
+        dbconn.tear_down_image_manager()
 
     def test_get_properties_is_overridden_by_settings(self):
         settings = {
@@ -1572,6 +1576,7 @@ def make_image(img_type: SensorMode):
         return StereoImage(
             _id=ObjectId(),
             pixels=pixels,
+            image_group='test',
             metadata=metadata,
             right_pixels=right_pixels,
             right_metadata=right_metadata
@@ -1580,11 +1585,13 @@ def make_image(img_type: SensorMode):
         return Image(
             _id=ObjectId(),
             pixels=pixels,
+            image_group='test',
             depth=depth,
             metadata=metadata
         )
     return Image(
         _id=ObjectId(),
         pixels=pixels,
+        image_group='test',
         metadata=metadata
     )

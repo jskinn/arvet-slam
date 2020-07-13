@@ -4,6 +4,7 @@ import numpy as np
 from pymodm.context_managers import no_auto_dereference
 
 from arvet.util.test_helpers import ExtendedTestCase
+import arvet.database.tests.database_connection as dbconn
 from arvet.core.sequence_type import ImageSequenceType
 from arvet.metadata.camera_intrinsics import CameraIntrinsics
 from arvet_slam.trials.slam.tracking_state import TrackingState
@@ -99,6 +100,14 @@ original_timing_2 = [
 
 
 class TestRunDSO(ExtendedTestCase):
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        dbconn.setup_image_manager()
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        dbconn.tear_down_image_manager()
 
     def test_simple_trial_run_rect_none(self):
         # Actually run the system using mocked images

@@ -6,6 +6,7 @@ from pathlib import Path
 from pymodm.context_managers import no_auto_dereference
 from orbslam2 import VocabularyBuilder
 from arvet.config.path_manager import PathManager
+import arvet.database.tests.database_connection as dbconn
 from arvet.core.sequence_type import ImageSequenceType
 from arvet.core.image_collection import ImageCollection
 from arvet_slam.trials.slam.tracking_state import TrackingState
@@ -25,6 +26,7 @@ class TestORBSLAM2BuildVocabulary(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
+        dbconn.setup_image_manager()
         cls.temp_folder.mkdir(parents=True, exist_ok=True)
         cls.path_manager = PathManager([Path(__file__).parent], cls.temp_folder)
 
@@ -48,8 +50,12 @@ class TestORBSLAM2BuildVocabulary(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        shutil.rmtree(cls.temp_folder)
-        shutil.rmtree(Path(__file__).parent / VOCABULARY_FOLDER)
+        if cls.temp_folder.exists():
+            shutil.rmtree(cls.temp_folder)
+        vocab_folder = Path(__file__).parent / VOCABULARY_FOLDER
+        if vocab_folder.exists():
+            shutil.rmtree(vocab_folder)
+        dbconn.tear_down_image_manager()
 
     def test_can_build_a_vocab_file(self):
         subject = OrbSlam2(

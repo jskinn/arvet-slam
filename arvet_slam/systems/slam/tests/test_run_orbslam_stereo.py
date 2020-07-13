@@ -6,6 +6,7 @@ from pathlib import Path
 from pymodm.context_managers import no_auto_dereference
 
 from arvet.config.path_manager import PathManager
+import arvet.database.tests.database_connection as dbconn
 from arvet.core.sequence_type import ImageSequenceType
 from arvet_slam.trials.slam.tracking_state import TrackingState
 from arvet_slam.trials.slam.visual_slam import SLAMTrialResult
@@ -20,6 +21,7 @@ class TestRunOrbslamStereo(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
+        dbconn.setup_image_manager()
         os.makedirs(cls.temp_folder, exist_ok=True)
         if not cls.vocab_path.exists():  # If there is no vocab file, make one
             print("Creating vocab file, this may take a while...")
@@ -28,6 +30,7 @@ class TestRunOrbslamStereo(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         shutil.rmtree(cls.temp_folder)
+        dbconn.tear_down_image_manager()
 
     def test_simple_trial_run(self):
         # Actually run the system using mocked images

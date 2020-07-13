@@ -163,14 +163,15 @@ class DemoImageBuilder:
             )
             return StereoImage(
                 pixels=frame,
+                image_group='test',
                 metadata=metadata,
                 right_pixels=right_frame,
                 right_metadata=right_metadata
             )
 
         if depth is not None:
-            return Image(pixels=frame, depth=depth, metadata=metadata)
-        return Image(pixels=frame, metadata=metadata)
+            return Image(pixels=frame, image_group='test', depth=depth, metadata=metadata)
+        return Image(pixels=frame, image_group='test', metadata=metadata)
 
     def visualise_sequence(self, max_time: float, frame_interval: float = 1):
         import matplotlib.pyplot as plt

@@ -172,6 +172,14 @@ class TestFrameErrorMetricDatabase(unittest.TestCase):
 
 class TestFrameErrorMetric(unittest.TestCase):
 
+    @classmethod
+    def setUpClass(cls) -> None:
+        dbconn.setup_image_manager()
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        dbconn.tear_down_image_manager()
+
     def test_only_slam_trial_results_are_appropriate(self):
         metric = FrameErrorMetric()
         self.assertTrue(metric.is_trial_appropriate(mock.create_autospec(SLAMTrialResult)))
@@ -325,6 +333,14 @@ class TestFrameErrorMetric(unittest.TestCase):
 
 
 class TestFrameErrorMetricOutput(unittest.TestCase):
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        dbconn.setup_image_manager()
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        dbconn.tear_down_image_manager()
 
     def setUp(self) -> None:
         self.system = mock_types.MockSystem()

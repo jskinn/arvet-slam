@@ -399,6 +399,14 @@ class TestLibVisOStereo(unittest.TestCase):
 
 class TestLibVisOStereoExecution(ExtendedTestCase):
 
+    @classmethod
+    def setUpClass(cls) -> None:
+        dbconn.setup_image_manager()
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        dbconn.tear_down_image_manager()
+
     def test_simple_trial_run(self):
         # Actually run the system using mocked images
         num_frames = 100

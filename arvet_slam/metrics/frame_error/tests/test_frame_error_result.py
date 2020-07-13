@@ -789,7 +789,7 @@ class TestFrameErrorDatabase(unittest.TestCase):
     def test_stores_and_loads(self):
         pixels = np.array([[1, 2, 3], [4, 5, 6], [7, 8, 9]])
         image = Image(
-            pixels=pixels,
+            pixels=pixels, image_group='group',
             metadata=make_metadata(pixels, source_type=ImageSourceType.SYNTHETIC)
         )
         image.save()
@@ -853,7 +853,7 @@ class TestFrameErrorDatabase(unittest.TestCase):
     def test_required_fields_are_required(self):
         pixels = np.array([[1, 2, 3], [4, 5, 6], [7, 8, 9]])
         image = Image(
-            pixels=pixels,
+            pixels=pixels, image_group='test',
             metadata=make_metadata(pixels, source_type=ImageSourceType.SYNTHETIC)
         )
         image.save()
@@ -964,7 +964,7 @@ class TestFrameErrorDatabase(unittest.TestCase):
     def test_make_frame_error_output_stores_and_loads(self):
         pixels = np.array([[1, 2, 3], [4, 5, 6], [7, 8, 9]])
         image = Image(
-            pixels=pixels,
+            pixels=pixels, image_group='test',
             metadata=make_metadata(pixels, source_type=ImageSourceType.SYNTHETIC)
         )
         image.save()
@@ -1056,7 +1056,7 @@ class TestFrameErrorDatabase(unittest.TestCase):
     def test_make_frame_error_doesnt_dereference_frame_result_image_if_valid(self):
         pixels = np.array([[1, 2, 3], [4, 5, 6], [7, 8, 9]])
         image = CountedImage(
-            pixels=pixels,
+            pixels=pixels, image_group='test',
             metadata=make_metadata(pixels, source_type=ImageSourceType.SYNTHETIC)
         )
         image.save()
@@ -1145,7 +1145,7 @@ class TestFrameErrorDatabase(unittest.TestCase):
     def test_make_frame_error_doesnt_dereference_system_if_valid(self):
         pixels = np.array([[1, 2, 3], [4, 5, 6], [7, 8, 9]])
         image = Image(
-            pixels=pixels,
+            pixels=pixels, image_group='test',
             metadata=make_metadata(pixels, source_type=ImageSourceType.SYNTHETIC)
         )
         image.save()
@@ -1234,7 +1234,7 @@ class TestFrameErrorDatabase(unittest.TestCase):
     def test_get_properties_doesnt_dereference_image_or_trial_result(self):
         pixels = np.array([[1, 2, 3], [4, 5, 6], [7, 8, 9]])
         image = CountedImage(
-            pixels=pixels,
+            pixels=pixels, image_group='test',
             metadata=make_metadata(pixels, source_type=ImageSourceType.SYNTHETIC)
         )
         image.save()
@@ -1638,7 +1638,7 @@ class TestFrameErrorResultDatabase(unittest.TestCase):
         for idx in range(3):
             pixels = np.random.uniform(0, 255, (5, 5))
             image = Image(
-                pixels=pixels,
+                pixels=pixels, image_group='test',
                 metadata=make_metadata(pixels, source_type=ImageSourceType.SYNTHETIC)
             )
             image.save()
@@ -2006,7 +2006,7 @@ class TestFrameErrorResultDatabase(unittest.TestCase):
     def test_get_results_does_not_dereference_referenced_objects(self):
         pixels = np.array([[1, 2, 3], [4, 5, 6], [7, 8, 9]])
         image = CountedImage(
-            pixels=pixels,
+            pixels=pixels, image_group='test',
             metadata=make_metadata(pixels, source_type=ImageSourceType.SYNTHETIC)
         )
         image.save()

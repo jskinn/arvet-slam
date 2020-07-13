@@ -34,7 +34,7 @@ class TestPoseErrorDatabase(unittest.TestCase):
 
         pixels = np.array([[1, 2, 3], [4, 5, 6], [7, 8, 9]])
         cls.image = Image(
-            pixels=pixels,
+            pixels=pixels, image_group='test',
             metadata=make_metadata(pixels, source_type=ImageSourceType.SYNTHETIC)
         )
         cls.image.save()

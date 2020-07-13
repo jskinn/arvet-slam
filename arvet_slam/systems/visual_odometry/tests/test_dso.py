@@ -352,6 +352,7 @@ class TestDSO(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
+        dbconn.setup_image_manager()
         logging.disable(logging.CRITICAL)
         os.makedirs(cls.temp_folder, exist_ok=True)
         cls.path_manager = PathManager([Path(__file__).parent], cls.temp_folder)
@@ -360,6 +361,7 @@ class TestDSO(unittest.TestCase):
     def tearDownClass(cls):
         logging.disable(logging.NOTSET)
         shutil.rmtree(cls.temp_folder)
+        dbconn.tear_down_image_manager()
 
     def test_is_image_source_appropriate_returns_true_for_sequential_image_sources(self):
         subject = DSO(
@@ -1492,5 +1494,6 @@ def make_image():
     return Image(
         _id=ObjectId(),
         pixels=pixels,
+        image_group='test',
         metadata=metadata
     )

@@ -6,6 +6,7 @@ from pathlib import Path
 from pymodm.context_managers import no_auto_dereference
 
 from arvet.config.path_manager import PathManager
+import arvet.database.tests.database_connection as dbconn
 from arvet.core.sequence_type import ImageSequenceType
 from arvet_slam.trials.slam.tracking_state import TrackingState
 from arvet_slam.trials.slam.visual_slam import SLAMTrialResult
@@ -20,6 +21,7 @@ class TestRunOrbslamMono(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
+        dbconn.setup_image_manager()
         os.makedirs(cls.temp_folder, exist_ok=True)
         if not cls.vocab_path.exists():  # If there is no vocab file, make one
             print("Creating vocab file, this may take a while...")
@@ -28,6 +30,7 @@ class TestRunOrbslamMono(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         shutil.rmtree(cls.temp_folder)
+        dbconn.tear_down_image_manager()
 
     def test_simple_trial_run(self):
         # Actually run the system using mocked images
@@ -37,9 +40,9 @@ class TestRunOrbslamMono(unittest.TestCase):
         path_manager = PathManager([Path(__file__).parent], self.temp_folder)
         image_builder = DemoImageBuilder(
             mode=ImageMode.MONOCULAR,
-            width=640, height=480, num_stars=150,
+            width=640, height=480, num_stars=300,
             length=max_time * speed, speed=speed,
-            close_ratio=0.6, min_size=10, max_size=100
+            close_ratio=0.4, min_size=4, max_size=50
         )
         # image_builder.visualise_sequence(max_time, frame_interval=0.5)
         # return
@@ -47,11 +50,11 @@ class TestRunOrbslamMono(unittest.TestCase):
         subject = OrbSlam2(
             vocabulary_file=self.vocab_path,
             mode=SensorMode.MONOCULAR,
-            orb_num_features=1000,
+            orb_num_features=2000,
             orb_num_levels=8,
             orb_scale_factor=1.2,
-            orb_ini_threshold_fast=7,
-            orb_min_threshold_fast=12
+            orb_ini_threshold_fast=12,
+            orb_min_threshold_fast=7
         )
         subject.resolve_paths(path_manager)
         subject.set_camera_intrinsics(image_builder.get_camera_intrinsics(), max_time / num_frames)

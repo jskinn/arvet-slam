@@ -1,12 +1,10 @@
 import unittest
-from pathlib import Path
 from itertools import chain
 import numpy as np
 import transforms3d as t3
 import pymodm.fields as fields
 
 import arvet.database.tests.database_connection as dbconn
-import arvet.database.image_manager as im_manager
 from arvet.util.transform import Transform
 from arvet.core.image import Image
 from arvet.core.sequence_type import ImageSequenceType
@@ -313,6 +311,7 @@ class TestUpdateFrameErrorResult(unittest.TestCase):
                     loop_angles=[],
                     absolute_error=None,
                     relative_error=None,
+                    systemic_error=None,
                     noise=None
                 )
                 frame_error.save()
@@ -361,6 +360,7 @@ class TestUpdateFrameErrorResult(unittest.TestCase):
                     loop_angles=[],
                     absolute_error=None,
                     relative_error=None,
+                    systemic_error=None,
                     noise=None
                 )
                 frame_error.save()
@@ -410,6 +410,7 @@ class TestUpdateFrameErrorResult(unittest.TestCase):
                     loop_angles=[],
                     absolute_error=None,
                     relative_error=None,
+                    systemic_error=None,
                     noise=None
                 )
                 # Add a different extra property to each frame error
