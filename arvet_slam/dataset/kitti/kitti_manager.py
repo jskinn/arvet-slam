@@ -1,9 +1,11 @@
 # Copyright (c) 2017, John Skinner
 from os import PathLike
 import typing
+import logging
 from pathlib import Path, PurePath
 import arvet.batch_analysis.task_manager as task_manager
 import arvet_slam.dataset.kitti.kitti_loader as kitti_loader
+import arvet_slam.dataset.kitti.kitti_validator as kitti_validator
 
 
 dataset_names = [
@@ -60,6 +62,32 @@ class KITTIManager:
                 # Make sure the import dataset task gets done
                 import_dataset_task.save()
                 return None
+        if 0 <= sequence_id_int < 11:
+            raise NotADirectoryError("No root folder for sequence {0:06}, did you download it?".format(sequence_id_int))
+        else:
+            raise NotADirectoryError(
+                "No root folder for sequence {0}, are you sure it's a sequence?".format(sequence_id))
+
+    def verify_dataset(self, sequence_id: typing.Union[str, int, float], repair: bool = False):
+        if isinstance(sequence_id, int):
+            sequence_id_int = sequence_id
+        else:
+            sequence_id_int = to_sequence_id(sequence_id)
+
+        if sequence_id_int in self._full_paths:
+            import_dataset_task = task_manager.get_import_dataset_task(
+                module_name=kitti_loader.__name__,
+                path=str(self._full_paths[sequence_id_int]),
+                additional_args={'sequence_number': sequence_id_int}
+            )
+            if import_dataset_task.is_finished:
+                image_collection = import_dataset_task.get_result()
+                return kitti_validator.verify_dataset(
+                    image_collection, self._full_paths[sequence_id_int], sequence_id_int, repair)
+            else:
+                logging.getLogger(__name__).warning(
+                    f"Cannot validate sequence {sequence_id_int:06}, it is not loaded yet")
+                return True
         if 0 <= sequence_id_int < 11:
             raise NotADirectoryError("No root folder for sequence {0:06}, did you download it?".format(sequence_id_int))
         else:

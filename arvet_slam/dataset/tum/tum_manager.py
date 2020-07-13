@@ -1,10 +1,12 @@
 # Copyright (c) 2017, John Skinner
 import typing
 from os import PathLike
+import logging
 from pathlib import Path, PurePath
 import tarfile
 import arvet.batch_analysis.task_manager as task_manager
 import arvet_slam.dataset.tum.tum_loader as tum_loader
+import arvet_slam.dataset.tum.tum_validator as tum_validator
 
 
 dataset_names = [
@@ -98,6 +100,21 @@ class TUMManager:
                 # Make sure the import dataset task gets done
                 import_dataset_task.save()
                 return None
+        raise NotADirectoryError("No root folder for {0}, did you download it?".format(name))
+
+    def verify_dataset(self, name: str, repair: bool = False):
+        if name in self._full_paths:
+            import_dataset_task = task_manager.get_import_dataset_task(
+                module_name=tum_loader.__name__,
+                path=str(self._full_paths[name]),
+                additional_args={'dataset_name': name}
+            )
+            if import_dataset_task.is_finished:
+                image_collection = import_dataset_task.get_result()
+                return tum_validator.verify_dataset(image_collection, self._full_paths[name], name, repair)
+            else:
+                logging.getLogger(__name__).warning(f"Cannot validate {name}, it is not loaded yet")
+                return True
         raise NotADirectoryError("No root folder for {0}, did you download it?".format(name))
 
     @classmethod
