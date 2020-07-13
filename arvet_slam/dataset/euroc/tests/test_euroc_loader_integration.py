@@ -1,10 +1,8 @@
 import unittest
-import os.path
 import logging
 from json import load as json_load
 from pathlib import Path
 import arvet.database.tests.database_connection as dbconn
-import arvet.database.image_manager as im_manager
 from arvet.core.image_collection import ImageCollection
 from arvet.core.image import StereoImage
 import arvet_slam.dataset.euroc.euroc_loader as euroc_loader
@@ -30,8 +28,7 @@ class TestEuRoCLoaderIntegration(unittest.TestCase):
     )
     def test_load_configured_sequence(self):
         dbconn.connect_to_test_db()
-        image_manager = im_manager.DefaultImageManager(dbconn.image_file, allow_write=True)
-        im_manager.set_image_manager(image_manager)
+        dbconn.setup_image_manager(mock=False)
         logging.disable(logging.CRITICAL)
 
         # count the number of images we expect to import
@@ -61,6 +58,5 @@ class TestEuRoCLoaderIntegration(unittest.TestCase):
         # Clean up after ourselves by dropping the collections for the models
         ImageCollection._mongometa.collection.drop()
         StereoImage._mongometa.collection.drop()
-        if os.path.isfile(dbconn.image_file):
-            os.remove(dbconn.image_file)
+        dbconn.tear_down_image_manager()
         logging.disable(logging.NOTSET)

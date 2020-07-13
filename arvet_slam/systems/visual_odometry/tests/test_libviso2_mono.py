@@ -1,9 +1,7 @@
 # Copyright (c) 2017, John Skinner
 import unittest
-import os
 import numpy as np
 import arvet.database.tests.database_connection as dbconn
-import arvet.database.image_manager as im_manager
 
 from arvet.util.test_helpers import ExtendedTestCase
 from arvet.core.system import VisionSystem
@@ -22,6 +20,7 @@ class TestLibVisOMonoDatabase(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         dbconn.connect_to_test_db()
+        dbconn.setup_image_manager()
 
     def setUp(self):
         # Remove the collection as the start of the test, so that we're sure it's empty
@@ -31,8 +30,7 @@ class TestLibVisOMonoDatabase(unittest.TestCase):
     def tearDownClass(cls):
         # Clean up after ourselves by dropping the collection for this model
         VisionSystem._mongometa.collection.drop()
-        if os.path.isfile(dbconn.image_file):
-            os.remove(dbconn.image_file)
+        dbconn.tear_down_image_manager()
 
     def test_stores_and_loads(self):
         kwargs = {
@@ -65,9 +63,6 @@ class TestLibVisOMonoDatabase(unittest.TestCase):
         all_entities[0].delete()
 
     def test_result_saves(self):
-        image_manager = im_manager.DefaultImageManager(dbconn.image_file, allow_write=True)
-        im_manager.set_image_manager(image_manager)
-
         # Make an image collection with some number of images
         images = []
         image_builder = DemoImageBuilder(mode=ImageMode.MONOCULAR, width=160, height=120)

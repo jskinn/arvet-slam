@@ -11,7 +11,6 @@ from bson import ObjectId
 from dso import UndistortPinhole, UndistortRadTan
 
 import arvet.database.tests.database_connection as dbconn
-import arvet.database.image_manager as im_manager
 from arvet.util.transform import Transform
 from arvet.util.test_helpers import ExtendedTestCase
 from arvet.config.path_manager import PathManager
@@ -35,6 +34,7 @@ class TestDSODatabase(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         dbconn.connect_to_test_db()
+        dbconn.setup_image_manager()
         os.makedirs(cls.temp_folder, exist_ok=True)
         logging.disable(logging.CRITICAL)
         cls.path_manager = PathManager([Path(__file__).parent], cls.temp_folder)
@@ -50,8 +50,7 @@ class TestDSODatabase(unittest.TestCase):
         SLAMTrialResult._mongometa.collection.drop()
         ImageCollection._mongometa.collection.drop()
         Image._mongometa.collection.drop()
-        if os.path.isfile(dbconn.image_file):
-            os.remove(dbconn.image_file)
+        dbconn.tear_down_image_manager()
         logging.disable(logging.NOTSET)
         shutil.rmtree(cls.temp_folder)
 
@@ -98,9 +97,6 @@ class TestDSODatabase(unittest.TestCase):
         all_entities[0].delete()
 
     def test_result_saves(self):
-        image_manager = im_manager.DefaultImageManager(dbconn.image_file, allow_write=True)
-        im_manager.set_image_manager(image_manager)
-
         # Make an image collection with some number of images
         images = []
         num_images = 10

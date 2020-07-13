@@ -52,8 +52,7 @@ class TestUpdateFrameError(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         dbconn.connect_to_test_db()
-        image_manager = im_manager.DefaultImageManager(dbconn.image_file, allow_write=True)
-        im_manager.set_image_manager(image_manager)
+        dbconn.setup_image_manager()
 
     @classmethod
     def tearDownClass(cls):
@@ -66,10 +65,7 @@ class TestUpdateFrameError(unittest.TestCase):
         ImageCollection.objects.all().delete()
         FrameErrorMetric.objects.all().delete()
         Image._mongometa.collection.drop()
-        im_manager.set_image_manager(None)
-        image_file_path = Path(dbconn.image_file)
-        if image_file_path.exists():
-            image_file_path.unlink()
+        dbconn.tear_down_image_manager()
 
     def test_update_system_information(self):
         random = np.random.RandomState(13)
@@ -279,8 +275,7 @@ class TestUpdateFrameErrorResult(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         dbconn.connect_to_test_db()
-        image_manager = im_manager.DefaultImageManager(dbconn.image_file, allow_write=True)
-        im_manager.set_image_manager(image_manager)
+        dbconn.setup_image_manager()
 
     @classmethod
     def tearDownClass(cls):
@@ -293,10 +288,7 @@ class TestUpdateFrameErrorResult(unittest.TestCase):
         ImageCollection.objects.all().delete()
         FrameErrorMetric.objects.all().delete()
         Image._mongometa.collection.drop()
-        im_manager.set_image_manager(None)
-        image_file_path = Path(dbconn.image_file)
-        if image_file_path.exists():
-            image_file_path.unlink()
+        dbconn.tear_down_image_manager()
 
     def test_update_image_source_properties(self):
         random = np.random.RandomState(13)

@@ -1,11 +1,9 @@
 import unittest
-import os.path
 import logging
 import shutil
 from json import load as json_load
 from pathlib import Path
 import arvet.database.tests.database_connection as dbconn
-import arvet.database.image_manager as im_manager
 from arvet.core.image_collection import ImageCollection
 from arvet.core.image import Image
 import arvet_slam.dataset.tum.tum_loader as tum_loader
@@ -31,8 +29,7 @@ class TestTUMLoaderIntegration(unittest.TestCase):
     )
     def test_load_configured_sequence(self):
         dbconn.connect_to_test_db()
-        image_manager = im_manager.DefaultImageManager(dbconn.image_file, allow_write=True)
-        im_manager.set_image_manager(image_manager)
+        dbconn.setup_image_manager(mock=False)
         logging.disable(logging.CRITICAL)
 
         # Make sure there is nothing in the database
@@ -65,8 +62,7 @@ class TestTUMLoaderIntegration(unittest.TestCase):
         # Clean up after ourselves by dropping the collections for the models
         ImageCollection._mongometa.collection.drop()
         Image._mongometa.collection.drop()
-        if os.path.isfile(dbconn.image_file):
-            os.remove(dbconn.image_file)
+        dbconn.tear_down_image_manager()
         logging.disable(logging.NOTSET)
 
     @unittest.skipIf(
@@ -75,8 +71,7 @@ class TestTUMLoaderIntegration(unittest.TestCase):
     )
     def test_load_rgbd_dataset_freiburg1_360(self):
         dbconn.connect_to_test_db()
-        image_manager = im_manager.DefaultImageManager(dbconn.image_file)
-        im_manager.set_image_manager(image_manager)
+        dbconn.setup_image_manager(mock=False)
         logging.disable(logging.CRITICAL)
 
         # Make sure there is nothing in the database
@@ -101,8 +96,7 @@ class TestTUMLoaderIntegration(unittest.TestCase):
         # Clean up after ourselves by dropping the collections for the models
         ImageCollection._mongometa.collection.drop()
         Image._mongometa.collection.drop()
-        if os.path.isfile(dbconn.image_file):
-            os.remove(dbconn.image_file)
+        dbconn.tear_down_image_manager()
         logging.disable(logging.NOTSET)
 
     @unittest.skipIf(
@@ -115,8 +109,7 @@ class TestTUMLoaderIntegration(unittest.TestCase):
             shutil.rmtree(dataset_root / 'rgbd_dataset_freiburg1_desk')
 
         dbconn.connect_to_test_db()
-        image_manager = im_manager.DefaultImageManager(dbconn.image_file)
-        im_manager.set_image_manager(image_manager)
+        dbconn.setup_image_manager(mock=False)
         logging.disable(logging.CRITICAL)
 
         # Make sure there is nothing in the database
@@ -144,6 +137,5 @@ class TestTUMLoaderIntegration(unittest.TestCase):
         # Clean up after ourselves by dropping the collections for the models
         ImageCollection._mongometa.collection.drop()
         Image._mongometa.collection.drop()
-        if os.path.isfile(dbconn.image_file):
-            os.remove(dbconn.image_file)
+        dbconn.tear_down_image_manager()
         logging.disable(logging.NOTSET)

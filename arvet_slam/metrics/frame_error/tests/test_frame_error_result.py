@@ -1,6 +1,5 @@
 import unittest
 import unittest.mock as mock
-from pathlib import Path
 import bson
 import pymodm
 from pymodm.errors import ValidationError
@@ -8,7 +7,7 @@ import numpy as np
 import transforms3d as tf3d
 
 import arvet.database.tests.database_connection as dbconn
-import arvet.database.image_manager as im_manager
+import arvet.database.image_manager as image_manager
 from arvet.util.transform import Transform
 from arvet.metadata.image_metadata import make_metadata, ImageSourceType
 import arvet.core.tests.mock_types as mock_types
@@ -765,8 +764,7 @@ class TestFrameErrorDatabase(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         dbconn.connect_to_test_db()
-        image_manager = im_manager.DefaultImageManager(dbconn.image_file, allow_write=True)
-        im_manager.set_image_manager(image_manager)
+        dbconn.setup_image_manager()
 
         cls.system = mock_types.MockSystem()
         cls.system.save()
@@ -786,10 +784,7 @@ class TestFrameErrorDatabase(unittest.TestCase):
         mock_types.MockTrialResult.objects.all().delete()
         FrameError.objects.all().delete()
         Image._mongometa.collection.drop()
-        im_manager.set_image_manager(None)
-        image_file_path = Path(dbconn.image_file)
-        if image_file_path.exists():
-            image_file_path.unlink()
+        dbconn.tear_down_image_manager()
 
     def test_stores_and_loads(self):
         pixels = np.array([[1, 2, 3], [4, 5, 6], [7, 8, 9]])
@@ -903,13 +898,10 @@ class TestFrameErrorDatabase(unittest.TestCase):
         pixels = np.array([[1, 2, 3], [4, 5, 6], [7, 8, 9]])
         image = Image(
             pixels=pixels,
+            image_group='test',
             metadata=make_metadata(pixels, source_type=ImageSourceType.SYNTHETIC)
         )
         image.save()
-
-        prev_image_manager = im_manager.get()
-        image_manager = im_manager.DefaultImageManager(dbconn.image_file, allow_write=False)
-        im_manager.set_image_manager(image_manager)
 
         frame_error = FrameError(
             trial_result=self.trial_result,
@@ -951,10 +943,11 @@ class TestFrameErrorDatabase(unittest.TestCase):
         FrameError._mongometa.collection.drop()
 
         # Save the model
-        frame_error.save(cascade=True)
+        with image_manager.get().get_group(self.image_source.get_image_group(), allow_write=False):
+            frame_error.save(cascade=True)
 
-        # Load all the entities
-        all_entities = list(FrameError.objects.all())
+            # Load all the entities
+            all_entities = list(FrameError.objects.all())
         self.assertEqual(len(all_entities), 1)
 
         # For some reason, we need to force the load of these properties for the objects to compare equal
@@ -967,9 +960,6 @@ class TestFrameErrorDatabase(unittest.TestCase):
 
         self.assertEqual(frame_error, loaded_frame_error)
         loaded_frame_error.delete()
-
-        # restore the image manager
-        im_manager.set_image_manager(prev_image_manager)
 
     def test_make_frame_error_output_stores_and_loads(self):
         pixels = np.array([[1, 2, 3], [4, 5, 6], [7, 8, 9]])
@@ -1630,8 +1620,7 @@ class TestFrameErrorResultDatabase(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         dbconn.connect_to_test_db()
-        image_manager = im_manager.DefaultImageManager(dbconn.image_file, allow_write=True)
-        im_manager.set_image_manager(image_manager)
+        dbconn.setup_image_manager()
 
         cls.system = mock_types.MockSystem()
         cls.system.save()
@@ -1718,9 +1707,7 @@ class TestFrameErrorResultDatabase(unittest.TestCase):
         mock_types.MockTrialResult.objects.all().delete()
         FrameError._mongometa.collection.drop()
         Image._mongometa.collection.drop()
-        image_file_path = Path(dbconn.image_file)
-        if image_file_path.exists():
-            image_file_path.unlink()
+        dbconn.tear_down_image_manager()
 
     def test_stores_and_loads(self):
         # Save the model

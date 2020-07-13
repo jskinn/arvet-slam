@@ -17,7 +17,6 @@ from bson import ObjectId
 from pymodm.context_managers import no_auto_dereference
 
 import arvet.database.tests.database_connection as dbconn
-import arvet.database.image_manager as im_manager
 from arvet.util.transform import Transform
 from arvet.util.test_helpers import ExtendedTestCase
 from arvet.util.image_utils import convert_to_grey
@@ -296,8 +295,7 @@ class TestOrbSlam2ResultDatabase(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         dbconn.connect_to_test_db()
-        image_manager = im_manager.DefaultImageManager(dbconn.image_file, allow_write=True)
-        im_manager.set_image_manager(image_manager)
+        dbconn.setup_image_manager()
 
         os.makedirs(cls.temp_folder, exist_ok=True)
         logging.disable(logging.CRITICAL)
@@ -315,8 +313,7 @@ class TestOrbSlam2ResultDatabase(unittest.TestCase):
         ImageCollection._mongometa.collection.drop()
         Image._mongometa.collection.drop()
 
-        if os.path.isfile(dbconn.image_file):
-            os.remove(dbconn.image_file)
+        dbconn.tear_down_image_manager()
         logging.disable(logging.NOTSET)
         shutil.rmtree(cls.temp_folder)
 

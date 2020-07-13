@@ -1,13 +1,11 @@
 import unittest
 import unittest.mock as mock
-import os
 import bson
 import itertools
 import numpy as np
 import transforms3d as tf3d
 
 import arvet.database.tests.database_connection as dbconn
-import arvet.database.image_manager as im_manager
 
 from arvet.core.image import Image
 from arvet.core.system import VisionSystem
@@ -29,8 +27,7 @@ class TestFrameErrorMetricDatabase(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         dbconn.connect_to_test_db()
-        image_manager = im_manager.DefaultImageManager(dbconn.image_file, allow_write=True)
-        im_manager.set_image_manager(image_manager)
+        dbconn.setup_image_manager()
 
     def setUp(self):
         # Clear temporary data from the test database before each test, to prevent cross-contamination
@@ -51,8 +48,7 @@ class TestFrameErrorMetricDatabase(unittest.TestCase):
         mock_types.MockImageSource._mongometa.collection.drop()
         mock_types.MockSystem._mongometa.collection.drop()
         Image._mongometa.collection.drop()
-        if os.path.isfile(dbconn.image_file):
-            os.remove(dbconn.image_file)
+        dbconn.tear_down_image_manager()
 
     def test_stores_and_loads(self):
         obj = FrameErrorMetric()

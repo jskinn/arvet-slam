@@ -1,7 +1,6 @@
 # Copyright (c) 2019, John Skinner
 import unittest
 import unittest.mock as mock
-import os
 import numpy as np
 import transforms3d as tf3d
 import pymodm
@@ -31,8 +30,7 @@ class TestPoseErrorDatabase(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         dbconn.connect_to_test_db()
-        image_manager = im_manager.DefaultImageManager(dbconn.image_file, allow_write=True)
-        im_manager.set_image_manager(image_manager)
+        dbconn.setup_image_manager()
 
         pixels = np.array([[1, 2, 3], [4, 5, 6], [7, 8, 9]])
         cls.image = Image(
@@ -46,8 +44,7 @@ class TestPoseErrorDatabase(unittest.TestCase):
         # Clean up after ourselves by dropping the collection for this model
         TestFrameResultMongoModel._mongometa.collection.drop()
         Image._mongometa.collection.drop()
-        if os.path.isfile(dbconn.image_file):
-            os.remove(dbconn.image_file)
+        dbconn.tear_down_image_manager()
 
     def test_stores_and_loads(self):
         frame_result = FrameResult(
@@ -977,8 +974,7 @@ class TestSLAMTrialResultDatabase(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         dbconn.connect_to_test_db()
-        image_manager = im_manager.DefaultImageManager(dbconn.image_file, allow_write=True)
-        im_manager.set_image_manager(image_manager)
+        dbconn.setup_image_manager()
 
         cls.system = mock_types.MockSystem()
         cls.image_source = mock_types.MockImageSource()
@@ -998,9 +994,7 @@ class TestSLAMTrialResultDatabase(unittest.TestCase):
         mock_types.MockSystem._mongometa.collection.drop()
         mock_types.MockImageSource._mongometa.collection.drop()
         Image._mongometa.collection.drop()
-        im_manager.set_image_manager(None)
-        if os.path.isfile(dbconn.image_file):
-            os.remove(dbconn.image_file)
+        dbconn.tear_down_image_manager()
 
     def test_stores_and_loads_motion_only(self):
         timestamps = [idx + np.random.normal(0, 0.01) for idx in range(10)]
@@ -1258,10 +1252,6 @@ class TestSLAMTrialResultDatabase(unittest.TestCase):
         all_entities[0].delete()
 
     def test_stores_and_loads_when_images_cannot_be_written(self):
-        prev_image_manager = im_manager.get()
-        image_manager = im_manager.DefaultImageManager(dbconn.image_file, allow_write=False)
-        im_manager.set_image_manager(image_manager)
-
         timestamps = [idx + np.random.normal(0, 0.01) for idx in range(10)]
         results = [
             FrameResult(
@@ -1293,16 +1283,15 @@ class TestSLAMTrialResultDatabase(unittest.TestCase):
             run_time=10.4,
             has_scale=True
         )
-        obj.save(cascade=True)
+        # Open the image source group read-only
+        with im_manager.get().get_group(self.image_source.get_image_group(), allow_write=False):
+            obj.save(cascade=True)
 
-        # Load all the entities
-        all_entities = list(SLAMTrialResult.objects.all())
+            # Load all the entities
+            all_entities = list(SLAMTrialResult.objects.all())
         self.assertGreaterEqual(len(all_entities), 1)
         self.assertEqual(all_entities[0], obj)
         all_entities[0].delete()
-
-        # restore the image manager
-        im_manager.set_image_manager(prev_image_manager)
 
     def test_required_fields_are_required(self):
         timestamps = [idx + np.random.normal(0, 0.01) for idx in range(10)]
