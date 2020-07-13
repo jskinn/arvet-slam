@@ -1,5 +1,6 @@
 # Copyright (c) 2020, John Skinner
 import logging
+import typing
 import tarfile
 from pathlib import Path
 import shutil
@@ -11,7 +12,8 @@ from arvet.core.image_collection import ImageCollection
 import arvet_slam.dataset.tum.tum_loader as tum_loader
 
 
-def verify_dataset(image_collection: ImageCollection, root_folder: Path, dataset_name: str, repair: bool = False):
+def verify_dataset(image_collection: ImageCollection, root_folder: typing.Union[str, Path],
+                   dataset_name: str, repair: bool = False):
     """
     Load a TUM RGB-D sequence into the database.
 

@@ -1,6 +1,7 @@
 # Copyright (c) 2020, John Skinner
 import numpy as np
-from pathlib import Path
+import typing
+from pathlib import Path, PurePath
 import logging
 import cv2
 import xxhash
@@ -10,7 +11,8 @@ from arvet.core.image_collection import ImageCollection
 import arvet_slam.dataset.euroc.euroc_loader as euroc_loader
 
 
-def verify_dataset(image_collection: ImageCollection, root_folder: Path, dataset_name: str, repair: bool = False):
+def verify_dataset(image_collection: ImageCollection, root_folder: typing.Union[str, PurePath],
+                   dataset_name: str, repair: bool = False):
     """
     Examine an existing Autonomous Systems Lab dataset in the database, and check if for errors
     See http://projects.asl.ethz.ch/datasets/doku.php?id=kmavvisualinertialdatasets#downloads
@@ -22,9 +24,11 @@ def verify_dataset(image_collection: ImageCollection, root_folder: Path, dataset
     :param repair: If possible, fix missing images in the dataset
     :return:
     """
+    root_folder = Path(root_folder)
+    dataset_name = str(dataset_name)
+    repair = bool(repair)
     if not root_folder.is_dir():
         raise NotADirectoryError("'{0}' is not a directory".format(root_folder))
-    repair = bool(repair)
     image_group = dataset_name
     valid = True
     irreparable = False

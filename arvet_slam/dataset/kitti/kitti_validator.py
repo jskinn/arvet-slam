@@ -1,6 +1,7 @@
 # Copyright (c) 2020, John Skinner
 import numpy as np
 import logging
+import typing
 from pathlib import Path
 import pykitti
 import xxhash
@@ -9,11 +10,13 @@ from arvet.core.image_collection import ImageCollection
 import arvet_slam.dataset.kitti.kitti_loader as kitti_loader
 
 
-def verify_dataset(image_collection: ImageCollection, root_folder: Path, sequence_number: int, repair: bool = False):
+def verify_dataset(image_collection: ImageCollection, root_folder: typing.Union[str, Path],
+                   sequence_number: int, repair: bool = False):
     """
     Load a KITTI image sequences into the database.
     :return:
     """
+    root_folder = Path(root_folder)
     sequence_number = int(sequence_number)
     repair = bool(repair)
     if not 0 <= sequence_number < 11:
