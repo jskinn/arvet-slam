@@ -3,6 +3,7 @@ import logging
 from json import load as json_load
 from pathlib import Path
 import arvet.database.tests.database_connection as dbconn
+import arvet.database.image_manager as image_manager
 from arvet.core.image_collection import ImageCollection
 from arvet.core.image import StereoImage
 import arvet_slam.dataset.euroc.euroc_loader as euroc_loader
@@ -47,13 +48,17 @@ class TestEuRoCLoaderIntegration(unittest.TestCase):
         )
         self.assertIsInstance(result, ImageCollection)
         self.assertIsNotNone(result.pk)
+        self.assertIsNotNone(result.image_group)
         self.assertEqual(1, ImageCollection.objects.all().count())
         self.assertEqual(num_images, StereoImage.objects.all().count())   # Make sure we got all the images
 
-        # Make sure we got the depth and position data
-        for timestamp, image in result:
-            self.assertIsNotNone(image.camera_pose)
-            self.assertIsNotNone(image.right_camera_pose)
+        # Make sure we got the camera poses and image data
+        with image_manager.get().get_group(result.get_image_group()):
+            for timestamp, image in result:
+                self.assertIsNotNone(image.pixels)
+                self.assertIsNotNone(image.right_pixels)
+                self.assertIsNotNone(image.camera_pose)
+                self.assertIsNotNone(image.right_camera_pose)
 
         # Clean up after ourselves by dropping the collections for the models
         ImageCollection._mongometa.collection.drop()
