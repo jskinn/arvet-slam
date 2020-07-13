@@ -237,6 +237,7 @@ def import_sequence(root_folder: Path, left_path: Path, right_path: Path,
                 depth=noisy_depth,
                 true_depth=left_true_depth,
                 right_true_depth=right_true_depth,
+                image_group=image_group,
                 metadata=left_metadata,
                 right_metadata=right_metadata,
             )
