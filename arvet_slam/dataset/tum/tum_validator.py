@@ -33,15 +33,17 @@ def verify_dataset(image_collection: ImageCollection, root_folder: typing.Union[
         if (root_folder.parent / dataset_name).is_dir():
             # The root was a tarball, but the extracted data already exists, just use that as the root
             root_folder = root_folder.parent / dataset_name
-        elif tarfile.is_tarfile(root_folder):
-            # Root is actually a tarfile, extract it. find_roots with handle folder structures
-            with tarfile.open(root_folder) as tar_fp:
-                tar_fp.extractall(root_folder.parent / dataset_name)
-            root_folder = root_folder.parent / dataset_name
-            delete_when_done = root_folder
         else:
-            # Could find neither a dir nor a tarfile to extract from
-            raise NotADirectoryError("'{0}' is not a directory".format(root_folder))
+            candidate_tar_file = root_folder.parent / (dataset_name + '.tgz')
+            if candidate_tar_file.is_file() and tarfile.is_tarfile(candidate_tar_file):
+                # Root is actually a tarfile, extract it. find_roots with handle folder structures
+                with tarfile.open(candidate_tar_file) as tar_fp:
+                    tar_fp.extractall(root_folder.parent / dataset_name)
+                root_folder = root_folder.parent / dataset_name
+                delete_when_done = root_folder
+            else:
+                # Could find neither a dir nor a tarfile to extract from
+                raise NotADirectoryError("'{0}' is not a directory".format(root_folder))
 
     # Check the image group on the image collection
     if image_collection.image_group != image_group:
@@ -127,7 +129,7 @@ def verify_dataset(image_collection: ImageCollection, root_folder: typing.Union[
                 img_valid = False
             if actual_depth is None or not np.array_equal(depth_data, actual_depth):
                 if repair:
-                    image.store_depth(actual_depth)
+                    image.store_depth(depth_data)
                     changed = True
                 else:
                     logging.getLogger(__name__).error(

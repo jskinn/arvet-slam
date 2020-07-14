@@ -238,7 +238,7 @@ def import_dataset(root_folder, dataset_name, **_):
             # The root was a tarball, but the extracted data already exists, just use that as the root
             root_folder = root_folder.parent / dataset_name
         else:
-            candidate_tar_file = root_folder.parent / (dataset_name + '.tar.gz')
+            candidate_tar_file = root_folder.parent / (dataset_name + '.tgz')
             if candidate_tar_file.is_file() and tarfile.is_tarfile(candidate_tar_file):
                 # Root is actually a tarfile, extract it. find_roots with handle folder structures
                 with tarfile.open(candidate_tar_file) as tar_fp:

@@ -113,12 +113,18 @@ class TUMManager:
                 image_collection = import_dataset_task.get_result()
                 return tum_validator.verify_dataset(image_collection, self._full_paths[name], name, repair)
             else:
-                # Try looking for an existing task with a tarfile root
-                import_dataset_task = task_manager.get_import_dataset_task(
-                    module_name=tum_loader.__name__,
-                    path=str(self._full_paths[name]) + '.tar.gz',
-                    additional_args={'dataset_name': name}
-                )
+                # Try looking for an existing tarfile
+                for candidate_path in [
+                    str(self._full_paths[name]) + '.tar.gz',
+                    str(self._full_paths[name]) + '.tgz',
+                ]:
+                    import_dataset_task = task_manager.get_import_dataset_task(
+                        module_name=tum_loader.__name__,
+                        path=candidate_path,
+                        additional_args={'dataset_name': name}
+                    )
+                    if import_dataset_task.is_finished:
+                        break
                 if import_dataset_task.is_finished:
                     if repair:
                         logging.getLogger(__name__).warning(
@@ -128,11 +134,33 @@ class TUMManager:
                     image_collection = import_dataset_task.get_result()
                     return tum_validator.verify_dataset(image_collection, self._full_paths[name], name, repair)
                 else:
-                    logging.getLogger(__name__).warning(f"Cannot validate {name}, it is not loaded yet? "
-                                                        f"(looking for module name \"{tum_loader.__name__}\", "
-                                                        f"path \"{str(self._full_paths[name])}\", "
-                                                        f"additional args \"{ {'dataset_name': name} }\")")
-                    return True
+                    # Try looking for an existing task with the actual root from find_files as the path
+                    try:
+                        actual_root = tum_loader.find_files(self._full_paths[name])
+                    except FileNotFoundError:
+                        actual_root = None
+                    if actual_root is not None and len(actual_root) > 0:
+                        import_dataset_task = task_manager.get_import_dataset_task(
+                            module_name=tum_loader.__name__,
+                            path=actual_root[0],
+                            additional_args={'dataset_name': name}
+                        )
+                    else:
+                        import_dataset_task = None
+                    if import_dataset_task is not None and import_dataset_task.is_finished:
+                        if repair:
+                            logging.getLogger(__name__).warning(
+                                f"Shortened path for {name}, it should get returned next time")
+                            import_dataset_task.path = self._full_paths[name]
+                            import_dataset_task.save()
+                        image_collection = import_dataset_task.get_result()
+                        return tum_validator.verify_dataset(image_collection, self._full_paths[name], name, repair)
+                    else:
+                        logging.getLogger(__name__).warning(f"Cannot validate {name}, it is not loaded yet? "
+                                                            f"(looking for module name \"{tum_loader.__name__}\", "
+                                                            f"path \"{str(self._full_paths[name])}\", "
+                                                            f"additional args \"{ {'dataset_name': name} }\")")
+                        return True
         raise NotADirectoryError("No root folder for {0}, did you download it?".format(name))
 
     @classmethod
