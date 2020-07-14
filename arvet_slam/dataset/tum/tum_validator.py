@@ -52,7 +52,7 @@ def verify_dataset(image_collection: ImageCollection, root_folder: typing.Union[
                 f"Fixed incorrect image group for {image_collection.sequence_name}")
         else:
             logging.getLogger(__name__).warning(
-                f"{image_collection.sequence_name} has incorrect image group {image_group}")
+                f"{image_collection.sequence_name} has incorrect image group {image_collection.image_group}")
             valid = False
 
     # Find the relevant metadata files

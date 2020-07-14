@@ -70,13 +70,14 @@ def verify_dataset(image_collection: ImageCollection, root_folder: typing.Union[
     # Load the images from the metadata
     total_invalid_images = 0
     total_fixed_images = 0
+    image_index = 0
     with arvet.database.image_manager.get().get_group(image_group, allow_write=repair):
-        for img_idx, timestamp, left_image_file, right_image_file, robot_pose in enumerate(all_metadata):
+        for timestamp, left_image_file, right_image_file, robot_pose in all_metadata:
             changed = False
             img_valid = True
             # Skip if we've hit the end of the data
-            if img_idx >= len(image_collection):
-                logging.getLogger(__name__).error(f"Image {img_idx} is missing from the dataset")
+            if image_index >= len(image_collection):
+                logging.getLogger(__name__).error(f"Image {image_index} is missing from the dataset")
                 irreparable = True
                 valid = False
                 total_invalid_images += 1
@@ -88,15 +89,16 @@ def verify_dataset(image_collection: ImageCollection, root_folder: typing.Union[
             right_pixels = image_utils.read_colour(right_img_path)
 
             # Error check the loaded image data
+            # The EuRoC Sequences MH_04_difficult and V2_03_difficult are missing the first right frame
+            # So we actually start loading from
+            # In general, frames that are missing are skipped, and do not increment image index
             if left_pixels is None or left_pixels.size is 0:
                 logging.getLogger(__name__).warning(
-                    f"Could not read left image \"{left_img_path}\", result is empty. Skipping.")
-                valid = False
+                    f"Could not read left image \"{left_img_path}\", result is empty. Image is skipped.")
                 continue
             if right_pixels is None or right_pixels.size is 0:
                 logging.getLogger(__name__).warning(
-                    f"Could not read right image \"{right_img_path}\", result is empty. Skipping.")
-                valid = False
+                    f"Could not read right image \"{right_img_path}\", result is empty. Image is skipped.")
                 continue
 
             left_pixels = cv2.remap(left_pixels, left_x, left_y, cv2.INTER_LINEAR)
@@ -106,10 +108,11 @@ def verify_dataset(image_collection: ImageCollection, root_folder: typing.Union[
 
             # Load the image from the database
             try:
-                _, image = image_collection[img_idx]
+                _, image = image_collection[image_index]
             except (KeyError, IOError, RuntimeError):
-                logging.getLogger(__name__).exception(f"Error loading image object {img_idx}")
+                logging.getLogger(__name__).exception(f"Error loading image object {image_index}")
                 valid = False
+                image_index += 1    # Index is valid, increment when done
                 continue
 
             # First, check the image group
@@ -117,7 +120,7 @@ def verify_dataset(image_collection: ImageCollection, root_folder: typing.Union[
                 if repair:
                     image.image_group = image_group
                     changed = True
-                logging.getLogger(__name__).warning(f"Image {img_idx} has incorrect group {image.image_group}")
+                logging.getLogger(__name__).warning(f"Image {image_index} has incorrect group {image.image_group}")
                 valid = False
                 img_valid = False
 
@@ -138,7 +141,7 @@ def verify_dataset(image_collection: ImageCollection, root_folder: typing.Union[
                     changed = True
                 else:
                     logging.getLogger(__name__).error(
-                        f"Image {img_idx}: Left pixels do not match data read from {left_img_path}")
+                        f"Image {image_index}: Left pixels do not match data read from {left_img_path}")
                 img_valid = False
                 valid = False
             if left_hash != image.metadata.img_hash:
@@ -146,7 +149,7 @@ def verify_dataset(image_collection: ImageCollection, root_folder: typing.Union[
                     image.metadata.img_hash = left_hash
                     changed = True
                 else:
-                    logging.getLogger(__name__).error(f"Image {img_idx}: Left hash does not match metadata")
+                    logging.getLogger(__name__).error(f"Image {image_index}: Left hash does not match metadata")
                 valid = False
                 img_valid = False
             if right_actual_pixels is None or not np.array_equal(right_pixels, right_actual_pixels):
@@ -155,7 +158,7 @@ def verify_dataset(image_collection: ImageCollection, root_folder: typing.Union[
                     changed = True
                 else:
                     logging.getLogger(__name__).error(
-                        f"Image {img_idx}: Right pixels do not match data read from {right_img_path}")
+                        f"Image {image_index}: Right pixels do not match data read from {right_img_path}")
                 valid = False
                 img_valid = False
             if right_hash != image.right_metadata.img_hash:
@@ -163,15 +166,16 @@ def verify_dataset(image_collection: ImageCollection, root_folder: typing.Union[
                     image.right_metadata.img_hash = right_hash
                     changed = True
                 else:
-                    logging.getLogger(__name__).error(f"Image {img_idx}: Right hash does not match metadata")
+                    logging.getLogger(__name__).error(f"Image {image_index}: Right hash does not match metadata")
                 valid = False
                 img_valid = False
             if changed and repair:
-                logging.getLogger(__name__).warning(f"Image {img_idx}: repaired")
+                logging.getLogger(__name__).warning(f"Image {image_index}: repaired")
                 image.save()
                 total_fixed_images += 1
             if not img_valid:
                 total_invalid_images += 1
+            image_index += 1
 
     if irreparable:
         # Images are missing entirely, needs re-import
