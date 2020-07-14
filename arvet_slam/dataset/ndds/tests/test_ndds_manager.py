@@ -23,48 +23,55 @@ class TestNDDSManager(unittest.TestCase):
                 'rgbd_dataset_freiburg3_nostructure_notexture_near_withloop',
                 ndds.QualityLevel.MAX_QUALITY,
                 TimeOfDay.DAY,
-                root / 'rgbd_dataset_freiburg3_nostructure_notexture_near_withloop-winter_house-000.tar.gz'
+                'rgbd_dataset_freiburg3_nostructure_notexture_near_withloop-winter_house-000',
+                root
             ),
             ndds.SequenceEntry(
                 'winter_house',
                 'rgbd_dataset_freiburg3_nostructure_notexture_near_withloop',
                 ndds.QualityLevel.NO_TEXTURE,
                 TimeOfDay.DAY,
-                root / 'rgbd_dataset_freiburg3_nostructure_notexture_near_withloop-winter_house-001.tar.gz'
+                'rgbd_dataset_freiburg3_nostructure_notexture_near_withloop-winter_house-001',
+                root
             ),
             ndds.SequenceEntry(
                 'winter_house',
                 'rgbd_dataset_freiburg3_nostructure_notexture_near_withloop',
                 ndds.QualityLevel.NO_REFLECTIONS,
                 TimeOfDay.DAY,
-                root / 'rgbd_dataset_freiburg3_nostructure_notexture_near_withloop-winter_house-002.tar.gz'
+                'rgbd_dataset_freiburg3_nostructure_notexture_near_withloop-winter_house-002',
+                root
             ),
             ndds.SequenceEntry(
                 'winter_house',
                 'rgbd_dataset_freiburg3_nostructure_notexture_near_withloop',
                 ndds.QualityLevel.NO_SMALL_OBJECTS,
                 TimeOfDay.DAY,
-                root / 'rgbd_dataset_freiburg3_nostructure_notexture_near_withloop-winter_house-003.tar.gz'
+                'rgbd_dataset_freiburg3_nostructure_notexture_near_withloop-winter_house-003',
+                root
             ),
             ndds.SequenceEntry(
                 'winter_house',
                 'rgbd_dataset_freiburg3_nostructure_notexture_near_withloop',
                 ndds.QualityLevel.MIN_QUALITY,
                 TimeOfDay.DAY,
-                root / 'rgbd_dataset_freiburg3_nostructure_notexture_near_withloop-winter_house-004.tar.gz'
+                'rgbd_dataset_freiburg3_nostructure_notexture_near_withloop-winter_house-004',
+                root
             ),
             ndds.SequenceEntry(
                 'winter_house',
                 'rgbd_dataset_freiburg3_nostructure_notexture_near_withloop',
                 ndds.QualityLevel.MAX_QUALITY,
                 TimeOfDay.NIGHT,
-                root / 'rgbd_dataset_freiburg3_nostructure_notexture_near_withloop-winter_house-005.tar.gz'
+                'rgbd_dataset_freiburg3_nostructure_notexture_near_withloop-winter_house-005',
+                root
             ),
             ndds.SequenceEntry(
                 'winter_house',
                 'rgbd_dataset_freiburg3_nostructure_notexture_near_withloop',
                 ndds.QualityLevel.MIN_QUALITY,
                 TimeOfDay.NIGHT,
+                'rgbd_dataset_freiburg3_nostructure_notexture_near_withloop',
                 root / 'rgbd_dataset_freiburg3_nostructure_notexture_near_withloop-winter_house-006.tar.gz'
             ),
             ndds.SequenceEntry(
@@ -72,28 +79,32 @@ class TestNDDSManager(unittest.TestCase):
                 'rgbd_dataset_freiburg3_nostructure_notexture_near_withloop',
                 ndds.QualityLevel.MAX_QUALITY,
                 TimeOfDay.DAY,
-                root / 'rgbd_dataset_freiburg3_nostructure_notexture_near_withloop-two_story_apartment-000.tar.gz'
+                'rgbd_dataset_freiburg3_nostructure_notexture_near_withloop-two_story_apartment-000',
+                root
             ),
             ndds.SequenceEntry(
                 'two_story_apartment',
                 'rgbd_dataset_freiburg3_nostructure_notexture_near_withloop',
                 ndds.QualityLevel.NO_REFLECTIONS,
                 TimeOfDay.DAY,
-                root / 'rgbd_dataset_freiburg3_nostructure_notexture_near_withloop-two_story_apartment-001.tar.gz'
+                'rgbd_dataset_freiburg3_nostructure_notexture_near_withloop-two_story_apartment-001',
+                root
             ),
             ndds.SequenceEntry(
                 'winter_house',
                 'MH_04_difficult',
                 ndds.QualityLevel.MIN_QUALITY,
                 TimeOfDay.DAY,
-                root / 'MH_04_difficult-winter_house-000.tar.gz'
+                'MH_04_difficult-winter_house-000',
+                root
             ),
             ndds.SequenceEntry(
                 'two_story_apartment',
                 'MH_04_difficult',
                 ndds.QualityLevel.MAX_QUALITY,
                 TimeOfDay.DAY,
-                root / 'MH_04_difficult-two_story_apartment-000.tar.gz'
+                'MH_04_difficult-two_story_apartment-000',
+                root
             )
         ]
 
@@ -113,7 +124,7 @@ class TestNDDSManager(unittest.TestCase):
             self.assertIn(mock.call(
                 module_name=ndds_loader.__name__,
                 path=str(sequence_entry.path),
-                additional_args={},
+                additional_args={'sequence_name': sequence_entry.sequence_name},
                 num_cpus=mock.ANY,
                 num_gpus=mock.ANY,
                 memory_requirements=mock.ANY,
@@ -140,7 +151,7 @@ class TestNDDSManager(unittest.TestCase):
                 self.assertIn(mock.call(
                     module_name=ndds_loader.__name__,
                     path=str(sequence_entry.path),
-                    additional_args={},
+                    additional_args={'sequence_name': sequence_entry.sequence_name},
                     num_cpus=mock.ANY,
                     num_gpus=mock.ANY,
                     memory_requirements=mock.ANY,
@@ -168,7 +179,7 @@ class TestNDDSManager(unittest.TestCase):
                 self.assertIn(mock.call(
                     module_name=ndds_loader.__name__,
                     path=str(sequence_entry.path),
-                    additional_args={},
+                    additional_args={'sequence_name': sequence_entry.sequence_name},
                     num_cpus=mock.ANY,
                     num_gpus=mock.ANY,
                     memory_requirements=mock.ANY,
@@ -196,7 +207,7 @@ class TestNDDSManager(unittest.TestCase):
                 self.assertIn(mock.call(
                     module_name=ndds_loader.__name__,
                     path=str(sequence_entry.path),
-                    additional_args={},
+                    additional_args={'sequence_name': sequence_entry.sequence_name},
                     num_cpus=mock.ANY,
                     num_gpus=mock.ANY,
                     memory_requirements=mock.ANY,
@@ -224,7 +235,7 @@ class TestNDDSManager(unittest.TestCase):
                 self.assertIn(mock.call(
                     module_name=ndds_loader.__name__,
                     path=str(sequence_entry.path),
-                    additional_args={},
+                    additional_args={'sequence_name': sequence_entry.sequence_name},
                     num_cpus=mock.ANY,
                     num_gpus=mock.ANY,
                     memory_requirements=mock.ANY,
@@ -254,7 +265,7 @@ class TestNDDSManager(unittest.TestCase):
                 self.assertIn(mock.call(
                     module_name=ndds_loader.__name__,
                     path=str(sequence_entry.path),
-                    additional_args={},
+                    additional_args={'sequence_name': sequence_entry.sequence_name},
                     num_cpus=mock.ANY,
                     num_gpus=mock.ANY,
                     memory_requirements=mock.ANY,
@@ -293,7 +304,7 @@ class TestNDDSManager(unittest.TestCase):
                 self.assertIn(mock.call(
                     module_name=ndds_loader.__name__,
                     path=str(sequence_entry.path),
-                    additional_args={},
+                    additional_args={'sequence_name': sequence_entry.sequence_name},
                     num_cpus=mock.ANY,
                     num_gpus=mock.ANY,
                     memory_requirements=mock.ANY,
@@ -401,7 +412,8 @@ class TestLoadSequences(unittest.TestCase):
         self.assertEqual(environment, results[0].environment)
         self.assertEqual(TimeOfDay.DAY, results[0].time_of_day)
         self.assertEqual(ndds.QualityLevel.MAX_QUALITY, results[0].quality_level)
-        self.assertEqual(sequence_path, results[0].path)
+        self.assertEqual(sequence_name, results[0].sequence_name)
+        self.assertEqual(self.temp_folder, results[0].path)
 
         # clean up
         self.sequences_file.unlink()
@@ -422,7 +434,8 @@ class TestLoadSequences(unittest.TestCase):
         self.assertEqual(environment, results[0].environment)
         self.assertEqual(TimeOfDay.DAY, results[0].time_of_day)
         self.assertEqual(ndds.QualityLevel.MAX_QUALITY, results[0].quality_level)
-        self.assertEqual(sequence_zip, results[0].path)
+        self.assertEqual(sequence_name, results[0].sequence_name)
+        self.assertEqual(self.temp_folder, results[0].path)
 
         # clean up
         self.sequences_file.unlink()
@@ -446,7 +459,8 @@ class TestLoadSequences(unittest.TestCase):
         self.assertEqual(environment, results[0].environment)
         self.assertEqual(TimeOfDay.DAY, results[0].time_of_day)
         self.assertEqual(ndds.QualityLevel.MAX_QUALITY, results[0].quality_level)
-        self.assertEqual(sequence_1_zip, results[0].path)
+        self.assertEqual(sequence_name_1, results[0].sequence_name)
+        self.assertEqual(self.temp_folder, results[0].path)
 
         # clean up
         self.sequences_file.unlink()
@@ -470,7 +484,8 @@ class TestLoadSequences(unittest.TestCase):
         self.assertEqual(environment, results[0].environment)
         self.assertEqual(TimeOfDay.DAY, results[0].time_of_day)
         self.assertEqual(ndds.QualityLevel.MAX_QUALITY, results[0].quality_level)
-        self.assertEqual(sequence_1_zip, results[0].path)
+        self.assertEqual(sequence_name_1, results[0].sequence_name)
+        self.assertEqual(self.temp_folder, results[0].path)
 
         # clean up
         self.sequences_file.unlink()
@@ -495,7 +510,8 @@ class TestLoadSequences(unittest.TestCase):
         self.assertEqual(environment, results[0].environment)
         self.assertEqual(TimeOfDay.DAY, results[0].time_of_day)
         self.assertEqual(ndds.QualityLevel.MAX_QUALITY, results[0].quality_level)
-        self.assertEqual(sequence_1_zip, results[0].path)
+        self.assertEqual(sequence_name_1, results[0].sequence_name)
+        self.assertEqual(self.temp_folder, results[0].path)
 
         # clean up
         self.sequences_file.unlink()
@@ -523,7 +539,8 @@ class TestLoadSequences(unittest.TestCase):
         self.assertEqual(environment, results[0].environment)
         self.assertEqual(TimeOfDay.DAY, results[0].time_of_day)
         self.assertEqual(ndds.QualityLevel.MAX_QUALITY, results[0].quality_level)
-        self.assertEqual(sequence_1_zip, results[0].path)
+        self.assertEqual(sequence_name_1, results[0].sequence_name)
+        self.assertEqual(self.temp_folder, results[0].path)
 
         # clean up
         self.sequences_file.unlink()
@@ -549,7 +566,8 @@ class TestLoadSequences(unittest.TestCase):
         self.assertEqual(environment, results[0].environment)
         self.assertEqual(TimeOfDay.DAY, results[0].time_of_day)
         self.assertEqual(ndds.QualityLevel.MAX_QUALITY, results[0].quality_level)
-        self.assertEqual(sequence_zip, results[0].path)
+        self.assertEqual(sequence_name, results[0].sequence_name)
+        self.assertEqual(self.temp_folder, results[0].path)
 
         # clean up
         self.sequences_file.unlink()
@@ -574,7 +592,8 @@ class TestLoadSequences(unittest.TestCase):
         self.assertEqual(environment, results[0].environment)
         self.assertEqual(TimeOfDay.DAY, results[0].time_of_day)
         self.assertEqual(ndds.QualityLevel.MIN_QUALITY, results[0].quality_level)
-        self.assertEqual(sequence_zip, results[0].path)
+        self.assertEqual(sequence_name, results[0].sequence_name)
+        self.assertEqual(self.temp_folder, results[0].path)
 
         # clean up
         self.sequences_file.unlink()
@@ -599,7 +618,8 @@ class TestLoadSequences(unittest.TestCase):
         self.assertEqual(environment, results[0].environment)
         self.assertEqual(TimeOfDay.DAY, results[0].time_of_day)
         self.assertEqual(ndds.QualityLevel.NO_TEXTURE, results[0].quality_level)
-        self.assertEqual(sequence_zip, results[0].path)
+        self.assertEqual(sequence_name, results[0].sequence_name)
+        self.assertEqual(self.temp_folder, results[0].path)
 
         # clean up
         self.sequences_file.unlink()
@@ -624,7 +644,8 @@ class TestLoadSequences(unittest.TestCase):
         self.assertEqual(environment, results[0].environment)
         self.assertEqual(TimeOfDay.DAY, results[0].time_of_day)
         self.assertEqual(ndds.QualityLevel.NO_REFLECTIONS, results[0].quality_level)
-        self.assertEqual(sequence_zip, results[0].path)
+        self.assertEqual(sequence_name, results[0].sequence_name)
+        self.assertEqual(self.temp_folder, results[0].path)
 
         # clean up
         self.sequences_file.unlink()
@@ -649,7 +670,8 @@ class TestLoadSequences(unittest.TestCase):
         self.assertEqual(environment, results[0].environment)
         self.assertEqual(TimeOfDay.DAY, results[0].time_of_day)
         self.assertEqual(ndds.QualityLevel.NO_SMALL_OBJECTS, results[0].quality_level)
-        self.assertEqual(sequence_zip, results[0].path)
+        self.assertEqual(sequence_name, results[0].sequence_name)
+        self.assertEqual(self.temp_folder, results[0].path)
 
         # clean up
         self.sequences_file.unlink()

@@ -24,12 +24,13 @@ INSTANCE_TEMPLATE = "{0:06}.is.png"
 DEPTH_SCALE = 30 / 255  # = (3000 / 255) / 100
 
 
-def import_dataset(root_folder, depth_quality: str = '', **_):
+def import_dataset(root_folder, sequence_name: str = '', depth_quality: str = '', **_):
     """
     Load a dataset produced by the Nvidia dataset generator
     :return:
     """
     root_folder = Path(root_folder)
+    sequence_name = str(sequence_name)
     depth_quality = depth_quality.upper()
     try:
         depth_quality = DepthNoiseQuality[depth_quality]
@@ -37,19 +38,21 @@ def import_dataset(root_folder, depth_quality: str = '', **_):
         depth_quality = DepthNoiseQuality.KINECT_NOISE
 
     # Step 0: Check the root folder to see if it needs to be extracted from a tarfile
+    sequence_folder = root_folder / sequence_name
     delete_when_done = None
-    if not root_folder.is_dir():
-        if tarfile.is_tarfile(root_folder):
-            delete_when_done = root_folder.parent / (root_folder.name.split('.')[0] + '-temp')
-            with tarfile.open(root_folder) as tar_fp:
-                tar_fp.extractall(delete_when_done)
-            root_folder = delete_when_done
+    if not sequence_folder.is_dir():
+        sequence_tarfile = root_folder / (sequence_name + '.tar.gz')
+        if sequence_tarfile.is_file() and tarfile.is_tarfile(sequence_tarfile):
+            logging.getLogger(__name__).info(f"Extracting sequence from {sequence_tarfile}")
+            delete_when_done = sequence_folder
+            with tarfile.open(sequence_tarfile) as tar_fp:
+                tar_fp.extractall(sequence_folder)
         else:
             # Could find neither a dir nor a tarfile to extract from
-            raise NotADirectoryError("'{0}' is not a directory or a tarfile we can extract".format(root_folder))
+            raise NotADirectoryError(f"Neither {sequence_folder} nor {sequence_tarfile} exists for us to extract")
 
-    root_folder, left_path, right_path = find_files(root_folder)
-    collection = import_sequence(root_folder, left_path, right_path, depth_quality)
+    sequence_folder, left_path, right_path = find_files(sequence_folder)
+    collection = import_sequence(sequence_folder, left_path, right_path, depth_quality)
 
     if delete_when_done is not None and delete_when_done.exists():
         # We're done and need to clean up after ourselves

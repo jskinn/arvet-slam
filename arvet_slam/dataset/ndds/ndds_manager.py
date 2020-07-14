@@ -102,12 +102,14 @@ class SequenceEntry:
             trajectory_id: str,
             quality_level: QualityLevel,
             time_of_day: imeta.TimeOfDay,
+            sequence_name: str,
             path: PurePath
     ):
         self.environment = str(environment)
         self.trajectory_id = str(trajectory_id)
-        self.quality_level = quality_level
+        self.quality_level = QualityLevel(quality_level)
         self.time_of_day = time_of_day
+        self.sequence_name = str(sequence_name)
         self.path = Path(path)
 
 
@@ -144,7 +146,7 @@ class NDDSManager:
         and a number of pending sequences that match the criteria, but are still to import.
         """
         sequence_paths = [
-            sequence_entry.path
+            (sequence_entry.path, sequence_entry.sequence_name)
             for sequence_entry in self._sequence_data
             if (
                 (environment is None or sequence_entry.environment == environment) and
@@ -156,11 +158,11 @@ class NDDSManager:
 
         sequences = []
         num_pending = 0
-        for sequence_path in sequence_paths:
+        for sequence_path, sequence_name in sequence_paths:
             import_dataset_task = task_manager.get_import_dataset_task(
                 module_name=ndds_loader.__name__,
                 path=str(sequence_path),
-                additional_args={},
+                additional_args={'sequence_name': sequence_name},
                 num_cpus=self.num_cpus,
                 num_gpus=0,
                 memory_requirements=self.memory_requirements,
@@ -199,24 +201,24 @@ class NDDSManager:
         :return: True if all the specified sequences pass validation, false otherwise
         """
         sequence_paths = [
-            sequence_entry.path
+            (sequence_entry.path, sequence_entry.sequence_name)
             for sequence_entry in self._sequence_data
             if (
-                    (environment is None or sequence_entry.environment == environment) and
-                    (trajectory_id is None or sequence_entry.trajectory_id == trajectory_id) and
-                    (quality_level is None or sequence_entry.quality_level == quality_level) and
-                    (time_of_day is None or sequence_entry.time_of_day == time_of_day)
+                (environment is None or sequence_entry.environment == environment) and
+                (trajectory_id is None or sequence_entry.trajectory_id == trajectory_id) and
+                (quality_level is None or sequence_entry.quality_level == quality_level) and
+                (time_of_day is None or sequence_entry.time_of_day == time_of_day)
             )
         ]
 
         all_valid = False
         total_validated = 0
         invalid_ids = []
-        for sequence_path in sequence_paths:
+        for sequence_path, sequence_name in sequence_paths:
             import_dataset_task = task_manager.get_import_dataset_task(
                 module_name=ndds_loader.__name__,
                 path=str(sequence_path),
-                additional_args={}
+                additional_args={'sequence_name': sequence_name}
             )
             if import_dataset_task.is_finished:
                 image_collection = import_dataset_task.get_result()
@@ -311,7 +313,8 @@ def load_sequences(root: typing.Union[str, bytes, os.PathLike, PurePath]) -> typ
             trajectory_id,
             quality_level,
             time_of_day,
-            sequence_path
+            sequence_name,
+            sequence_path.parent
         ))
     return sequences
 

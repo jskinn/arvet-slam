@@ -19,14 +19,14 @@ def load_dataset_location():
     return None, None, None
 
 
-dataset_root, sequence, zipped_sequence = load_dataset_location()
+DATASET_ROOT, SEQUENCE, ZIPPED_SEQUENCE = load_dataset_location()
 
 
 class TestNDDSLoaderIntegration(unittest.TestCase):
 
     @unittest.skipIf(
-        dataset_root is None or not (dataset_root / sequence).exists(),
-        f"Could not find the NDDS dataset at {dataset_root / sequence}, cannot run integration test"
+        DATASET_ROOT is None or not (DATASET_ROOT / SEQUENCE).exists(),
+        f"Could not find the NDDS dataset at {DATASET_ROOT / SEQUENCE}, cannot run integration test"
     )
     def test_load_configured_sequence(self):
         dbconn.connect_to_test_db()
@@ -34,8 +34,8 @@ class TestNDDSLoaderIntegration(unittest.TestCase):
         logging.disable(logging.CRITICAL)
 
         # count the number of images we expect to import
-        left_folder = dataset_root / sequence / 'left'
-        right_folder = dataset_root / sequence / 'right'
+        left_folder = DATASET_ROOT / SEQUENCE / 'left'
+        right_folder = DATASET_ROOT / SEQUENCE / 'right'
         num_images = sum(
             1 for file in left_folder.iterdir()
             if file.is_file()
@@ -49,7 +49,8 @@ class TestNDDSLoaderIntegration(unittest.TestCase):
         StereoImage.objects.all().delete()
 
         result = ndds_loader.import_dataset(
-            dataset_root / sequence,
+            DATASET_ROOT,
+            SEQUENCE,
             DepthNoiseQuality.KINECT_NOISE.name
         )
         self.assertIsInstance(result, ImageCollection)
@@ -73,10 +74,10 @@ class TestNDDSLoaderIntegration(unittest.TestCase):
         logging.disable(logging.NOTSET)
 
     @unittest.skipIf(
-        dataset_root is None
-        or not zipped_sequence.endswith('.tar.gz')  # Must actually be a compressed file, not a directory
-        or not (dataset_root / zipped_sequence).is_file(),
-        f"Could not find compressed NDDS dataset at {dataset_root / zipped_sequence}, cannot run integration test"
+        DATASET_ROOT is None
+        or not ZIPPED_SEQUENCE.endswith('.tar.gz')  # Must actually be a compressed file, not a directory
+        or not (DATASET_ROOT / ZIPPED_SEQUENCE).is_file(),
+        f"Could not find compressed NDDS dataset at {DATASET_ROOT / ZIPPED_SEQUENCE}, cannot run integration test"
     )
     def test_load_zipped_sequence(self):
         dbconn.connect_to_test_db()
@@ -88,13 +89,14 @@ class TestNDDSLoaderIntegration(unittest.TestCase):
         StereoImage.objects.all().delete()
 
         # Make sure the un-tarred folder does not exist
-        sequence_name = zipped_sequence.split('.')[0]
-        extracted_folder = dataset_root / sequence_name
+        sequence_name = ZIPPED_SEQUENCE.split('.')[0]
+        extracted_folder = DATASET_ROOT / sequence_name
         if extracted_folder.exists():
             shutil.rmtree(extracted_folder)
 
         result = ndds_loader.import_dataset(
-            dataset_root / zipped_sequence,
+            DATASET_ROOT,
+            sequence_name,
             DepthNoiseQuality.KINECT_NOISE.name
         )
         self.assertIsInstance(result, ImageCollection)

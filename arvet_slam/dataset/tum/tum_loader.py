@@ -237,15 +237,17 @@ def import_dataset(root_folder, dataset_name, **_):
         if (root_folder.parent / dataset_name).is_dir():
             # The root was a tarball, but the extracted data already exists, just use that as the root
             root_folder = root_folder.parent / dataset_name
-        elif tarfile.is_tarfile(root_folder):
-            # Root is actually a tarfile, extract it. find_roots with handle folder structures
-            with tarfile.open(root_folder) as tar_fp:
-                tar_fp.extractall(root_folder.parent / dataset_name)
-            root_folder = root_folder.parent / dataset_name
-            delete_when_done = root_folder
         else:
-            # Could find neither a dir nor a tarfile to extract from
-            raise NotADirectoryError("'{0}' is not a directory".format(root_folder))
+            candidate_tar_file = root_folder.parent / (dataset_name + '.tar.gz')
+            if candidate_tar_file.is_file() and tarfile.is_tarfile(candidate_tar_file):
+                # Root is actually a tarfile, extract it. find_roots with handle folder structures
+                with tarfile.open(candidate_tar_file) as tar_fp:
+                    tar_fp.extractall(root_folder.parent / dataset_name)
+                root_folder = root_folder.parent / dataset_name
+                delete_when_done = root_folder
+            else:
+                # Could find neither a dir nor a tarfile to extract from
+                raise NotADirectoryError("'{0}' is not a directory".format(root_folder))
 
     # Step 1: Find the relevant metadata files
     root_folder, rgb_path, depth_path, trajectory_path = find_files(root_folder)

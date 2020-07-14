@@ -113,8 +113,26 @@ class TUMManager:
                 image_collection = import_dataset_task.get_result()
                 return tum_validator.verify_dataset(image_collection, self._full_paths[name], name, repair)
             else:
-                logging.getLogger(__name__).warning(f"Cannot validate {name}, it is not loaded yet")
-                return True
+                # Try looking for an existing task with a tarfile root
+                import_dataset_task = task_manager.get_import_dataset_task(
+                    module_name=tum_loader.__name__,
+                    path=str(self._full_paths[name]) + '.tar.gz',
+                    additional_args={'dataset_name': name}
+                )
+                if import_dataset_task.is_finished:
+                    if repair:
+                        logging.getLogger(__name__).warning(
+                            f"Removed suffix from tarball import task for {name}, it should get returned next time")
+                        import_dataset_task.path = self._full_paths[name]
+                        import_dataset_task.save()
+                    image_collection = import_dataset_task.get_result()
+                    return tum_validator.verify_dataset(image_collection, self._full_paths[name], name, repair)
+                else:
+                    logging.getLogger(__name__).warning(f"Cannot validate {name}, it is not loaded yet? "
+                                                        f"(looking for module name \"{tum_loader.__name__}\", "
+                                                        f"path \"{str(self._full_paths[name])}\", "
+                                                        f"additional args \"{ {'dataset_name': name} }\")")
+                    return True
         raise NotADirectoryError("No root folder for {0}, did you download it?".format(name))
 
     @classmethod
@@ -135,11 +153,11 @@ class TUMManager:
                     if child_path.name in dataset_names:
                         # this is could be a dataset folder, look for roots
                         try:
-                            actual_root = tum_loader.find_files(child_path)
+                            tum_loader.find_files(child_path)
                         except FileNotFoundError:
                             continue
-                        # Only want the root path, ignore the other return values
-                        actual_roots[child_path.name] = actual_root[0]
+                        # Find files worked, store this path
+                        actual_roots[child_path.name] = child_path
                     else:
                         # Recursively search this path for more files
                         to_search.add(child_path)
@@ -150,7 +168,7 @@ class TUMManager:
                     if period_index > 0:
                         file_name = file_name[:period_index]    # strip all extensions.
                     if file_name in dataset_names:
-                        tarball_roots[file_name] = child_path
+                        tarball_roots[file_name] = child_path.parent / file_name
 
         # for each dataset we found a tarball for, but not a root folder, store the tarball as the root
         for dataset_name in set(tarball_roots.keys()) - set(actual_roots.keys()):
