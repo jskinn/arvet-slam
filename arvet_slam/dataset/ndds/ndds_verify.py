@@ -19,21 +19,24 @@ def verify_sequence(image_collection: ImageCollection, root_folder: Path) -> boo
     root_folder = Path(root_folder)
     # depth_quality = DepthNoiseQuality(depth_quality)
     valid = True
+    sequence_name = image_collection.sequence_name
 
     # Step 0: Check the root folder to see if it needs to be extracted from a tarfile
+    sequence_folder = root_folder / sequence_name
     delete_when_done = None
-    if not root_folder.is_dir():
-        if tarfile.is_tarfile(root_folder):
-            delete_when_done = root_folder.parent / (root_folder.name.split('.')[0] + '-temp')
-            with tarfile.open(root_folder) as tar_fp:
-                tar_fp.extractall(delete_when_done)
-            root_folder = delete_when_done
+    if not sequence_folder.is_dir():
+        sequence_tarfile = root_folder / (sequence_name + '.tar.gz')
+        if sequence_tarfile.is_file() and tarfile.is_tarfile(sequence_tarfile):
+            logging.getLogger(__name__).info(f"Extracting sequence from {sequence_tarfile}")
+            delete_when_done = sequence_folder
+            with tarfile.open(sequence_tarfile) as tar_fp:
+                tar_fp.extractall(sequence_folder)
         else:
             # Could find neither a dir nor a tarfile to extract from
-            raise NotADirectoryError("'{0}' is not a directory or a tarfile we can extract".format(root_folder))
-
-    logging.getLogger(__name__).info(f"Verifying sequence {image_collection.sequence_name}...")
-    root_folder, left_path, right_path = ndds_loader.find_files(root_folder)
+            raise NotADirectoryError(f"Neither {sequence_folder} nor {sequence_tarfile} exists for us to extract")
+    sequence_folder, left_path, right_path = ndds_loader.find_files(sequence_folder)
+    logging.getLogger(__name__).info(
+        f"{sequence_name}: Selected {sequence_folder}, {left_path}, {right_path} as source folders")
 
     # Read the maximum image id, and make sure it matches the collection
     max_img_id = min(
@@ -141,8 +144,8 @@ def verify_sequence(image_collection: ImageCollection, root_folder: Path) -> boo
         shutil.rmtree(delete_when_done)
 
     if valid:
-        logging.getLogger(__name__).info(f"Verification of {image_collection.sequence_name} successful.")
+        logging.getLogger(__name__).info(f"Verification of {sequence_name} successful.")
     else:
-        logging.getLogger(__name__).info(f"Verification of {image_collection.sequence_name} ({image_collection.pk}) "
+        logging.getLogger(__name__).info(f"Verification of {sequence_name} ({image_collection.pk}) "
                                          f"FAILED, ({total_invalid_images} images failed)")
     return valid
