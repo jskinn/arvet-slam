@@ -4,6 +4,7 @@ import tarfile
 from pathlib import Path
 import shutil
 import numpy as np
+import xxhash
 import arvet.util.image_utils as image_utils
 import arvet.database.image_manager
 from arvet.core.image_collection import ImageCollection
@@ -51,6 +52,7 @@ def verify_sequence(image_collection: ImageCollection, root_folder: Path) -> boo
     total_invalid_images = 0
     with arvet.database.image_manager.get().get_group(image_collection.get_image_group()):
         for img_idx in range(max_img_id + 1):
+            img_valid = True
             # Expand the file paths for this image
             left_img_path = left_path / ndds_loader.IMG_TEMPLATE.format(img_idx)
             left_depth_path = left_path / ndds_loader.DEPTH_TEMPLATE.format(img_idx)
@@ -74,6 +76,10 @@ def verify_sequence(image_collection: ImageCollection, root_folder: Path) -> boo
                 right_pixels = np.ascontiguousarray(right_pixels)
             if not right_true_depth.flags.c_contiguous:
                 right_true_depth = np.ascontiguousarray(right_true_depth)
+
+            # Compute image hashes
+            left_hash = bytes(xxhash.xxh64(left_pixels).digest())
+            right_hash = bytes(xxhash.xxh64(right_pixels).digest())
 
             # Compute a noisy depth image
             # noisy_depth = create_noisy_depth_image(
@@ -102,21 +108,33 @@ def verify_sequence(image_collection: ImageCollection, root_folder: Path) -> boo
                     f"Image {img_idx}: Left pixels do not match data read from {left_img_path}")
                 total_invalid_images += 1
                 valid = False
+            if left_hash != bytes(image.metadata.img_hash):
+                logging.getLogger(__name__).error(
+                    f"Image {img_idx}: Left hash does not match metadata {image.metadata.img_hash}")
+                valid = False
+                img_valid = False
             if not np.array_equal(left_true_depth, left_actual_ground_truth_depth):
                 logging.getLogger(__name__).error(
                     f"Image {img_idx}: Left depth does not match data read from {left_depth_path}")
-                total_invalid_images += 1
                 valid = False
+                img_valid = False
             if not np.array_equal(right_pixels, right_actual_pixels):
                 logging.getLogger(__name__).error(
                     f"Image {img_idx}: Right pixels do not match data read from {right_img_path}")
-                total_invalid_images += 1
                 valid = False
+                img_valid = False
+            if right_hash != bytes(image.right_metadata.img_hash):
+                logging.getLogger(__name__).error(
+                    f"Image {img_idx}: Right hash does not match metadata {image.right_metadata.img_hash}")
+                valid = False
+                img_valid = False
             if not np.array_equal(right_true_depth, right_actual_ground_truth_depth):
                 logging.getLogger(__name__).error(
                     f"Image {img_idx}: Right depth does not match data read from {right_depth_path}")
-                total_invalid_images += 1
                 valid = False
+                img_valid = False
+            if not img_valid:
+                total_invalid_images += 1
 
     if delete_when_done is not None and delete_when_done.exists():
         # We're done and need to clean up after ourselves

@@ -61,8 +61,8 @@ def verify_dataset(image_collection: ImageCollection, root_folder: typing.Union[
 
             left_image = np.array(left_image)
             right_image = np.array(right_image)
-            left_hash = xxhash.xxh64(left_image).digest()
-            right_hash = xxhash.xxh64(right_image).digest()
+            left_hash = bytes(xxhash.xxh64(left_image).digest())
+            right_hash = bytes(xxhash.xxh64(right_image).digest())
 
             # Load the image object from the database
             try:
@@ -100,7 +100,7 @@ def verify_dataset(image_collection: ImageCollection, root_folder: typing.Union[
                     logging.getLogger(__name__).error(f"Image {img_idx}: Left pixels do not match data read from disk")
                 valid = False
                 img_valid = False
-            if left_hash != image.metadata.img_hash:
+            if left_hash != bytes(image.metadata.img_hash):
                 if repair:
                     image.metadata.img_hash = left_hash
                     changed = True
@@ -116,7 +116,7 @@ def verify_dataset(image_collection: ImageCollection, root_folder: typing.Union[
                     logging.getLogger(__name__).error(f"Image {img_idx}: Right pixels do not match data read from disk")
                 valid = False
                 img_valid = False
-            if right_hash != image.right_metadata.img_hash:
+            if right_hash != bytes(image.right_metadata.img_hash):
                 if repair:
                     image.right_metadata.img_hash = right_hash
                     changed = True

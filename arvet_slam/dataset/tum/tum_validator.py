@@ -80,7 +80,7 @@ def verify_dataset(image_collection: ImageCollection, root_folder: typing.Union[
             rgb_data = image_utils.read_colour(img_path)
             depth_data = image_utils.read_depth(depth_path)
             depth_data = depth_data / 5000  # Re-scale depth to meters
-            img_hash = xxhash.xxh64(rgb_data).digest()
+            img_hash = bytes(xxhash.xxh64(rgb_data).digest())
 
             # Load the image from the database
             try:
@@ -119,7 +119,7 @@ def verify_dataset(image_collection: ImageCollection, root_folder: typing.Union[
                     logging.getLogger(__name__).error(f"Image {img_idx}: Pixels do not match data read from {img_path}")
                 valid = False
                 img_valid = False
-            if img_hash != image.metadata.img_hash:
+            if img_hash != bytes(image.metadata.img_hash):
                 if repair:
                     image.metadata.img_hash = img_hash
                     changed = True

@@ -58,21 +58,20 @@ def verify_dataset(image_collection: ImageCollection, root_folder: typing.Union[
     left_extrinsics, left_intrinsics = euroc_loader.get_camera_calibration(left_camera_intrinsics_path)
     right_image_files = euroc_loader.read_image_filenames(left_rgb_path)
     right_extrinsics, right_intrinsics = euroc_loader.get_camera_calibration(right_camera_intrinsics_path)
-    trajectory = euroc_loader.read_trajectory(trajectory_path, left_image_files.keys())
 
     # Create stereo rectification matrices from the intrinsics
     left_x, left_y, left_intrinsics, right_x, right_y, right_intrinsics = euroc_loader.rectify(
         left_extrinsics, left_intrinsics, right_extrinsics, right_intrinsics)
 
     # Associate the different data types by timestamp. Trajectory last because it's bigger than the stereo.
-    all_metadata = euroc_loader.associate_data(left_image_files, right_image_files, trajectory)
+    all_metadata = euroc_loader.associate_data(left_image_files, right_image_files)
 
     # Load the images from the metadata
     total_invalid_images = 0
     total_fixed_images = 0
     image_index = 0
     with arvet.database.image_manager.get().get_group(image_group, allow_write=repair):
-        for timestamp, left_image_file, right_image_file, robot_pose in all_metadata:
+        for timestamp, left_image_file, right_image_file in all_metadata:
             changed = False
             img_valid = True
             # Skip if we've hit the end of the data
@@ -103,8 +102,8 @@ def verify_dataset(image_collection: ImageCollection, root_folder: typing.Union[
 
             left_pixels = cv2.remap(left_pixels, left_x, left_y, cv2.INTER_LINEAR)
             right_pixels = cv2.remap(right_pixels, right_x, right_y, cv2.INTER_LINEAR)
-            left_hash = xxhash.xxh64(left_pixels).digest()
-            right_hash = xxhash.xxh64(right_pixels).digest()
+            left_hash = bytes(xxhash.xxh64(left_pixels).digest())
+            right_hash = bytes(xxhash.xxh64(right_pixels).digest())
 
             # Load the image from the database
             try:
@@ -144,7 +143,7 @@ def verify_dataset(image_collection: ImageCollection, root_folder: typing.Union[
                         f"Image {image_index}: Left pixels do not match data read from {left_img_path}")
                 img_valid = False
                 valid = False
-            if left_hash != image.metadata.img_hash:
+            if left_hash != bytes(image.metadata.img_hash):
                 if repair:
                     image.metadata.img_hash = left_hash
                     changed = True
@@ -161,7 +160,7 @@ def verify_dataset(image_collection: ImageCollection, root_folder: typing.Union[
                         f"Image {image_index}: Right pixels do not match data read from {right_img_path}")
                 valid = False
                 img_valid = False
-            if right_hash != image.right_metadata.img_hash:
+            if right_hash != bytes(image.right_metadata.img_hash):
                 if repair:
                     image.right_metadata.img_hash = right_hash
                     changed = True
