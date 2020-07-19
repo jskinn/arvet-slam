@@ -17,7 +17,8 @@ from arvet.util.transform import Transform, compute_average_pose
 from arvet.util.test_helpers import ExtendedTestCase
 
 from arvet_slam.metrics.frame_error.frame_error_metric import FrameErrorMetric, make_pose_error, \
-    align_trajectory_to_ground_truth
+    robust_align_trajectory_to_ground_truth, align_trajectory_to_ground_truth, align_point, \
+    robust_compute_motions_scale, compute_motions_scale
 from arvet_slam.trials.slam.tracking_state import TrackingState
 from arvet_slam.trials.slam.visual_slam import SLAMTrialResult, FrameResult
 
@@ -432,10 +433,16 @@ class TestFrameErrorMetricOutput(unittest.TestCase):
     @mock.patch('arvet_slam.metrics.frame_error.frame_error_metric.autoload_modules')
     def test_measure_single_trial(self, _):
         frame_results = self.make_frame_results_from_poses([
-            Transform(location=(idx * 15.1, 1.01 * idx, 0))
+            Transform(location=(idx * 15 + 1.5 * idx, idx + 0.1 * idx, 0))
             for idx in range(len(self.images))
         ])
         trial_result = self.make_trial(frame_results)
+
+        # Error is distributed uniformly across all frames
+        # total error is sum(1.5 * idx for idx in range(len(self.images))), divided by len(self.images)
+        # Which analytically turns into 1.5 * 0.5 * len(self.images) * (len(self.images) - 1) / len(self.images)
+        x_err = 1.5 * (len(self.images) - 1) / 2
+        y_err = 0.1 * (len(self.images) - 1) / 2
 
         metric = FrameErrorMetric()
         result = metric.measure_results([trial_result])
@@ -471,30 +478,35 @@ class TestFrameErrorMetricOutput(unittest.TestCase):
             self.assertIsNone(frame_error.noise)
             self.assertIsNone(frame_error.systemic_error)
 
-            self.assertAlmostEqual(0.1 * idx, frame_error.absolute_error.x, places=13)
-            self.assertAlmostEqual(0.01 * idx, frame_error.absolute_error.y, places=13)
+            self.assertAlmostEqual(1.5 * idx - x_err, frame_error.absolute_error.x, places=13)
+            self.assertAlmostEqual(0.1 * idx - y_err, frame_error.absolute_error.y, places=13)
             self.assertEqual(0, frame_error.absolute_error.z)
-            self.assertAlmostEqual(idx * np.sqrt(0.1 * 0.1 + 0.01 * 0.01), frame_error.absolute_error.length, places=13)
+            self.assertAlmostEqual(np.linalg.norm((
+                    1.5 * idx - x_err, 0.1 * idx - y_err, 0
+            )), frame_error.absolute_error.length, places=13)
             self.assertEqual(0, frame_error.absolute_error.rot)
 
             if idx == 0:
                 self.assertIsNone(frame_error.relative_error)
             else:
 
-                self.assertAlmostEqual(0.1, frame_error.relative_error.x, places=13)
-                self.assertAlmostEqual(0.01, frame_error.relative_error.y, places=13)
+                self.assertAlmostEqual(1.5, frame_error.relative_error.x, places=13)
+                self.assertAlmostEqual(0.1, frame_error.relative_error.y, places=13)
                 self.assertEqual(0, frame_error.relative_error.z)
-                self.assertAlmostEqual(np.sqrt(0.1 * 0.1 + 0.01 * 0.01), frame_error.relative_error.length, places=13)
+                self.assertAlmostEqual(np.sqrt(1.5 * 1.5 + 0.1 * 0.1), frame_error.relative_error.length, places=13)
                 self.assertEqual(0, frame_error.relative_error.rot)
 
     @mock.patch('arvet_slam.metrics.frame_error.frame_error_metric.autoload_modules')
     def test_measure_single_trial_lost_at_the_beginning(self, _):
         start = 3
         frame_results = self.make_frame_results_from_poses([
-            Transform(location=(idx * 15.1, 1.01 * idx, 0)) if idx >= start else None
+            Transform(location=(idx * 16.5, 1.1 * idx, 0)) if idx >= start else None
             for idx in range(len(self.images))
         ])
         trial_result = self.make_trial(frame_results)
+
+        x_err = 1.5 * (len(self.images) - 1 - start) / 2
+        y_err = 0.1 * (len(self.images) - 1 - start) / 2
 
         metric = FrameErrorMetric()
         result = metric.measure_results([trial_result])
@@ -545,21 +557,24 @@ class TestFrameErrorMetricOutput(unittest.TestCase):
             if idx < start:
                 self.assertIsNone(frame_error.absolute_error)
             else:
-                self.assertAlmostEqual(0.1 * (idx - start), frame_error.absolute_error.x)
-                self.assertAlmostEqual(0.01 * (idx - start), frame_error.absolute_error.y)
+                self.assertAlmostEqual(1.5 * (idx - start) - x_err, frame_error.absolute_error.x)
+                self.assertAlmostEqual(0.1 * (idx - start) - y_err, frame_error.absolute_error.y)
                 self.assertEqual(0, frame_error.absolute_error.z)
-                self.assertAlmostEqual((idx - start) * np.sqrt(0.1 * 0.1 + 0.01 * 0.01),
-                                       frame_error.absolute_error.length, places=13)
+                self.assertAlmostEqual(np.linalg.norm((
+                    1.5 * (idx - start) - x_err,
+                    0.1 * (idx - start) - y_err,
+                    0
+                )), frame_error.absolute_error.length, places=13)
                 self.assertEqual(0, frame_error.absolute_error.rot)
 
             # Relative error should be undefined at and before the start frame, and constant after
             if idx <= start:
                 self.assertIsNone(frame_error.relative_error)
             else:
-                self.assertAlmostEqual(0.1, frame_error.relative_error.x, places=13)
-                self.assertAlmostEqual(0.01, frame_error.relative_error.y, places=13)
+                self.assertAlmostEqual(1.5, frame_error.relative_error.x, places=13)
+                self.assertAlmostEqual(0.1, frame_error.relative_error.y, places=13)
                 self.assertEqual(0, frame_error.relative_error.z)
-                self.assertAlmostEqual(np.sqrt(0.1 * 0.1 + 0.01 * 0.01), frame_error.relative_error.length, places=13)
+                self.assertAlmostEqual(np.sqrt(1.5 * 1.5 + 0.1 * 0.1), frame_error.relative_error.length, places=13)
                 self.assertEqual(0, frame_error.relative_error.rot)
 
     @mock.patch('arvet_slam.metrics.frame_error.frame_error_metric.autoload_modules')
@@ -568,11 +583,18 @@ class TestFrameErrorMetricOutput(unittest.TestCase):
         lost_end = 7
         frame_results = self.make_frame_results_from_poses([
             Transform(
-                location=(idx * 15.1, 1.1 * idx, 0)
+                location=(idx * 16.5, 1.1 * idx, 0)
             ) if not lost_start <= idx < lost_end else None
             for idx in range(len(self.images))
         ])
         trial_result = self.make_trial(frame_results)
+
+        # This will be the optimal transform selected to map the estimated poses to the true poses
+        estimate_origin = Transform(location=(
+            1.5 * (len(self.images) - 1) / 2,
+            0.1 * (len(self.images) - 1) / 2,
+            0
+        ))
 
         metric = FrameErrorMetric()
         result = metric.measure_results([trial_result])
@@ -620,16 +642,18 @@ class TestFrameErrorMetricOutput(unittest.TestCase):
 
             if idx == 0 or idx == lost_end:
                 # the first frame has estimated pose, but no estimated motion
-                self.assertErrorsEqual(make_pose_error(frame_result.estimated_pose, frame_result.pose),
-                                       frame_error.absolute_error)
+                self.assertErrorsClose(
+                    make_pose_error(estimate_origin.find_relative(frame_result.estimated_pose), frame_result.pose),
+                    frame_error.absolute_error)
                 self.assertIsNone(frame_error.relative_error)
             elif lost_start <= idx < lost_end:
                 # Lost, expect errors to be None
                 self.assertIsNone(frame_error.absolute_error)
                 self.assertIsNone(frame_error.relative_error)
             else:
-                self.assertErrorsEqual(make_pose_error(frame_result.estimated_pose, frame_result.pose),
-                                       frame_error.absolute_error)
+                self.assertErrorsClose(
+                    make_pose_error(estimate_origin.find_relative(frame_result.estimated_pose), frame_result.pose),
+                    frame_error.absolute_error)
                 self.assertErrorsEqual(make_pose_error(frame_result.estimated_motion, frame_result.motion),
                                        frame_error.relative_error)
 
@@ -659,6 +683,16 @@ class TestFrameErrorMetricOutput(unittest.TestCase):
             expected_distance_found[repeat] = [
                 sum(np.linalg.norm(frame_result.motion.location) for frame_result in frame_results)]
 
+        optimal_transforms = [
+            robust_align_trajectory_to_ground_truth(
+                [frame_result.estimated_pose for frame_result in trial_result.results
+                 if frame_result.estimated_pose is not None],
+                [frame_result.pose for frame_result in trial_result.results if frame_result.estimated_pose is not None],
+                compute_scale=not trial_result.has_scale
+            )
+            for trial_result in trial_results
+        ]
+
         metric = FrameErrorMetric()
         result = metric.measure_results(trial_results)
 
@@ -687,7 +721,14 @@ class TestFrameErrorMetricOutput(unittest.TestCase):
                 self.assertEqual(frame_result.num_matches, frame_error.num_matches)
                 self.assertEqual(len(frame_result.loop_edges), len(frame_error.loop_distances))
                 self.assertEqual(len(frame_result.loop_edges), len(frame_error.loop_angles))
-                self.assertErrorsEqual(make_pose_error(frame_result.estimated_pose, frame_result.pose),
+
+                transformed_estimate = align_point(
+                    frame_result.estimated_pose,
+                    shift=optimal_transforms[repeat][0],
+                    rotation=optimal_transforms[repeat][1],
+                    scale=optimal_transforms[repeat][2]
+                )
+                self.assertErrorsEqual(make_pose_error(transformed_estimate, frame_result.pose),
                                        frame_error.absolute_error)
                 if idx == 0:
                     self.assertIsNone(frame_error.relative_error)
@@ -731,6 +772,16 @@ class TestFrameErrorMetricOutput(unittest.TestCase):
 
         metric = FrameErrorMetric()
         result = metric.measure_results(trial_results)
+
+        optimal_transforms = [
+            robust_align_trajectory_to_ground_truth(
+                [frame_result.estimated_pose for frame_result in trial_result.results if
+                 frame_result.estimated_pose is not None],
+                [frame_result.pose for frame_result in trial_result.results if frame_result.estimated_pose is not None],
+                compute_scale=not trial_result.has_scale
+            )
+            for trial_result in trial_results
+        ]
 
         self.assertTrue(result.success)
         self.assertEqual(repeats, len(result.errors))
@@ -784,7 +835,13 @@ class TestFrameErrorMetricOutput(unittest.TestCase):
                 if lost_start + repeat <= idx:
                     self.assertIsNone(frame_error.absolute_error)
                 else:
-                    self.assertErrorsEqual(make_pose_error(frame_result.estimated_pose, frame_result.pose),
+                    transformed_estimate = align_point(
+                        frame_result.estimated_pose,
+                        shift=optimal_transforms[repeat][0],
+                        rotation=optimal_transforms[repeat][1],
+                        scale=optimal_transforms[repeat][2]
+                    )
+                    self.assertErrorsEqual(make_pose_error(transformed_estimate, frame_result.pose),
                                            frame_error.absolute_error)
                 # relative error should be none for the lost frames
                 if idx == 0 or lost_start + repeat <= idx < lost_end + repeat:
@@ -803,16 +860,17 @@ class TestFrameErrorMetricOutput(unittest.TestCase):
     @mock.patch('arvet_slam.metrics.frame_error.frame_error_metric.autoload_modules')
     def test_returns_zero_error_or_noise_for_misaligned_trajectories(self, _):
         repeats = 3
-
-        # The mis-aligned origin of the ground truth poses. Shouldn't affect the error
+        random = np.random.RandomState(13)
         gt_offset = Transform(
             (18, 66, -33),
-            tf3d.quaternions.axangle2quat((5, -3, -5), 8 * np.pi / 17)
+            tf3d.quaternions.axangle2quat((5, -3, -5), 8 * np.pi / 17),
+            w_first=True
         )
         estimate_offsets = [
             Transform(
-                np.random.uniform(-10, 10, size=3),
-                tf3d.quaternions.axangle2quat(np.random.uniform(-10, 10, size=3),  np.random.uniform(-np.pi, np.pi))
+                random.uniform(-10, 10, size=3),
+                tf3d.quaternions.axangle2quat(random.uniform(-10, 10, size=3),  random.uniform(-np.pi, np.pi)),
+                w_first=True
             )
             for _ in range(repeats)
         ]
@@ -823,13 +881,13 @@ class TestFrameErrorMetricOutput(unittest.TestCase):
                 FrameResult(
                     timestamp=idx,
                     image=image,
-                    processing_time=np.random.uniform(0.01, 1),
+                    processing_time=random.uniform(0.01, 1),
                     pose=gt_offset.find_independent(Transform(
-                        (idx * 15, idx, 0),
+                        (idx * 15, (idx + 5) * (idx - 7), 0),
                         tf3d.quaternions.axangle2quat((-2, 6, -1), idx * np.pi / 27), w_first=True
                     )),
                     estimated_pose=estimate_offsets[repeat].find_independent(Transform(
-                        (idx * 15, idx, 0),
+                        (idx * 15, (idx + 5) * (idx - 7), 0),
                         tf3d.quaternions.axangle2quat((-2, 6, -1), idx * np.pi / 27), w_first=True
                     )),
                     tracking_state=TrackingState.OK
@@ -896,11 +954,11 @@ class TestFrameErrorMetricOutput(unittest.TestCase):
                     image=image,
                     processing_time=np.random.uniform(0.01, 1),
                     pose=gt_offset.find_relative(Transform(
-                        (idx * 15, idx, 0),
+                        (idx * 15, (idx + 5) * (idx - 7), 0),
                         tf3d.quaternions.axangle2quat((-2, 6, -1), idx * np.pi / 27), w_first=True
                     )),
                     estimated_pose=estimate_offsets[repeat].find_relative(Transform(
-                        (idx * 15, idx, 0),
+                        (idx * 15, (idx + 5) * (idx - 7), 0),
                         tf3d.quaternions.axangle2quat((-2, 6, -1), idx * np.pi / 27), w_first=True
                     )) if idx % 4 != 3 else None,   # 2 holes, at 4 and 8 making 3 different segments
                     tracking_state=TrackingState.OK,
@@ -934,7 +992,7 @@ class TestFrameErrorMetricOutput(unittest.TestCase):
                 if idx % 4 == 3:
                     self.assertIsNone(frame_error.absolute_error)
                 else:
-                    self.assertErrorIsAlmostZero(frame_error.absolute_error, places=12, rot_places=6)
+                    self.assertErrorIsAlmostZero(frame_error.absolute_error, places=11, rot_places=6)
 
                 if idx <= 0 or idx % 4 == 3 or idx % 4 == 0:
                     # No relative error on the first frame, because there is no motion
@@ -1000,6 +1058,8 @@ class TestFrameErrorMetricOutput(unittest.TestCase):
 
         # Make 3 trials, each with a different scale, they should be rescaled to correct
         trial_results = []
+        x_err = []
+        y_err = []
         for repeat in range(repeats):
             scale = 5 * (repeat + 1) / 8
             frame_results = self.make_frame_results_from_poses([
@@ -1008,6 +1068,13 @@ class TestFrameErrorMetricOutput(unittest.TestCase):
             ])
             trial_result = self.make_trial(frame_results, has_scale=True)
             trial_results.append(trial_result)
+
+            # Error is distributed uniformly across all frames
+            # total error is sum(15 * idx * (scale - 1) for idx in range(len(self.images))) / len(self.images)
+            # Which analytically turns into
+            # (scale - 1) 15 * 0.5 * len(self.images) * (len(self.images) - 1) / len(self.images)
+            x_err.append((scale - 1) * 15 * (len(self.images) - 1) / 2)
+            y_err.append((scale - 1) * (len(self.images) - 1) / 2)
         avg_scale = sum(5 * (repeat + 1) / 8 for repeat in range(repeats)) / 3
 
         metric = FrameErrorMetric()
@@ -1033,11 +1100,15 @@ class TestFrameErrorMetricOutput(unittest.TestCase):
                 # the scale only affects the translation.
                 scale = 5 * (repeat + 1) / 8
 
-                self.assertEqual(15 * (scale * idx - idx), frame_error.absolute_error.x)
-                self.assertEqual(scale * idx - idx, frame_error.absolute_error.y)
+                self.assertEqual(15 * (scale * idx - idx) - x_err[repeat], frame_error.absolute_error.x)
+                self.assertEqual(scale * idx - idx - y_err[repeat], frame_error.absolute_error.y)
                 self.assertEqual(0, frame_error.absolute_error.z)
                 self.assertEqual(
-                    np.linalg.norm([15 * (scale * idx - idx), scale * idx - idx, 0]),
+                    np.linalg.norm([
+                        15 * (scale * idx - idx) - x_err[repeat],
+                        scale * idx - idx - y_err[repeat],
+                        0
+                    ]),
                     frame_error.absolute_error.length
                 )
                 self.assertEqual(0, frame_error.absolute_error.rot)
@@ -1102,6 +1173,16 @@ class TestFrameErrorMetricOutput(unittest.TestCase):
             ], set_initial_pose=True)
             trial_results.append(self.make_trial(frame_results))
 
+        optimal_transforms = [
+            robust_align_trajectory_to_ground_truth(
+                [frame_result.estimated_pose for frame_result in trial_result.results if
+                 frame_result.estimated_pose is not None],
+                [frame_result.pose for frame_result in trial_result.results if frame_result.estimated_pose is not None],
+                compute_scale=not trial_result.has_scale
+            )
+            for trial_result in trial_results
+        ]
+
         metric = FrameErrorMetric()
         result = metric.measure_results(trial_results)
 
@@ -1127,7 +1208,13 @@ class TestFrameErrorMetricOutput(unittest.TestCase):
                     self.assertIsNone(frame_error.absolute_error)
                     has_been_lost = True
                 else:
-                    self.assertErrorsEqual(make_pose_error(frame_result.estimated_pose, frame_result.pose),
+                    transformed_estimate = align_point(
+                        frame_result.estimated_pose,
+                        shift=optimal_transforms[repeat][0],
+                        rotation=optimal_transforms[repeat][1],
+                        scale=optimal_transforms[repeat][2]
+                    )
+                    self.assertErrorsEqual(make_pose_error(transformed_estimate, frame_result.pose),
                                            frame_error.absolute_error)
                 # relative error should be none for the lost frames
                 if estimated_motions[idx][repeat] is None:
@@ -1194,7 +1281,7 @@ class TestFrameErrorMetricOutput(unittest.TestCase):
 class TestAlignTrajectoryToGroundTruth(ExtendedTestCase):
 
     def assertQuatClose(self, q1, q2, msg='', rtol=1e-05, atol=1e-08):
-        if np.dot(q1, q2) < 1:
+        if np.dot(q1, q2) < 0:
             q2 = -1 * np.asarray(q2)
         self.assertNPClose(q1, q2, msg=msg, rtol=rtol, atol=atol)
 
@@ -1203,103 +1290,516 @@ class TestAlignTrajectoryToGroundTruth(ExtendedTestCase):
         points = [np.array([15 * idx - 3 * idx * idx, -22 * idx, 200 + 55 * idx - 5 * idx]) for idx in range(30)]
         gt_trajectory = [Transform(location=point) for point in points]
         estimated_trajectory = [Transform(location=point + offset) for point in points]
-        shift, scale = align_trajectory_to_ground_truth(estimated_trajectory, gt_trajectory, compute_scale=False)
-        self.assertNPEqual(offset, shift.location)
-        self.assertNPEqual([1, 0, 0, 0], shift.rotation_quat(True))
+        shift, rotation, scale = align_trajectory_to_ground_truth(
+            estimated_trajectory, gt_trajectory, compute_scale=False)
+        self.assertNPEqual(-1 * offset, shift)
+        self.assertNPEqual([1, 0, 0, 0], rotation)
         self.assertEqual(1, scale)
         for idx in range(len(points)):
-            self.assertEqual(gt_trajectory[idx], shift.find_relative(estimated_trajectory[idx]))
+            self.assertEqual(gt_trajectory[idx], align_point(estimated_trajectory[idx], shift, rotation, scale))
 
     def test_align_simple_rotation(self):
-        rotation = tf3d.quaternions.axangle2quat((0, -1, 0), 3 * np.pi / 4)
+        true_rotation = tf3d.quaternions.axangle2quat((0, -1, 0), 3 * np.pi / 4)
         points = [np.array([15 * idx - 3 * idx * idx, -22 * idx, 200 + 50 * idx]) for idx in range(30)]
         gt_trajectory = [Transform(location=point) for point in points]
         estimated_trajectory = [
-            Transform(location=tf3d.quaternions.rotate_vector(point, rotation), rotation=rotation, w_first=True)
+            Transform(location=tf3d.quaternions.rotate_vector(point, true_rotation),
+                      rotation=true_rotation, w_first=True)
             for point in points
         ]
-        shift, scale = align_trajectory_to_ground_truth(estimated_trajectory, gt_trajectory, compute_scale=False)
-        self.assertNPClose([0, 0, 0], shift.location, rtol=0, atol=1e-12)
-        self.assertQuatClose(rotation, shift.rotation_quat(True), rtol=0, atol=1e-12)
+        shift, rotation, scale = align_trajectory_to_ground_truth(
+            estimated_trajectory, gt_trajectory, compute_scale=False)
+        self.assertNPClose([0, 0, 0], shift, rtol=0, atol=1e-12)
+        self.assertQuatClose(true_rotation * [1, -1, -1, -1], rotation, rtol=0, atol=1e-10)
         self.assertEqual(1, scale)
         for idx in range(len(points)):
-            shifted_pose = shift.find_relative(estimated_trajectory[idx])
-            self.assertNPClose(gt_trajectory[idx].location, shifted_pose.location, rtol=0, atol=1e-12)
+            shifted_pose = align_point(estimated_trajectory[idx], shift, rotation, scale)
+            self.assertNPClose(gt_trajectory[idx].location, shifted_pose.location, rtol=0, atol=1e-11)
+            self.assertQuatClose(gt_trajectory[idx].rotation_quat(True), shifted_pose.rotation_quat(True),
+                                 rtol=0, atol=1e-12)
+
+    def test_aligns_pose_rotation_based_on_transform(self):
+        num_frames = 10
+        offset = Transform(
+            rotation=tf3d.quaternions.axangle2quat((5, -3, -5), 8 * np.pi / 17),
+            w_first=True
+        )
+
+        gt_trajectory = [offset.find_independent(Transform(
+            location=(15 * idx, (idx + 5) * (idx - 7), 0),
+            rotation=tf3d.quaternions.axangle2quat((-2, 6, -1), idx * np.pi / 27),
+            w_first=True
+        )) for idx in range(num_frames)]
+        estimated_trajectory = [
+            Transform(
+                location=(15 * idx, (idx + 5) * (idx - 7), 0),
+                rotation=tf3d.quaternions.axangle2quat((-2, 6, -1), idx * np.pi / 27),
+                w_first=True
+            )
+            for idx in range(num_frames)
+        ]
+
+        shift, rotation, scale = align_trajectory_to_ground_truth(
+            estimated_trajectory, gt_trajectory, compute_scale=False)
+
+        self.assertNPClose([0, 0, 0], shift, rtol=0, atol=1e-11)
+        self.assertQuatClose(offset.rotation_quat(True), rotation, rtol=0, atol=1e-10)
+        self.assertEqual(1, scale)
+        for idx in range(num_frames):
+            shifted_pose = align_point(estimated_trajectory[idx], shift, rotation, scale)
+            self.assertNPClose(gt_trajectory[idx].location, shifted_pose.location, rtol=0, atol=1e-11)
+            self.assertQuatClose(gt_trajectory[idx].rotation_quat(True), shifted_pose.rotation_quat(True),
+                                 rtol=0, atol=1e-12)
+
+    def test_aligns_pose_rotation(self):
+        true_rotation = tf3d.quaternions.axangle2quat((0, -1, 0), 3 * np.pi / 4)
+        points = [np.array([15 * idx - 3 * idx * idx, -22 * idx, 200 + 50 * idx]) for idx in range(30)]
+        rotations = [tf3d.quaternions.axangle2quat((1, 2, 3), idx * np.pi / 17) for idx in range(30)]
+        gt_trajectory = [Transform(location=point, rotation=rotation, w_first=True)
+                         for point, rotation in zip(points, rotations)]
+        estimated_trajectory = [
+            Transform(
+                location=tf3d.quaternions.rotate_vector(point, true_rotation),
+                rotation=tf3d.quaternions.qmult(true_rotation, rotation),
+                w_first=True
+            )
+            for point, rotation in zip(points, rotations)
+        ]
+        shift, est_rotation, scale = align_trajectory_to_ground_truth(
+            estimated_trajectory, gt_trajectory, compute_scale=False)
+        self.assertNPClose([0, 0, 0], shift, rtol=0, atol=1e-12)
+        self.assertQuatClose(true_rotation * [1, -1, -1, -1], est_rotation, rtol=0, atol=1e-10)
+        self.assertEqual(1, scale)
+        for idx in range(len(points)):
+            shifted_pose = align_point(estimated_trajectory[idx], shift, est_rotation, scale)
+            self.assertNPClose(gt_trajectory[idx].location, shifted_pose.location, rtol=0, atol=1e-11)
             self.assertQuatClose(gt_trajectory[idx].rotation_quat(True), shifted_pose.rotation_quat(True),
                                  rtol=0, atol=1e-12)
 
     def test_combined_rotation_and_translation(self):
         offset = np.array([-17, -43, 12])
-        rotation = tf3d.quaternions.axangle2quat((-3, 1, 2), 7 * np.pi / 9)
+        true_rotation = tf3d.quaternions.axangle2quat((-3, 1, 2), 7 * np.pi / 9)
         points = [np.array([
-            (idx - 34) * (55 - idx),
-            122 - 16 * idx,
-            30 + 35 * idx - 18 * idx * idx
+            (idx - 55) * (0.55 - 0.01 * idx),
+            1.22 - 0.16 * idx,
+            0.0018 * (idx - 65) * (idx - 35)
         ]) for idx in range(100)]
         gt_trajectory = [Transform(location=point) for point in points]
         estimated_trajectory = [
-            Transform(location=tf3d.quaternions.rotate_vector(point, rotation) + offset,
-                      rotation=rotation, w_first=True)
+            Transform(location=tf3d.quaternions.rotate_vector(point + offset, true_rotation),
+                      rotation=true_rotation, w_first=True)
             for point in points
         ]
-        shift, scale = align_trajectory_to_ground_truth(estimated_trajectory, gt_trajectory, compute_scale=False)
-        self.assertNPClose(offset, shift.location, rtol=0, atol=1e-9)
-        self.assertNPClose(rotation, shift.rotation_quat(True), rtol=0, atol=1e-10)
+        shift, rotation, scale = align_trajectory_to_ground_truth(
+            estimated_trajectory, gt_trajectory, compute_scale=False)
+        self.assertNPClose(-1 * offset, shift, rtol=0, atol=1e-13)
+        self.assertNPClose(true_rotation * [1, -1, -1, -1], rotation, rtol=0, atol=1e-12)
         self.assertEqual(1, scale)
         for idx in range(len(points)):
-            shifted_pose = shift.find_relative(estimated_trajectory[idx])
-            self.assertNPClose(gt_trajectory[idx].location, shifted_pose.location, rtol=0, atol=1e-8)   # This is bad
+            shifted_pose = align_point(estimated_trajectory[idx], shift, rotation, scale)
+            self.assertNPClose(gt_trajectory[idx].location, shifted_pose.location, rtol=0, atol=1e-13)
             self.assertQuatClose(gt_trajectory[idx].rotation_quat(True), shifted_pose.rotation_quat(True),
-                                 rtol=0, atol=1e-10)
+                                 rtol=0, atol=1e-12)
 
     def test_combined_rotation_translation_and_symmetric_scale(self):
         offset = np.array([-17, -43, 12])
-        scale = np.pi
-        rotation = tf3d.quaternions.axangle2quat((-3, 1, 2), 7 * np.pi / 9)
+        true_scale = np.pi
+        true_rotation = tf3d.quaternions.axangle2quat((-3, 1, 2), 7 * np.pi / 9)
         points = [np.array([
-            (idx - 34) * (55 - idx),
-            122 - 16 * idx,
-            30 + 35 * idx - 18 * idx * idx
+            (idx - 55) * (0.55 - 0.01 * idx),
+            1.22 - 0.16 * idx,
+            0.0018 * (idx - 65) * (idx - 35)
         ]) for idx in range(100)]
         gt_trajectory = [Transform(location=point) for point in points]
         estimated_trajectory = [
-            Transform(location=tf3d.quaternions.rotate_vector(point, rotation) * scale + offset,
-                      rotation=rotation, w_first=True)
+            Transform(location=tf3d.quaternions.rotate_vector(point + offset, true_rotation) * true_scale,
+                      rotation=true_rotation, w_first=True)
             for point in points
         ]
-        shift, est_scale = align_trajectory_to_ground_truth(estimated_trajectory, gt_trajectory,
-                                                            compute_scale=True, use_symmetric_scale=True)
-        self.assertNPClose(offset, shift.location, rtol=0, atol=1e-8)
-        self.assertNPClose(rotation, shift.rotation_quat(True), rtol=0, atol=1e-10)
-        self.assertAlmostEqual(1 / scale, est_scale, places=10)
+        shift, rotation, scale = align_trajectory_to_ground_truth(estimated_trajectory, gt_trajectory,
+                                                                  compute_scale=True, use_symmetric_scale=True)
+        self.assertNPClose(-1 * offset, shift, rtol=0, atol=1e-12)
+        self.assertNPClose(true_rotation * [1, -1, -1, -1], rotation, rtol=0, atol=1e-11)
+        self.assertAlmostEqual(1 / true_scale, scale, places=10)
         for idx in range(len(points)):
-            shifted_pose = shift.find_relative(estimated_trajectory[idx])
-            self.assertNPClose(gt_trajectory[idx].location, est_scale * shifted_pose.location, rtol=0, atol=1e-8)
+            shifted_pose = align_point(estimated_trajectory[idx], shift, rotation, scale)
+            self.assertNPClose(gt_trajectory[idx].location, shifted_pose.location, rtol=0, atol=1e-12)
             self.assertQuatClose(gt_trajectory[idx].rotation_quat(True), shifted_pose.rotation_quat(True),
-                                 rtol=0, atol=1e-10)
+                                 rtol=0, atol=1e-11)
 
     def test_combined_rotation_translation_and_asymmetric_scale(self):
         offset = np.array([-17, -43, 12])
-        scale = np.pi
-        rotation = tf3d.quaternions.axangle2quat((-3, 1, 2), 7 * np.pi / 9)
+        true_scale = np.pi
+        true_rotation = tf3d.quaternions.axangle2quat((-3, 1, 2), 7 * np.pi / 9)
         points = [np.array([
-            (idx - 34) * (55 - idx),
-            122 - 16 * idx,
-            30 + 35 * idx - 18 * idx * idx
+            (idx - 55) * (0.55 - 0.01 * idx),
+            1.22 - 0.16 * idx,
+            0.0018 * (idx - 65) * (idx - 35)
         ]) for idx in range(100)]
         gt_trajectory = [Transform(location=point) for point in points]
         estimated_trajectory = [
-            Transform(location=tf3d.quaternions.rotate_vector(point, rotation) * scale + offset,
-                      rotation=rotation, w_first=True)
+            Transform(location=tf3d.quaternions.rotate_vector(point + offset, true_rotation) * true_scale,
+                      rotation=true_rotation, w_first=True)
             for point in points
         ]
-        shift, est_scale = align_trajectory_to_ground_truth(estimated_trajectory, gt_trajectory,
-                                                            compute_scale=True, use_symmetric_scale=False)
-        self.assertNPClose(offset, shift.location, rtol=0, atol=1e-8)
-        self.assertNPClose(rotation, shift.rotation_quat(True), rtol=0, atol=1e-10)
-        self.assertAlmostEqual(1 / scale, est_scale, places=10)
+        shift, rotation, scale = align_trajectory_to_ground_truth(estimated_trajectory, gt_trajectory,
+                                                                  compute_scale=True, use_symmetric_scale=False)
+        self.assertNPClose(-1 * offset, shift, rtol=0, atol=1e-12)
+        self.assertNPClose(true_rotation * [1, -1, -1, -1], rotation, rtol=0, atol=1e-11)
+        self.assertAlmostEqual(1 / true_scale, scale, places=10)
         for idx in range(len(points)):
-            shifted_pose = shift.find_relative(estimated_trajectory[idx])
-            self.assertNPClose(gt_trajectory[idx].location, est_scale * shifted_pose.location, rtol=0, atol=1e-8)
+            shifted_pose = align_point(estimated_trajectory[idx], shift, rotation, scale)
+            self.assertNPClose(gt_trajectory[idx].location, shifted_pose.location, rtol=0, atol=1e-13)
             self.assertQuatClose(gt_trajectory[idx].rotation_quat(True), shifted_pose.rotation_quat(True),
-                                 rtol=0, atol=1e-10)
+                                 rtol=0, atol=1e-11)
+
+    def test_handles_zero_trajectory(self):
+        # This will correct entirely with translation, we cannot know the rotation
+        # because the ground truth is a point
+        offset = np.array([-17, -43, 12])
+        gt_trajectory = [Transform()] * 30
+        estimated_trajectory = [Transform(location=offset)] * len(gt_trajectory)
+        shift, rotation, scale = align_trajectory_to_ground_truth(estimated_trajectory, gt_trajectory,
+                                                                  compute_scale=True, use_symmetric_scale=False)
+        self.assertNPClose(-1 * offset, shift, rtol=0, atol=1e-15)
+        self.assertNPEqual((1, 0, 0, 0), rotation)
+        self.assertEqual(1, scale)
+        for idx in range(len(estimated_trajectory)):
+            shifted_pose = align_point(estimated_trajectory[idx], shift, rotation, scale)
+            self.assertNPClose(gt_trajectory[idx].location, shifted_pose.location, rtol=0, atol=1e-13)
+            self.assertQuatClose(gt_trajectory[idx].rotation_quat(True), shifted_pose.rotation_quat(True),
+                                 rtol=0, atol=1e-11)
+
+
+class TestRobustAlignTrajectoryToGroundTruth(ExtendedTestCase):
+
+    def assertQuatClose(self, q1, q2, msg='', rtol=1e-05, atol=1e-08):
+        if np.dot(q1, q2) < 0:
+            q2 = -1 * np.asarray(q2)
+        self.assertNPClose(q1, q2, msg=msg, rtol=rtol, atol=atol)
+
+    def test_align_simple_offset_with_outlier(self):
+        outlier_idx = 7
+        offset = np.array([15, 22, -1])
+        points = [np.array([15 * idx - 3 * idx * idx, -22 * idx, 200 + 55 * idx - 5 * idx]) for idx in range(30)]
+        gt_trajectory = [Transform(location=point) for point in points]
+        estimated_trajectory = [Transform(location=point + offset) for point in points]
+        estimated_trajectory[outlier_idx] = Transform(location=points[outlier_idx] + offset + np.array([0, 1000000, 0]))
+
+        shift, rotation, scale = robust_align_trajectory_to_ground_truth(
+            estimated_trajectory, gt_trajectory, compute_scale=False)
+        self.assertNPEqual(-1 * offset, shift)
+        self.assertNPEqual([1, 0, 0, 0], rotation)
+        self.assertEqual(1, scale)
+        for idx in range(len(points)):
+            if idx != outlier_idx:
+                self.assertEqual(gt_trajectory[idx], align_point(estimated_trajectory[idx], shift, rotation, scale))
+
+    def test_align_simple_rotation_with_outlier(self):
+        outlier_idx = 7
+        true_rotation = tf3d.quaternions.axangle2quat((0, -1, 0), 3 * np.pi / 4)
+        outlier_rotation = tf3d.quaternions.axangle2quat((0, 0, 1), np.pi / 360)
+        points = [np.array([15 * idx - 3 * idx * idx, -22 * idx, 200 + 50 * idx]) for idx in range(30)]
+        gt_trajectory = [Transform(location=point) for point in points]
+        estimated_trajectory = [
+            Transform(location=tf3d.quaternions.rotate_vector(point, true_rotation),
+                      rotation=true_rotation, w_first=True)
+            for point in points
+        ]
+        estimated_trajectory[outlier_idx] = Transform(
+            location=tf3d.quaternions.rotate_vector(points[outlier_idx], outlier_rotation)
+        )
+        shift, rotation, scale = robust_align_trajectory_to_ground_truth(
+            estimated_trajectory, gt_trajectory, compute_scale=False)
+        self.assertNPClose([0, 0, 0], shift, rtol=0, atol=1e-11)
+        self.assertQuatClose(true_rotation * [1, -1, -1, -1], rotation, rtol=0, atol=1e-10)
+        self.assertEqual(1, scale)
+        for idx in range(len(points)):
+            if idx != outlier_idx:
+                shifted_pose = align_point(estimated_trajectory[idx], shift, rotation, scale)
+                self.assertNPClose(gt_trajectory[idx].location, shifted_pose.location, rtol=0, atol=1e-11)
+                self.assertQuatClose(gt_trajectory[idx].rotation_quat(True), shifted_pose.rotation_quat(True),
+                                     rtol=0, atol=1e-12)
+
+    def test_combined_rotation_translation_and_symmetric_scale_with_outliers(self):
+        outlier_indexes = [9, 17, 28]
+        offset = np.array([-17, -43, 12])
+        true_scale = np.pi
+        true_rotation = tf3d.quaternions.axangle2quat((-3, 1, 2), 7 * np.pi / 9)
+        outlier_rotation = tf3d.quaternions.axangle2quat((1, 2, 3), np.pi / 270)
+        points = [np.array([
+            (idx - 55) * (0.55 - 0.01 * idx),
+            1.22 - 0.16 * idx,
+            0.0018 * (idx - 65) * (idx - 35)
+        ]) for idx in range(30)]
+        gt_trajectory = [Transform(location=point) for point in points]
+        estimated_trajectory = [
+            Transform(location=tf3d.quaternions.rotate_vector(point + offset, true_rotation) * true_scale,
+                      rotation=true_rotation, w_first=True)
+            for point in points
+        ]
+        for outlier_idx in outlier_indexes:
+            estimated_trajectory[outlier_idx] = Transform(
+                location=tf3d.quaternions.rotate_vector(
+                    points[outlier_idx] + offset * 2, outlier_rotation) * true_scale * true_scale,
+                rotation=outlier_rotation, w_first=True
+            )
+        shift, rotation, scale = robust_align_trajectory_to_ground_truth(
+            estimated_trajectory, gt_trajectory, compute_scale=True, use_symmetric_scale=True)
+        self.assertNPClose(-1 * offset, shift, rtol=0, atol=1e-10)
+        self.assertNPClose(true_rotation * [1, -1, -1, -1], rotation, rtol=0, atol=1e-11)
+        self.assertAlmostEqual(1 / true_scale, scale, places=10)
+        for idx in range(len(points)):
+            if idx not in outlier_indexes:
+                shifted_pose = align_point(estimated_trajectory[idx], shift, rotation, scale)
+                self.assertNPClose(gt_trajectory[idx].location, shifted_pose.location, rtol=0, atol=1e-12)
+                self.assertQuatClose(gt_trajectory[idx].rotation_quat(True), shifted_pose.rotation_quat(True),
+                                     rtol=0, atol=1e-11)
+
+    def test_combined_rotation_translation_and_asymmetric_scale(self):
+        outlier_indexes = [9, 17, 28]
+        offset = np.array([-17, -43, 12])
+        true_scale = np.pi
+        true_rotation = tf3d.quaternions.axangle2quat((-3, 1, 2), 7 * np.pi / 9)
+        outlier_rotation = tf3d.quaternions.axangle2quat((1, 2, 3), np.pi / 270)
+        points = [np.array([
+            (idx - 55) * (0.55 - 0.01 * idx),
+            1.22 - 0.16 * idx,
+            0.0018 * (idx - 65) * (idx - 35)
+        ]) for idx in range(100)]
+        gt_trajectory = [Transform(location=point) for point in points]
+        estimated_trajectory = [
+            Transform(location=tf3d.quaternions.rotate_vector(point + offset, true_rotation) * true_scale,
+                      rotation=true_rotation, w_first=True)
+            for point in points
+        ]
+        for outlier_idx in outlier_indexes:
+            estimated_trajectory[outlier_idx] = Transform(
+                location=tf3d.quaternions.rotate_vector(
+                    points[outlier_idx] + offset * 2, outlier_rotation) * true_scale * true_scale,
+                rotation=outlier_rotation, w_first=True
+            )
+        shift, rotation, scale = robust_align_trajectory_to_ground_truth(
+            estimated_trajectory, gt_trajectory, compute_scale=True, use_symmetric_scale=False)
+        self.assertNPClose(-1 * offset, shift, rtol=0, atol=1e-12)
+        self.assertNPClose(true_rotation * [1, -1, -1, -1], rotation, rtol=0, atol=1e-11)
+        self.assertAlmostEqual(1 / true_scale, scale, places=10)
+        for idx in range(len(points)):
+            if idx not in outlier_indexes:
+                shifted_pose = align_point(estimated_trajectory[idx], shift, rotation, scale)
+                self.assertNPClose(gt_trajectory[idx].location, shifted_pose.location, rtol=0, atol=1e-13)
+                self.assertQuatClose(gt_trajectory[idx].rotation_quat(True), shifted_pose.rotation_quat(True),
+                                     rtol=0, atol=1e-11)
+
+
+class TestComputeMotionsScale(ExtendedTestCase):
+
+    def test_uniform_scale(self):
+        true_scale = np.pi
+        points = [Transform(location=[
+            (idx - 5.5) * (0.55 - 0.01 * idx),
+            1.22 - 0.16 * idx,
+            0.0018 * (idx - 6.5) * (idx - 3.5)
+        ]) for idx in range(10)]
+        true_motions = [t1.find_relative(t2) for t1, t2 in zip(points[:-1], points[1:])]
+        estimated_motions = [Transform(
+            location=true_scale * motion.location
+        ) for motion in true_motions]
+
+        scale = compute_motions_scale(estimated_motions, true_motions)
+        self.assertAlmostEqual(1 / true_scale, scale, places=15)
+        for true_motion, estimated_motion in zip(true_motions, estimated_motions):
+            self.assertNPClose(true_motion.location, scale * estimated_motion.location, rtol=0, atol=1e-13)
+
+    def test_simple_scale(self):
+        true_motions = [Transform(location=[1, 4, 8])] * 2
+        true_scales = [0.5, 2]
+        estimated_motions = [Transform(
+            location=true_scales[idx] * true_motions[idx].location
+        ) for idx in range(len(true_motions))]
+
+        scale = compute_motions_scale(estimated_motions, true_motions)
+        # In the 1-D case, the optimum scale is at sum(true_scales) / sum(s*s for s in true_scales)
+        # That is, (0.5 + 2) + (0.25 + 4) = 2.5 / 4.25 = 10 / 17
+        self.assertEqual(10 / 17, scale)
+
+    def test_simple_linear_scale(self):
+        true_motions = [Transform(location=[1, 4, 8]) for _ in range(10)]
+        true_scales = np.linspace(0.25, 4, num=len(true_motions))
+        estimated_motions = [Transform(
+            location=true_scales[idx] * true_motions[idx].location
+        ) for idx in range(len(true_motions))]
+
+        scale = compute_motions_scale(estimated_motions, true_motions)
+        self.assertEqual(sum(true_scales) / sum(true_scale * true_scale for true_scale in true_scales), scale)
+
+    def test_handles_zeros_in_estimated_motions(self):
+        num_zeros = 3
+        true_motions = [Transform(location=[1, 4, 8]) for _ in range(10)]
+        true_scales = np.linspace(0.25, 4, num=len(true_motions) - num_zeros)
+        estimated_motions = [Transform(
+            location=true_scales[idx] * true_motions[idx].location
+        ) for idx in range(len(true_motions) - num_zeros)] + [Transform()] * num_zeros
+
+        scale = compute_motions_scale(estimated_motions, true_motions)
+        self.assertEqual(sum(true_scales) / sum(true_scale * true_scale for true_scale in true_scales), scale)
+
+    @mock.patch("arvet_slam.metrics.frame_error.frame_error_metric.logging")
+    def test_handles_purpendicular_motions(self, mock_logging):
+        mock_logger = mock.Mock()
+        mock_logging.getLogger.return_value = mock_logger
+        random = np.random.RandomState(31415)
+        true_motions = [random.uniform(-10, 10, size=3) for _ in range(10)]
+        estimated_motions = [random.uniform(-10, 10, size=3) for _ in range(10)]
+        # Remove all parallel components of the estimated motions
+        unit_true_motions = [true_motion / np.linalg.norm(true_motion) for true_motion in true_motions]
+        estimated_motions = [
+            estimated_motion - np.dot(estimated_motion, true_motion) * true_motion
+            for estimated_motion, true_motion in zip(estimated_motions, unit_true_motions)
+        ]
+        true_motions = [Transform(location=true_motion) for true_motion in true_motions]
+        estimated_motions = [Transform(location=estimated_motion) for estimated_motion in estimated_motions]
+        # Scale can't help that, just use 1
+        scale = compute_motions_scale(estimated_motions, true_motions)
+        self.assertEqual(1, scale)
+        self.assertTrue(mock_logger.warning.called)
+
+    @mock.patch("arvet_slam.metrics.frame_error.frame_error_metric.logging")
+    def test_handles_zero_motion_at_all(self, mock_logging):
+        mock_logger = mock.Mock()
+        mock_logging.getLogger.return_value = mock_logger
+        true_motions = [Transform(location=(0, 0, 0))] * 10
+        estimated_motions = [Transform(location=np.random.uniform(-1e-10, 1e-10, size=3))
+                             for _ in range(len(true_motions))]
+        # True motions are all zero, scale cannot help
+        scale = compute_motions_scale(estimated_motions, true_motions)
+        self.assertEqual(1, scale)
+        self.assertTrue(mock_logger.warning.called)
+
+
+class TestRobustComputeMotionsScale(ExtendedTestCase):
+
+    def test_uniform_scale(self):
+        true_scale = np.pi
+        points = [Transform(location=[
+            (idx - 5.5) * (0.55 - 0.01 * idx),
+            1.22 - 0.16 * idx,
+            0.0018 * (idx - 6.5) * (idx - 3.5)
+        ]) for idx in range(10)]
+        true_motions = [t1.find_relative(t2) for t1, t2 in zip(points[:-1], points[1:])]
+        estimated_motions = [Transform(
+            location=true_scale * motion.location
+        ) for motion in true_motions]
+
+        scale = robust_compute_motions_scale(estimated_motions, true_motions)
+        self.assertAlmostEqual(1 / true_scale, scale, places=15)
+        for true_motion, estimated_motion in zip(true_motions, estimated_motions):
+            self.assertNPClose(true_motion.location, scale * estimated_motion.location, rtol=0, atol=1e-13)
+
+    def test_uniform_scale_with_large_outlier(self):
+        outlier_idx = 4
+        true_scale = np.pi
+        outlier_scale = 100000 * true_scale
+        points = [Transform(location=[
+            (idx - 5.5) * (0.55 - 0.01 * idx),
+            1.22 - 0.16 * idx,
+            0.0018 * (idx - 6.5) * (idx - 3.5)
+        ]) for idx in range(10)]
+        true_motions = [t1.find_relative(t2) for t1, t2 in zip(points[:-1], points[1:])]
+        estimated_motions = [Transform(
+            location=true_scale * motion.location
+        ) for motion in true_motions]
+        estimated_motions[outlier_idx] = Transform(
+            location=outlier_scale * true_motions[4].location
+        )
+
+        scale = robust_compute_motions_scale(estimated_motions, true_motions)
+        self.assertAlmostEqual(1 / true_scale, scale, places=15)
+        for idx, (true_motion, estimated_motion) in enumerate(zip(true_motions, estimated_motions)):
+            if idx != outlier_idx:
+                self.assertNPClose(true_motion.location, scale * estimated_motion.location, rtol=0, atol=1e-13)
+
+    def test_simple_linear_scale_with_outlier(self):
+        true_motions = [Transform(location=[1, 4, 8]) for _ in range(10)]
+        true_scales = np.linspace(0.25, 4, num=len(true_motions))
+        true_scales[4] = 1000000
+        estimated_motions = [Transform(
+            location=true_scales[idx] * true_motions[idx].location
+        ) for idx in range(len(true_motions))]
+
+        scale = robust_compute_motions_scale(estimated_motions, true_motions)
+        self.assertEqual(
+            sum(true_scale for true_scale in true_scales if true_scale <= 4) /
+            sum(true_scale * true_scale for true_scale in true_scales if true_scale <= 4), scale)
+
+    def test_allows_variable_sigma_threshold(self):
+        true_motions = [Transform(location=[1, 4, 8]) for _ in range(10)]
+        true_scales = np.linspace(0.25, 4, num=len(true_motions))
+        true_scales[4] = 1000000
+        estimated_motions = [Transform(
+            location=true_scales[idx] * true_motions[idx].location
+        ) for idx in range(len(true_motions))]
+
+        scale1 = robust_compute_motions_scale(estimated_motions, true_motions, outlier_sigma_threshold=10.0)
+        scale2 = robust_compute_motions_scale(estimated_motions, true_motions, outlier_sigma_threshold=1.0)
+        self.assertEqual(sum(true_scales) / sum(true_scale * true_scale for true_scale in true_scales), scale1)
+        self.assertEqual(
+            sum(true_scale for true_scale in true_scales if true_scale <= 4) /
+            sum(true_scale * true_scale for true_scale in true_scales if true_scale <= 4), scale2)
+
+    def test_more_than_half_outlier(self):
+        true_motions = [Transform(location=[1, 4, 8]) for _ in range(9)]
+        true_scales = [1, 1, 1, 1, 200, 1000, 1000, 1000, 1000]
+        estimated_motions = [Transform(
+            location=true_scales[idx] * true_motions[idx].location
+        ) for idx in range(len(true_motions))]
+
+        # We use a really agressive outlier threshold to filter out most of the values.
+        # In this case, the algorithm should give up and use the initial estimate
+        # (but you should use a looser threshold)
+        scale = robust_compute_motions_scale(estimated_motions, true_motions, outlier_sigma_threshold=0.7)
+        self.assertAlmostEqual(
+            sum(true_scales) / sum(true_scale * true_scale for true_scale in true_scales), scale, places=10)
+
+    def test_handles_zeros_in_estimated_motions(self):
+        num_zeros = 3
+        true_motions = [Transform(location=[1, 4, 8]) for _ in range(10)]
+        true_scales = np.linspace(0.25, 4, num=len(true_motions) - num_zeros)
+        estimated_motions = [Transform(
+            location=true_scales[idx] * true_motions[idx].location
+        ) for idx in range(len(true_motions) - num_zeros)] + [Transform()] * num_zeros
+
+        scale = robust_compute_motions_scale(estimated_motions, true_motions)
+        self.assertEqual(sum(true_scales) / sum(scale * scale for scale in true_scales), scale)
+
+    @mock.patch("arvet_slam.metrics.frame_error.frame_error_metric.logging")
+    def test_handles_purpendicular_motions(self, mock_logging):
+        mock_logger = mock.Mock()
+        mock_logging.getLogger.return_value = mock_logger
+        random = np.random.RandomState(31415)
+        true_motions = [random.uniform(-10, 10, size=3) for _ in range(10)]
+        estimated_motions = [random.uniform(-10, 10, size=3) for _ in range(10)]
+        # Remove all parallel components of the estimated motions
+        unit_true_motions = [true_motion / np.linalg.norm(true_motion) for true_motion in true_motions]
+        estimated_motions = [
+            estimated_motion - np.dot(estimated_motion, true_motion) * true_motion
+            for estimated_motion, true_motion in zip(estimated_motions, unit_true_motions)
+        ]
+        true_motions = [Transform(location=true_motion) for true_motion in true_motions]
+        estimated_motions = [Transform(location=estimated_motion) for estimated_motion in estimated_motions]
+        # Scale can't help that, just use 1
+        scale = robust_compute_motions_scale(estimated_motions, true_motions)
+        self.assertEqual(1, scale)
+        self.assertTrue(mock_logger.warning.called)
+
+    @mock.patch("arvet_slam.metrics.frame_error.frame_error_metric.logging")
+    def test_handles_zero_motion_at_all(self, mock_logging):
+        mock_logger = mock.Mock()
+        mock_logging.getLogger.return_value = mock_logger
+        true_motions = [Transform(location=(0, 0, 0))] * 10
+        estimated_motions = [Transform(location=np.random.uniform(-1e-10, 1e-10, size=3))
+                             for _ in range(len(true_motions))]
+        # True motions are all zero, scale cannot help
+        scale = robust_compute_motions_scale(estimated_motions, true_motions)
+        self.assertEqual(1, scale)
+        self.assertTrue(mock_logger.warning.called)
