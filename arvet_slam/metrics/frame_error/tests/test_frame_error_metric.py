@@ -1591,6 +1591,18 @@ class TestRobustAlignTrajectoryToGroundTruth(ExtendedTestCase):
                 self.assertQuatClose(gt_trajectory[idx].rotation_quat(True), shifted_pose.rotation_quat(True),
                                      rtol=0, atol=1e-11)
 
+    def test_returns_no_transformation_for_empty_trajectory(self):
+        shift, rotation, scale = robust_align_trajectory_to_ground_truth([], [], compute_scale=True)
+        self.assertNPEqual((0, 0, 0), shift)
+        self.assertNPEqual((1, 0, 0, 0), rotation)
+        self.assertEqual(1.0, scale)
+
+    def test_raises_exception_if_points_are_different_lengths(self):
+        with self.assertRaises(RuntimeError):
+            robust_align_trajectory_to_ground_truth([Transform()], [Transform()] * 2, compute_scale=True)
+        with self.assertRaises(RuntimeError):
+            robust_align_trajectory_to_ground_truth([Transform()] * 3, [Transform()] * 2, compute_scale=True)
+
 
 class TestComputeMotionsScale(ExtendedTestCase):
 
@@ -1675,6 +1687,18 @@ class TestComputeMotionsScale(ExtendedTestCase):
         scale = compute_motions_scale(estimated_motions, true_motions)
         self.assertEqual(1, scale)
         self.assertTrue(mock_logger.warning.called)
+
+    def test_returns_no_transformation_for_empty_trajectory(self):
+        shift, rotation, scale = align_trajectory_to_ground_truth([], [], compute_scale=True)
+        self.assertNPEqual((0, 0, 0), shift)
+        self.assertNPEqual((1, 0, 0, 0), rotation)
+        self.assertEqual(1.0, scale)
+
+    def test_raises_exception_if_points_are_different_lengths(self):
+        with self.assertRaises(RuntimeError):
+            align_trajectory_to_ground_truth([Transform()], [Transform()] * 2, compute_scale=True)
+        with self.assertRaises(RuntimeError):
+            align_trajectory_to_ground_truth([Transform()] * 3, [Transform()] * 2, compute_scale=True)
 
 
 class TestRobustComputeMotionsScale(ExtendedTestCase):

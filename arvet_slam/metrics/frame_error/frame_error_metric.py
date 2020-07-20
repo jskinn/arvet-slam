@@ -326,6 +326,16 @@ def robust_align_trajectory_to_ground_truth(
     :param outlier_sigma_threshold: The distance from the mean residual that will be excluded as an error.
     :return:
     """
+    trajectory = list(trajectory)
+    ground_truth = list(ground_truth)
+    if not len(trajectory) == len(ground_truth):
+        # The two trajectories must consist of corresponding points
+        raise RuntimeError("Cannot resolve together trajectories of different lengths "
+                           f"({len(trajectory)} vs {len(ground_truth)}), points must correspond")
+    elif len(trajectory) <= 0 or len(ground_truth) <= 0:
+        logging.getLogger(__name__).info(f"No optimal transform for an empty trajectory")
+        return np.array([0, 0, 0]), np.array([1, 0, 0, 0]), 1.0
+
     # Estimate an initial trajectory
     translation, rotation, scale = align_trajectory_to_ground_truth(
         trajectory, ground_truth, compute_scale, use_symmetric_scale)
@@ -382,7 +392,11 @@ def align_trajectory_to_ground_truth(
     gt_points = [pose.location for pose in ground_truth]
     if not len(estimated_points) == len(gt_points):
         # The two trajectories must consist of corresponding points
-        raise RuntimeError(f"Cannot resolve together trajectories of different lengths, points must correspond")
+        raise RuntimeError("Cannot resolve together trajectories of different lengths "
+                           f"({len(estimated_points)} vs {len(gt_points)}), points must correspond")
+    elif len(estimated_points) <= 0 or len(gt_points) <= 0:
+        logging.getLogger(__name__).info(f"No optimal transform for an empty trajectory")
+        return np.array([0, 0, 0]), np.array([1, 0, 0, 0]), 1.0
 
     # Normalise the two sets of points to have origin 0, 0, 0; as in Section 2C of the paper
     estimated_centroid = np.mean(estimated_points, axis=0)
