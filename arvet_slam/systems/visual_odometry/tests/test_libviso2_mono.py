@@ -597,3 +597,73 @@ class TestLibVisOMonoExecution(ExtendedTestCase):
             # If the tracking is the same, make sure the estimates are at least different
             self.assertNotNPClose(loc_diff, np.zeros(3), rtol=0, atol=1e-10)
             self.assertNotNPClose(quat_diff, np.zeros(4), rtol=0, atol=1e-10)
+
+    def test_can_run_on_colour_images(self):
+        # Actually run the system using mocked images
+        num_frames = 50
+        max_time = 50
+        speed = 0.1
+        image_builder = DemoImageBuilder(
+            mode=ImageMode.MONOCULAR,
+            width=640, height=480, num_stars=150,
+            length=max_time * speed, speed=speed,
+            close_ratio=0.6, min_size=1, max_size=50, colour=True
+        )
+
+        subject = LibVisOMonoSystem(motion_threshold=1000)
+        subject.set_camera_intrinsics(image_builder.get_camera_intrinsics(), max_time / num_frames)
+
+        subject.start_trial(ImageSequenceType.SEQUENTIAL, seed=0)
+        for idx in range(num_frames):
+            time = max_time * idx / num_frames
+            image = image_builder.create_frame(time)
+            subject.process_image(image, time)
+        result = subject.finish_trial()
+
+        self.assertIsInstance(result, SLAMTrialResult)
+        self.assertEqual(subject, result.system)
+        self.assertTrue(result.success)
+        self.assertFalse(result.has_scale)
+        self.assertIsNotNone(result.run_time)
+        self.assertEqual({
+            'seed': 0,
+            'in_fx': image_builder.focal_length,
+            'in_fy': image_builder.focal_length,
+            'in_cu': image_builder.width / 2,
+            'in_cv': image_builder.height / 2,
+            'in_width': image_builder.width,
+            'in_height': image_builder.height
+        }, result.settings)
+        self.assertEqual(num_frames, len(result.results))
+
+        has_been_found = False
+        has_been_lost = False
+        for idx, frame_result in enumerate(result.results):
+            self.assertEqual(max_time * idx / num_frames, frame_result.timestamp)
+            self.assertIsNotNone(frame_result.pose)
+            self.assertIsNotNone(frame_result.motion)
+
+            # If we're lost, our tracking state should depend of if we've been lost before
+            is_first_frame = False
+            if frame_result.tracking_state != TrackingState.OK:
+                if has_been_found:
+                    has_been_lost = True
+                    self.assertEqual(frame_result.tracking_state, TrackingState.LOST)
+                else:
+                    self.assertEqual(frame_result.tracking_state, TrackingState.NOT_INITIALIZED)
+            elif has_been_found is False:
+                is_first_frame = True
+                has_been_found = True
+
+            # Motion should be none when we are lost, and on the first found frame
+            if is_first_frame or frame_result.tracking_state != TrackingState.OK:
+                self.assertIsNone(frame_result.estimated_motion)
+            else:
+                self.assertIsNotNone(frame_result.estimated_motion)
+
+            # Estimates will be none until we get a successful estimate, or after it has lost
+            if not has_been_found or has_been_lost:
+                self.assertIsNone(frame_result.estimated_pose)
+            else:
+                self.assertIsNotNone(frame_result.estimated_pose)
+        self.assertTrue(has_been_found)
