@@ -54,35 +54,40 @@ def update_frame_error_image_information(only_missing: bool = False, batch_size:
     logging.getLogger(__name__).info("Updating 'image_properties' for all FrameError objects ...")
     logging.getLogger(__name__).info("Loading set of referenced image IDs...")
     if only_missing:
-        image_ids = FrameError._mongometa.collection.find({'image_properties': {'$exists': False}}).distinct('image')
+        frame_errors = FrameError.objects.raw({
+            'image_properties': {'$exists': False}
+        }).only('image').values()
+        num_images = frame_errors.count()
     else:
-        image_ids = FrameError._mongometa.collection.distinct('image')
-
-    # Autoload the image type. Just in case.
-    logging.getLogger(__name__).info(f"Autoloading image types ({time.time() - start_time}s) ...")
-    autoload_modules(Image, ids=image_ids)
+        frame_errors = FrameError.objects.all().only('image').values()
+        num_images = frame_errors.count()
 
     # Work out how many batches to do. Images will be loaded in a batch to create a single bulk_write
-    logging.getLogger(__name__).info(f"Found {len(image_ids)} images, "
-                                     f"updating information {batch_size} images at a time "
+    logging.getLogger(__name__).info(f"Found {num_images} errors, "
+                                     f"updating information {batch_size} frame results at a time "
                                      f"({time.time() - start_time}s) ...")
     n_updated = 0
     updates_sent = 0
-    for batch_ids in grouper(image_ids, batch_size):
+    completed_ids = set()
+    for frame_error_objects in grouper(frame_errors, batch_size):
         # For each image, update all frame error objects that link to it
-        images = Image.objects.raw({'_id': {'$in': batch_ids}})
-        write_operations = [
-            UpdateMany(
-                {'image': image.pk},
-                {'$set': {'image_properties': {str(k): json_value(v) for k, v in image.get_properties().items()}}}
-            )
-            for image in images
-        ]
-        result = FrameError._mongometa.collection.bulk_write(write_operations, ordered=False)
-        n_updated += result.modified_count
-        updates_sent += len(write_operations)
-        logging.getLogger(__name__).info(f"Updates sent for {updates_sent} images, updating {n_updated} FrameErrors "
-                                         f"in {time.time() - start_time}s ...")
+        batch_ids = [error_obj['image'] for error_obj in frame_error_objects if error_obj['image'] not in completed_ids]
+        if len(batch_ids) > 0:
+            completed_ids = completed_ids | set(batch_ids)
+            images = Image.objects.raw({'_id': {'$in': batch_ids}})
+            write_operations = [
+                UpdateMany(
+                    {'image': image.pk},
+                    {'$set': {'image_properties': {str(k): json_value(v) for k, v in image.get_properties().items()}}}
+                )
+                for image in images
+            ]
+            result = FrameError._mongometa.collection.bulk_write(write_operations, ordered=False)
+            n_updated += result.modified_count
+            updates_sent += len(write_operations)
+            logging.getLogger(__name__).info(
+                f"Updates sent for {updates_sent} images, updating {n_updated} FrameErrors"
+                f" in {time.time() - start_time}s ...")
     logging.getLogger(__name__).info(f"Updated {n_updated} FrameError objects in {time.time() - start_time}s ")
 
 

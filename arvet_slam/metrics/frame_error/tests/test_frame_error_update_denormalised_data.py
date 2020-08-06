@@ -200,7 +200,7 @@ class TestUpdateFrameError(unittest.TestCase):
                 frame_error.save()
                 frame_errors.append(frame_error)
 
-        update_data.update_frame_error_image_information()
+        update_data.update_frame_error_image_information(only_missing=False, batch_size=5)
 
         # Check that the image properties have been updated
         for frame_error in frame_errors:
