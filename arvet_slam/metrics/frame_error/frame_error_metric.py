@@ -555,6 +555,9 @@ def compute_motions_scale(
     if not len(estimated_motions) == len(true_motions):
         # The two trajectories must consist of corresponding points
         raise RuntimeError(f"Cannot resolve together motions of different lengths, points must correspond")
+    if len(estimated_motions) <= 0 or len(true_motions) <= 0:
+        # No scale for emtpy motions
+        return 1.0
     # Choose an optimal scaling factor, without translation or rotation applied
     square_error = sum(
         np.dot(estimated_motion, true_motion)

@@ -1285,6 +1285,12 @@ class TestAlignTrajectoryToGroundTruth(ExtendedTestCase):
             q2 = -1 * np.asarray(q2)
         self.assertNPClose(q1, q2, msg=msg, rtol=rtol, atol=atol)
 
+    def test_no_trajectory(self):
+        shift, rotation, scale = align_trajectory_to_ground_truth([], [])
+        self.assertNPEqual((0, 0, 0), shift)
+        self.assertNPEqual((1, 0, 0, 0), rotation)
+        self.assertEqual(1.0, scale)
+
     def test_align_simple_offset(self):
         offset = np.array([15, 22, -1])
         points = [np.array([15 * idx - 3 * idx * idx, -22 * idx, 200 + 55 * idx - 5 * idx]) for idx in range(30)]
@@ -1478,6 +1484,12 @@ class TestRobustAlignTrajectoryToGroundTruth(ExtendedTestCase):
             q2 = -1 * np.asarray(q2)
         self.assertNPClose(q1, q2, msg=msg, rtol=rtol, atol=atol)
 
+    def test_no_trajectory(self):
+        shift, rotation, scale = robust_align_trajectory_to_ground_truth([], [])
+        self.assertNPEqual((0, 0, 0), shift)
+        self.assertNPEqual((1, 0, 0, 0), rotation)
+        self.assertEqual(1.0, scale)
+
     def test_align_simple_offset_with_outlier(self):
         outlier_idx = 7
         offset = np.array([15, 22, -1])
@@ -1606,6 +1618,10 @@ class TestRobustAlignTrajectoryToGroundTruth(ExtendedTestCase):
 
 class TestComputeMotionsScale(ExtendedTestCase):
 
+    def test_no_motions(self):
+        scale = compute_motions_scale([], [])
+        self.assertEqual(1.0, scale)
+
     def test_uniform_scale(self):
         true_scale = np.pi
         points = [Transform(location=[
@@ -1702,6 +1718,10 @@ class TestComputeMotionsScale(ExtendedTestCase):
 
 
 class TestRobustComputeMotionsScale(ExtendedTestCase):
+
+    def test_no_motions(self):
+        scale = robust_compute_motions_scale([], [])
+        self.assertEqual(1.0, scale)
 
     def test_uniform_scale(self):
         true_scale = np.pi
