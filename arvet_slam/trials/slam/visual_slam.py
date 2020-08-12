@@ -1,6 +1,7 @@
 # Copyright (c) 2017, John Skinner
 import typing
 from operator import attrgetter
+import bson
 import numpy as np
 import pymodm
 import pymodm.fields as fields
@@ -301,3 +302,18 @@ class SLAMTrialResult(TrialResult):
 
     def get_tracking_states(self) -> typing.Mapping[float, TrackingState]:
         return self.tracking_stats
+
+    @classmethod
+    def load_minimal(cls, object_id: bson.ObjectId) -> 'SLAMTrialResult':
+        """
+        Load a minimal SLAM trial result object, which lets us query information about the trial result,
+        as for is_trial_appropriate, but does not contain the full result data.
+        :param object_id: The database id of the trial result
+        :return: A partial SLAMTrialResult object.
+        """
+        return cls.objects.only(
+            'system',
+            'image_source',
+            'success',
+            'has_scale'
+        ).get({'_id': object_id})
