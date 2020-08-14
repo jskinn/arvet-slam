@@ -39,6 +39,7 @@ except ImportError:
 
 VOCABULARY_FOLDER = 'ORB-SLAM vocabularies'
 VOCABULARY_FILENAME_TEMPLATE = "ORBvoc-{0}.txt"
+_STARTED_MARKER = 'rdy'
 
 
 class SensorMode(enum.Enum):
@@ -253,6 +254,7 @@ class OrbSlam2(VisionSystem):
                                                             self.mode))
         self._child_process.daemon = True
         self._child_process.start()
+        logging.getLogger(__name__).info("Started subprocess, waiting for ready signal...")
         try:
             started = self._output_queue.get(block=True, timeout=self._expected_completion_timeout)
         except queue.Empty:
@@ -316,10 +318,15 @@ class OrbSlam2(VisionSystem):
 
         # Get the results from the subprocess
         timeout = (len(self._partial_frame_results) + 1) * self._expected_completion_timeout / 10
+        frame_statistics = None
         try:
-            frame_statistics = self._output_queue.get(
-                block=True, timeout=timeout
-            )
+            while frame_statistics is None or frame_statistics == _STARTED_MARKER:
+                # Keep getting from the queue until we get something other than the 'started' mark
+                frame_statistics = self._output_queue.get(
+                    block=True, timeout=timeout
+                )
+                if frame_statistics is not None:
+                    logging.getLogger(__name__).debug(f"Got result: {frame_statistics}")
         except queue.Empty:
             frame_statistics = None
 
@@ -924,8 +931,15 @@ def run_orbslam(output_queue, input_queue, vocab_file, settings_file, mode):
     logging.getLogger(__name__).info("Starting ORBSLAM2 in {0} mode...".format(mode.name.lower()))
 
     orbslam_system = System(str(vocab_file), str(settings_file), sensor_mode, bUseViewer=False)
-    output_queue.put('ORBSLAM started!')  # Tell the parent process we've set-up correctly and are ready to go.
-    logging.getLogger(__name__).info("ORBSLAM2 Ready.")
+    logging.getLogger(__name__).info("ORBSLAM2 ready, sending started marker...")
+
+    # Tell the parent process we've set-up correctly and are ready to go.
+    output_queue.put(_STARTED_MARKER)
+    while input_queue.empty():
+        # Haven't got the data for the first frame yet, wait
+        time.sleep(1)
+        output_queue.put(_STARTED_MARKER)
+    logging.getLogger(__name__).info("Got first frame, running ORB-SLAM..")
 
     frame_statistics = {}
     running = True
