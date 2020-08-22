@@ -1322,6 +1322,108 @@ class TestFrameErrorDatabase(unittest.TestCase):
         image_source.delete()
         image.delete()
 
+    def test_load_minimal_for_columns_loads_enough_for_each_column(self):
+        pixels = np.array([[1, 2, 3], [4, 5, 6], [7, 8, 9]])
+        depth = np.array([[22, 20, 21], [15, 14, 16], [18, 17, 19]])
+        image = Image(
+            pixels=pixels,
+            image_group='test',
+            metadata=make_metadata(
+                pixels,
+                depth=depth,
+                source_type=ImageSourceType.SYNTHETIC,
+                camera_pose=Transform(),
+                lens_focal_distance=223.4,
+                aperture=32.33,
+                simulation_world='generated',
+                texture_mipmap_bias=3,
+                normal_maps_enabled=False,
+                roughness_enabled=True,
+                geometry_decimation=14,
+                minimum_object_volume=23.33,
+                procedural_generation_seed=111998
+            )
+        )
+        image.save()
+
+        system = mock_types.MockSystem()
+        system.save()
+
+        image_source = mock_types.MockImageSource()
+        image_source.save()
+
+        frame_result = FrameResult(
+            timestamp=0.1,
+            image=image,
+            processing_time=0.023,
+            pose=Transform(),
+            motion=Transform(),
+            estimated_pose=Transform(),
+            estimated_motion=None,
+            tracking_state=TrackingState.OK,
+            num_features=23,
+            num_matches=12
+        )
+
+        trial_result = mock_types.MockTrialResult(system=system, image_source=image_source, success=True)
+        trial_result.save()
+
+        frame_error = make_frame_error(
+            trial_result=trial_result,
+            frame_result=frame_result,
+            image=image,
+            system=system,
+            repeat_index=1,
+            loop_distances=[],
+            loop_angles=[],
+            absolute_error=PoseError(
+                x=10,
+                y=11,
+                z=12,
+                length=np.sqrt(100 + 121 + 144),
+                direction=np.pi / 7,
+                rot=np.pi / 5
+            ),
+            relative_error=PoseError(
+                x=13,
+                y=14,
+                z=15,
+                length=np.sqrt(169 + 196 + 225),
+                direction=np.pi / 36,
+                rot=np.pi / 2
+            ),
+            noise=PoseError(
+                x=16,
+                y=17,
+                z=18,
+                length=np.sqrt(256 + 289 + 324),
+                direction=np.pi / 8,
+                rot=np.pi / 16
+            ),
+            systemic_error=PoseError(
+                x=19,
+                y=20,
+                z=21,
+                length=np.sqrt(19 * 19 + 400 + 21 * 21),
+                direction=np.pi / 27,
+                rot=np.pi / 19
+            )
+        )
+        frame_error.save()
+        all_columns = frame_error.get_columns()
+        for column in image.get_columns():
+            minimal_frame_errors = FrameError.load_minimal_for_columns([frame_error.pk], {column})
+            self.assertEqual(1, len(minimal_frame_errors))
+            minimal_frame_error = minimal_frame_errors[0]
+            self.assertEqual(frame_error.get_properties([column]), minimal_frame_error.get_properties([column]))
+            try:
+                other_properties = minimal_frame_error.get_properties(all_columns - {column})
+            except AttributeError:
+                # We couldn't get all the other properties because something didn't exist, which is intended
+                other_properties = None
+            if other_properties is not None:
+                self.assertNotEqual(frame_error.get_properties(all_columns - {column}), other_properties)
+
 
 # ------------------------- FRAME ERROR RESULT -------------------------
 
@@ -2104,3 +2206,150 @@ class TestFrameErrorResultDatabase(unittest.TestCase):
         self.assertEqual(0, CountedImage.instance_count)
         self.assertEqual(0, CountedTrialResult.instance_count)
         self.assertEqual(0, CountedMetric.instance_count)
+
+    def test_get_results_returns_requested_columns(self):
+        repeats = 3
+        subject = self.create_metric_result(repeats=repeats)
+        subject = subject[0]    # We only need the metric result
+
+        columns = {
+            'timestamp',
+            'processing_time',
+            'num_features',
+            'num_matches',
+            'min_loop_closure_angle',
+            'trans_error_length',
+            'rot_noise',
+            'image_group'
+        }
+        results = subject.get_results(columns=columns)
+
+        self.assertIsInstance(results, list)
+        self.assertEqual(repeats * len(self.images), len(results))
+        for result in results:
+            self.assertEqual(columns, set(result.keys()))
+
+    def test_get_results_returns_requested_columns_when_loaded_from_db(self):
+        repeats = 3
+        subject_id = self.create_metric_result(repeats=repeats)
+        frame_error_ids = {frame_error.pk for frame_error in subject_id[2]}
+        subject_id = subject_id[0].pk
+
+        columns = {
+            'timestamp',
+            'processing_time',
+            'num_features',
+            'num_matches',
+            'min_loop_closure_angle',
+            'trans_error_length',
+            'rot_noise',
+            'image_group'
+        }
+        subject = FrameErrorResult.objects.get({'_id': subject_id})
+        with mock.patch('arvet_slam.metrics.frame_error.frame_error_result.FrameError.load_minimal_for_columns',
+                        wraps=FrameError.load_minimal_for_columns) as mock_load_minimal:
+            results = subject.get_results(columns=columns)
+            # Check that FrameError.load_minimal_for_columns was called with all the frame error ids
+            self.assertTrue(mock_load_minimal.called)
+            self.assertEqual(frame_error_ids, set(mock_load_minimal.call_args[0][0]))
+            self.assertEqual(columns, mock_load_minimal.call_args[0][1])
+
+        self.assertIsInstance(results, list)
+        self.assertEqual(repeats * len(self.images), len(results))
+        for result in results:
+            self.assertEqual(columns, set(result.keys()))
+
+    def test_get_results_silently_skips_missing_frame_errors_when_loading(self):
+        repeats = 3
+        subject_id = self.create_metric_result(repeats=repeats)
+        frame_error_id = subject_id[2][0].pk
+        subject_id = subject_id[0].pk
+        FrameError.objects.get({'_id': frame_error_id}).delete()
+
+        columns = {
+            'timestamp',
+            'processing_time',
+            'num_features',
+            'num_matches',
+            'min_loop_closure_angle',
+            'trans_error_length',
+            'rot_noise',
+            'image_group'
+        }
+        subject = FrameErrorResult.objects.get({'_id': subject_id})
+        results = subject.get_results(columns=columns)
+
+        self.assertIsInstance(results, list)
+        self.assertEqual(repeats * len(self.images) - 1, len(results))
+        for result in results:
+            self.assertEqual(columns, set(result.keys()))
+
+    def create_metric_result(self, repeats=3):
+        trial_errors = []
+        all_frame_errors = []
+        for repeat in range(repeats):
+            frame_errors = []
+            for idx, image in enumerate(self.images):
+                true_pose = Transform(
+                    location=(3.5 * idx, 0.7 * idx, 0),
+                    rotation=tf3d.quaternions.axangle2quat((1, 2, 3), idx * np.pi / 12),
+                    w_first=True
+                )
+                est_pose = Transform(
+                    location=(3.7 * idx, 0.6 * idx, -0.01 * idx),
+                    rotation=tf3d.quaternions.axangle2quat((1, 2, 3), 1.1 * idx * np.pi / 12),
+                    w_first=True
+                )
+                true_motion = Transform(
+                    location=(3.5 * (idx - 1), 0.7 * (idx - 1), 0),
+                    rotation=tf3d.quaternions.axangle2quat((1, 2, 3), (idx - 1) * np.pi / 12),
+                    w_first=True
+                ).find_relative(true_pose)
+                est_motion = Transform(
+                    location=(3.7 * (idx - 1), 0.6 * (idx - 1), -0.01 * (idx - 1)),
+                    rotation=tf3d.quaternions.axangle2quat((1, 2, 3), 1.1 * (idx - 1) * np.pi / 12),
+                    w_first=True
+                ).find_relative(est_pose)
+                avg_pose = Transform(
+                    location=(3.6 * idx, 0.65 * idx, -0.015 * idx),
+                    rotation=tf3d.quaternions.axangle2quat((1, 2, 3), 1.1 * idx * np.pi / 12),
+                    w_first=True
+                )
+                frame_result = FrameResult(
+                    timestamp=1.3 * idx,
+                    image=image,
+                    processing_time=0.023,
+                    pose=true_pose,
+                    motion=true_motion,
+                    estimated_pose=est_pose,
+                    estimated_motion=est_motion,
+                    tracking_state=TrackingState.OK,
+                    num_features=23,
+                    num_matches=12
+                )
+                frame_error = make_frame_error(
+                    trial_result=self.trial_result,
+                    repeat_index=repeat,
+                    frame_result=frame_result,
+                    system=self.system,
+                    image=image,
+                    absolute_error=make_pose_error(est_pose, true_pose),
+                    relative_error=make_pose_error(est_motion, true_motion),
+                    noise=make_pose_error(est_pose, avg_pose),
+                    systemic_error=None,
+                    loop_distances=[0.223 * idx],
+                    loop_angles=[np.pi / 32 * idx]
+                )
+                frame_error.save()
+                frame_errors.append(frame_error)
+            trial_errors.append(TrialErrors(
+                frame_errors=frame_errors
+            ))
+            all_frame_errors.extend(frame_errors)
+        metric_result = make_frame_error_result(
+            metric=self.metric,
+            trial_results=[self.trial_result],
+            errors=trial_errors
+        )
+        metric_result.save()
+        return metric_result, trial_errors, all_frame_errors

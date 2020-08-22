@@ -152,6 +152,59 @@ class FrameError(pymodm.MongoModel):
         systemic_direction=lambda obj: obj.systemic_error.direction if obj.systemic_error is not None else np.nan,
         systemic_rot=lambda obj: obj.systemic_error.rot if obj.systemic_error is not None else np.nan,
     )
+    # For each of the columns listed above, get the properties necessary to retrieve that column.
+    # This lets us exclude all the other fields, and reduce query size
+    required_fields = dict(
+        repeat=('repeat',),
+        timestamp=('timestamp',),
+        tracking=('is_tracking',),
+        processing_time=('processing_time',),
+        motion_x=('motion',),
+        motion_y=('motion',),
+        motion_z=('motion',),
+        motion_roll=('motion',),
+        motion_pitch=('motion',),
+        motion_yaw=('motion',),
+        num_features=('num_features',),
+        num_matches=('num_matches',),
+
+        is_loop_closure=('loop_distances',),
+        num_loop_closures=('loop_distances',),
+        max_loop_closure_distance=('loop_distances',),
+        min_loop_closure_distance=('loop_distances',),
+        mean_loop_closure_distance=('loop_distances',),
+        max_loop_closure_angle=('loop_angles',),
+        min_loop_closure_angle=('loop_angles',),
+        mean_loop_closure_angle=('loop_angles',),
+
+        abs_error_x=('absolute_error',),
+        abs_error_y=('absolute_error',),
+        abs_error_z=('absolute_error',),
+        abs_error_length=('absolute_error',),
+        abs_error_direction=('absolute_error',),
+        abs_rot_error=('absolute_error',),
+
+        trans_error_x=('relative_error',),
+        trans_error_y=('relative_error',),
+        trans_error_z=('relative_error',),
+        trans_error_length=('relative_error',),
+        trans_error_direction=('relative_error',),
+        rot_error=('relative_error',),
+
+        trans_noise_x=('noise',),
+        trans_noise_y=('noise',),
+        trans_noise_z=('noise',),
+        trans_noise_length=('noise',),
+        trans_noise_direction=('noise',),
+        rot_noise=('noise',),
+
+        systemic_x=('systemic_error',),
+        systemic_y=('systemic_error',),
+        systemic_z=('systemic_error',),
+        systemic_length=('systemic_error',),
+        systemic_direction=('systemic_error',),
+        systemic_rot=('systemic_error',),
+    )
 
     @property
     def is_tracking(self) -> bool:
@@ -196,6 +249,43 @@ class FrameError(pymodm.MongoModel):
             **system_properties,
             **error_properties
         }
+
+    @classmethod
+    def load_minimal_for_columns(
+            cls,
+            error_ids: typing.Iterable[bson.ObjectId],
+            columns: typing.Iterable[str] = None
+    ) -> typing.List['FrameError']:
+        """
+        Given a set of FrameError ids, load the FrameError objects.
+        If we have a set of columns as well (we will),
+        load only partial objects that have just enough data to compute the requested columns.
+        Completes the loading in this method with the list call -- does not return a queryset.
+
+        :param error_ids: The list of error ids to load
+        :param columns: The columns, from which we derive the set of FrameError properties to load
+        :return: A list of
+        """
+        queryset = cls.objects.raw({'_id': {'$in': list(error_ids)}})
+        if columns is not None:
+            # Limit to only the fields necessary to compute the columns we're interested in
+            columns = set(columns)
+            fields_to_include = {
+                field
+                for column in columns
+                if column in cls.required_fields
+                for field in cls.required_fields[column]
+            }
+            # If the column is not in image_properties or system_properties, it will not be included
+            fields_to_include.update(
+                template.format(column)
+                for template in ('image_properties.{0}', 'system_properties.{0}')
+                for column in columns - set(cls.required_fields.keys())
+            )
+            if len(fields_to_include) > 0:
+                queryset = queryset.only(*fields_to_include)
+        # Run the query
+        return list(queryset)
 
 
 def make_frame_error(
@@ -413,18 +503,56 @@ class FrameErrorResult(MetricResult):
             if func_name + '_' + col_name in columns
         ]
 
+        # Batch load all the frame errors
+        frame_errors = self._batch_load_frame_errors(columns)
+
+        # Go through the frame errors, and get the results that we want.
         results = []
-        for trial_errors in self.errors:
+        for trial_errors, trial_frame_errors in zip(self.errors, frame_errors):
             # Compute the values of certain columns available from this result
             for column, func, attribute in columns_to_compute:
                 data = getattr(trial_errors, attribute)
                 other_properties[column] = func(data) if len(data) > 0 else np.nan
 
-            results.extend([
+            results.extend(
                 frame_error.get_properties(columns, other_properties)
-                for frame_error in trial_errors.frame_errors
-            ])
+                for frame_error in trial_frame_errors
+            )
         return results
+
+    def _batch_load_frame_errors(self, columns: typing.Iterable[str] = None) -> \
+            typing.Iterable[typing.Iterable[FrameError]]:
+        """
+        Load all the frame errors for this
+        :param columns: The columns we're trying to get from the frame errors, for minimal objects.
+        :return: A list of lists of FrameErrors, corresponding to the trial_errors objects
+        """
+        # Copy out the frame error objects or ids without loading missing objects
+        with no_auto_dereference(TrialErrors), no_auto_dereference(type(self)):
+            frame_errors = [
+                [frame_error_id for frame_error_id in trial_errors.frame_errors]
+                for trial_errors in self.errors
+            ]
+        missing_error_ids = [
+            frame_error_id
+            for frame_error_group in frame_errors
+            for frame_error_id in frame_error_group
+            if isinstance(frame_error_id, bson.ObjectId)
+        ]
+        if len(missing_error_ids) > 0:
+            # Load any frame errors that were missing from the list
+            loaded_frame_errors = FrameError.load_minimal_for_columns(missing_error_ids, columns)
+            # Replace ids in the frame errors map with the corresponding objects
+            loaded_frame_errors = {frame_error.pk: frame_error for frame_error in loaded_frame_errors}
+            frame_errors = [
+                [
+                    frame_error if isinstance(frame_error, FrameError) else loaded_frame_errors[frame_error]
+                    for frame_error in frame_error_group
+                    if isinstance(frame_error, FrameError) or frame_error in loaded_frame_errors
+                ]
+                for frame_error_group in frame_errors
+            ]
+        return frame_errors
 
 
 def make_frame_error_result(
