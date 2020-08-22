@@ -55,6 +55,7 @@ class TestEuRoCLoaderIntegration(unittest.TestCase):
         # Make sure we got the camera poses and image data
         with image_manager.get().get_group(result.get_image_group()):
             for timestamp, image in result:
+                self.assertIsInstance(image, StereoImage)
                 self.assertIsNotNone(image.pixels)
                 self.assertIsNotNone(image.right_pixels)
                 self.assertIsNotNone(image.camera_pose)
