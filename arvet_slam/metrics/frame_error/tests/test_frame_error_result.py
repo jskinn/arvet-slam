@@ -8,7 +8,7 @@ import transforms3d as tf3d
 
 import arvet.database.tests.database_connection as dbconn
 import arvet.database.image_manager as image_manager
-from arvet.util.transform import Transform
+from arvet.util.transform import Transform, quat_angle
 from arvet.metadata.image_metadata import make_metadata, ImageSourceType
 import arvet.core.tests.mock_types as mock_types
 from arvet.core.image import Image
@@ -328,9 +328,11 @@ class TestFrameError(unittest.TestCase):
             'motion_x': self.motion.x,
             'motion_y': self.motion.y,
             'motion_z': self.motion.z,
+            'motion_length': np.linalg.norm(self.motion.location),
             'motion_roll': self.motion.euler[0],
             'motion_pitch': self.motion.euler[1],
             'motion_yaw': self.motion.euler[2],
+            'motion_rotation': quat_angle(self.motion.rotation_quat(True)),
             'num_features': self.num_features,
             'num_matches': self.num_matches,
 
@@ -608,9 +610,11 @@ class TestFrameError(unittest.TestCase):
             'motion_x': self.motion.x,
             'motion_y': self.motion.y,
             'motion_z': self.motion.z,
+            'motion_length': np.linalg.norm(self.motion.location),
             'motion_roll': self.motion.euler[0],
             'motion_pitch': self.motion.euler[1],
             'motion_yaw': self.motion.euler[2],
+            'motion_rotation': quat_angle(self.motion.rotation_quat(True)),
             'num_features': self.num_features,
             'num_matches': self.num_matches,
 

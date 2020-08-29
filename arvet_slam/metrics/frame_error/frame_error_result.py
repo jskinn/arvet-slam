@@ -109,9 +109,11 @@ class FrameError(pymodm.MongoModel):
         motion_x=attrgetter('motion.x'),
         motion_y=attrgetter('motion.y'),
         motion_z=attrgetter('motion.z'),
+        motion_length=lambda obj: np.linalg.norm(obj.motion.location),
         motion_roll=lambda obj: obj.motion.euler[0],
         motion_pitch=lambda obj: obj.motion.euler[1],
         motion_yaw=lambda obj: obj.motion.euler[2],
+        motion_rotation=lambda obj: tf.quat_angle(obj.motion.rotation_quat(True)),
         num_features=attrgetter('num_features'),
         num_matches=attrgetter('num_matches'),
 
@@ -162,9 +164,11 @@ class FrameError(pymodm.MongoModel):
         motion_x=('motion',),
         motion_y=('motion',),
         motion_z=('motion',),
+        motion_length=('motion',),
         motion_roll=('motion',),
         motion_pitch=('motion',),
         motion_yaw=('motion',),
+        motion_rotation=('motion',),
         num_features=('num_features',),
         num_matches=('num_matches',),
 
