@@ -30,7 +30,29 @@ def verify_sequence(image_collection: ImageCollection, root_folder: Path) -> boo
             logging.getLogger(__name__).info(f"Extracting sequence from {sequence_tarfile}")
             delete_when_done = sequence_folder
             with tarfile.open(sequence_tarfile) as tar_fp:
-                tar_fp.extractall(sequence_folder)
+                
+                import os
+                
+                def is_within_directory(directory, target):
+                    
+                    abs_directory = os.path.abspath(directory)
+                    abs_target = os.path.abspath(target)
+                
+                    prefix = os.path.commonprefix([abs_directory, abs_target])
+                    
+                    return prefix == abs_directory
+                
+                def safe_extract(tar, path=".", members=None, *, numeric_owner=False):
+                
+                    for member in tar.getmembers():
+                        member_path = os.path.join(path, member.name)
+                        if not is_within_directory(path, member_path):
+                            raise Exception("Attempted Path Traversal in Tar File")
+                
+                    tar.extractall(path, members, numeric_owner=numeric_owner) 
+                    
+                
+                safe_extract(tar_fp, sequence_folder)
         else:
             # Could find neither a dir nor a tarfile to extract from
             raise NotADirectoryError(f"Neither {sequence_folder} nor {sequence_tarfile} exists for us to extract")
